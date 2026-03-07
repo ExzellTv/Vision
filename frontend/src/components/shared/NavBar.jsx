@@ -6,7 +6,12 @@ const NAV_LINKS = [
   {
     label: "Projects",
     path: "/develop",
-    match: ["/develop", "/edit", "/feasibility", "/schedule"],
+    match: ["/develop", "/edit", "/schedule"],
+  },
+  {
+    label: "Analysis",
+    path: "/feasibility",
+    match: ["/feasibility"],
   },
   {
     label: "Intelligence",
