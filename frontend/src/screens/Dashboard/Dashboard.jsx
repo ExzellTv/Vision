@@ -1,8 +1,32 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
-import { projectsApi } from "../../services/api";
+
+function Sparkline({ data, color }) {
+  const w = 80, h = 32;
+  const max = Math.max(...data), min = Math.min(...data);
+  const range = max - min || 1;
+  const pts = data
+    .map((v, i) => {
+      const x = (i / (data.length - 1)) * w;
+      const y = h - ((v - min) / range) * (h - 8) - 4;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  return (
+    <svg width={w} height={h} style={{ display: "block" }}>
+      <polyline
+        points={pts}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
 
 function NetworkPattern() {
   return (
@@ -125,32 +149,43 @@ const MODULES = [
   },
 ];
 
-function timeAgo(dateStr) {
-  if (!dateStr) return "—";
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString();
-}
+const RECENT = [
+  {
+    name: "Oak Lawn Residential Hub",
+    time: "2h ago",
+    acres: 4.2,
+    cost: 142,
+    score: 94,
+    scoreColor: colors.accent,
+    data: [60, 72, 65, 80, 75, 88, 94],
+    path: "/feasibility",
+  },
+  {
+    name: "Victory Park Mixed-Use",
+    time: "1d ago",
+    acres: 1.8,
+    cost: 210,
+    score: 82,
+    scoreColor: colors.accent,
+    data: [70, 68, 75, 72, 80, 79, 82],
+    path: "/feasibility",
+  },
+  {
+    name: "Deep Ellum Warehouse",
+    time: "3d ago",
+    acres: 0.9,
+    cost: 95,
+    score: 41,
+    scoreColor: colors.textDim,
+    data: [65, 60, 55, 50, 48, 44, 41],
+    path: "/feasibility",
+  },
+];
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { setProjectName, setGenerateParams, resetProject } = useProject();
   const [showModal, setShowModal] = useState(false);
-  const [recentProjects, setRecentProjects] = useState([]);
-  const [projectsLoading, setProjectsLoading] = useState(true);
-
-  useEffect(() => {
-    projectsApi.list()
-      .then((data) => setRecentProjects(data || []))
-      .catch(() => setRecentProjects([]))
-      .finally(() => setProjectsLoading(false));
-  }, []);
 
   const handleGenerate = (params) => {
     resetProject();
@@ -312,19 +347,9 @@ export default function Dashboard() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {projectsLoading ? (
-            <div style={{ padding: "20px", textAlign: "center", color: colors.textDim, fontSize: 12, fontFamily: fonts.data }}>
-              Loading projects...
-            </div>
-          ) : recentProjects.length === 0 ? (
-            <div style={{ padding: "20px", textAlign: "center", color: colors.textDim, fontSize: 12, fontFamily: fonts.data }}>
-              No projects yet — create one to get started.
-            </div>
-          ) : (
-            recentProjects.map((p) => (
-              <RecentRow key={p.id} project={p} navigate={navigate} />
-            ))
-          )}
+          {RECENT.map((p, i) => (
+            <RecentRow key={i} project={p} navigate={navigate} />
+          ))}
         </div>
       </div>
 
@@ -778,16 +803,9 @@ function NewProjectModal({ onClose, onGenerate }) {
 }
 
 function RecentRow({ project: p, navigate }) {
-  const params = p.generate_params || {};
-  const sf = params.targetSF ? params.targetSF.toLocaleString() : null;
-  const beds = params.bedrooms ?? null;
-  const baths = params.bathrooms ?? null;
-  const stories = params.stories ?? null;
-  const updated = timeAgo(p.updated_at);
-
   return (
     <div
-      onClick={() => navigate("/develop", { state: { projectId: p.id } })}
+      onClick={() => navigate(p.path)}
       onMouseEnter={(e) => (e.currentTarget.style.background = colors.surfaceHover)}
       onMouseLeave={(e) => (e.currentTarget.style.background = colors.cardSurface)}
       style={{
@@ -833,73 +851,68 @@ function RecentRow({ project: p, navigate }) {
             fontWeight: 600,
             color: colors.textBright,
             marginBottom: 3,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
           }}
         >
           {p.name}
         </div>
         <div style={{ fontSize: 11, color: colors.textDim, fontFamily: fonts.data }}>
-          Updated {updated}{beds !== null ? ` • ${beds}BD / ${baths}BA` : ""}
+          Analyzed {p.time} • {p.acres} Acres
         </div>
       </div>
 
-      {/* SF */}
-      {sf && (
-        <div style={{ textAlign: "right", marginRight: 8, flexShrink: 0 }}>
-          <div
-            style={{
-              fontSize: 15,
-              fontWeight: 700,
-              color: colors.textBright,
-              fontFamily: fonts.data,
-            }}
-          >
-            {sf}
-          </div>
-          <div
-            style={{
-              fontSize: 9,
-              color: colors.textDim,
-              letterSpacing: "0.6px",
-              textTransform: "uppercase",
-            }}
-          >
-            Sq Ft
-          </div>
+      {/* Cost */}
+      <div style={{ textAlign: "right", marginRight: 8, flexShrink: 0 }}>
+        <div
+          style={{
+            fontSize: 15,
+            fontWeight: 700,
+            color: colors.textBright,
+            fontFamily: fonts.data,
+          }}
+        >
+          ${p.cost}/SF
         </div>
-      )}
-
-      {/* Stories */}
-      {stories !== null && (
-        <div style={{ textAlign: "center", flexShrink: 0, minWidth: 36 }}>
-          <div
-            style={{
-              fontSize: 20,
-              fontWeight: 700,
-              color: colors.accent,
-              fontFamily: fonts.data,
-              lineHeight: 1,
-            }}
-          >
-            {stories}
-          </div>
-          <div
-            style={{
-              fontSize: 9,
-              color: colors.textDim,
-              letterSpacing: "0.6px",
-              textTransform: "uppercase",
-            }}
-          >
-            {stories === 1 ? "Story" : "Stories"}
-          </div>
+        <div
+          style={{
+            fontSize: 9,
+            color: colors.textDim,
+            letterSpacing: "0.6px",
+            textTransform: "uppercase",
+          }}
+        >
+          Est. Acq. Cost
         </div>
-      )}
+      </div>
 
-      {/* Arrow */}
-      <div style={{ flexShrink: 0, color: colors.textDim, fontSize: 16 }}>›</div>
+      {/* Score */}
+      <div style={{ textAlign: "center", flexShrink: 0, minWidth: 44 }}>
+        <div
+          style={{
+            fontSize: 22,
+            fontWeight: 700,
+            color: p.scoreColor,
+            fontFamily: fonts.data,
+            lineHeight: 1,
+          }}
+        >
+          {p.score}
+        </div>
+        <div
+          style={{
+            fontSize: 9,
+            color: colors.textDim,
+            letterSpacing: "0.6px",
+            textTransform: "uppercase",
+          }}
+        >
+          Score
+        </div>
+      </div>
+
+      {/* Sparkline */}
+      <div style={{ flexShrink: 0 }}>
+        <Sparkline data={p.data} color={p.scoreColor} />
+      </div>
     </div>
   );
 }
