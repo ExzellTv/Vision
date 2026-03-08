@@ -64,7 +64,11 @@ export default function LeafletMap({
   onLandSelect,
   radius,
   onRadiusChange,
+  radiusEnabled,
+  onRadiusEnabledChange,
   nearbyComps,
+  comps,
+  land,
 }) {
   const mapRef = useRef(null);
 
@@ -80,7 +84,10 @@ export default function LeafletMap({
     onLocChange,
     onLandSelect,
     nearbyComps,
+    comps,
+    land,
     radius,
+    radiusEnabled,
     showComps,
     showZoning,
     showLand,
@@ -190,7 +197,7 @@ export default function LeafletMap({
         </button>
       </div>
 
-      {/* ── Radius slider — bottom-right ── */}
+      {/* ── Radius slider + toggle — bottom-right ── */}
       <div style={{
         position:       "absolute",
         bottom:         20,
@@ -202,28 +209,71 @@ export default function LeafletMap({
         border:         `1px solid ${colors.cardBorder}`,
         borderRadius:   radii.md,
         padding:        "8px 12px",
-        width:          148,
+        width:          168,
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+        {/* Toggle row */}
+        <div style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          marginBottom: 6,
+        }}>
           <span style={{
             fontSize: 9, color: colors.textDim, fontWeight: 700,
             letterSpacing: "0.8px", fontFamily: fonts.label, textTransform: "uppercase",
           }}>
             Radius
           </span>
+          <button
+            onClick={() => onRadiusEnabledChange(!radiusEnabled)}
+            style={{
+              display:      "flex",
+              alignItems:   "center",
+              gap:          4,
+              padding:      "2px 7px",
+              borderRadius: radii.sm,
+              border:       `1px solid ${radiusEnabled ? colors.accent : colors.cardBorder}`,
+              background:   radiusEnabled ? `${colors.accent}18` : "transparent",
+              color:        radiusEnabled ? colors.accent : colors.textDim,
+              fontSize:     8,
+              fontWeight:   700,
+              fontFamily:   fonts.label,
+              cursor:       "pointer",
+              letterSpacing: "0.6px",
+              textTransform: "uppercase",
+              transition:   "all 0.15s ease",
+            }}
+          >
+            {radiusEnabled ? "ON" : "OFF"}
+          </button>
+        </div>
+
+        {/* Value display */}
+        <div style={{
+          display: "flex", justifyContent: "space-between", marginBottom: 4,
+        }}>
           <span style={{
-            fontSize: 10, color: colors.accent, fontWeight: 700,
-            fontFamily: fonts.data,
+            fontSize: 10, color: radiusEnabled ? colors.accent : colors.textDim,
+            fontWeight: 700, fontFamily: fonts.data,
+            transition: "color 0.15s ease",
           }}>
-            {radius.toFixed(1)} mi
+            {radiusEnabled ? `${radius.toFixed(1)} mi` : "All comps"}
           </span>
         </div>
+
+        {/* Slider — disabled when radius is off */}
         <input
           type="range"
           min={0.1} max={2} step={0.1}
           value={radius}
+          disabled={!radiusEnabled}
           onChange={(e) => onRadiusChange(parseFloat(e.target.value))}
-          style={{ width: "100%", accentColor: colors.accent, cursor: "pointer", margin: 0 }}
+          style={{
+            width: "100%",
+            accentColor: radiusEnabled ? colors.accent : colors.cardBorder,
+            cursor: radiusEnabled ? "pointer" : "not-allowed",
+            margin: 0,
+            opacity: radiusEnabled ? 1 : 0.4,
+            transition: "opacity 0.15s ease",
+          }}
         />
       </div>
 

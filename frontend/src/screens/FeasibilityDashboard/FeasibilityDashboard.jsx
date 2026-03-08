@@ -1,13 +1,13 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import FeasibilityGauge from "../../components/shared/FeasibilityGauge";
-import ModeToggle from "../../components/shared/ModeToggle";
 import StatusBadge from "../../components/shared/StatusBadge";
 import DisclaimerBanner from "../../components/shared/DisclaimerBanner";
 import LeafletMap from "./LeafletMap";
 import { computeNearbyComps, runValuation, getZone, fmtK, fmtUSD } from "./valuationEngine";
-import { DALLAS_COMPS, ZONING_DISTRICTS } from "./mapData";
+import { ZONING_DISTRICTS } from "./mapData";
+import { mapApi } from "../../services/api";
 
 /* ── Hardcoded Dallas fixture data (shown when no location is selected) ── */
 const DEMO = {
@@ -90,12 +90,37 @@ function MonteCarloHistogram({ bars }) {
 /* ── Main screen ─────────────────────────────────────────────────────────── */
 export default function FeasibilityDashboard() {
   const project = useProject();
-  const [mode, setMode] = useState("developer");
+
+  // ── Live MongoDB data — starts empty, filled on mount from API ──
+  const [liveComps, setLiveComps] = useState([]);
+  const [liveLand,  setLiveLand]  = useState([]);
+  const [marketStats, setMarketStats] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      mapApi.getComparables(),
+      mapApi.getLandListings(),
+      mapApi.getMarketStats(),
+    ])
+      .then(([comps, land, stats]) => {
+        if (cancelled) return;
+        console.info(`[FeasibilityDashboard] MongoDB data loaded: ${comps?.length ?? 0} comps, ${land?.length ?? 0} land listings`);
+        if (comps?.length)  setLiveComps(comps);
+        if (land?.length)   setLiveLand(land);
+        if (stats)          setMarketStats(stats);
+      })
+      .catch((err) => {
+        console.warn('[FeasibilityDashboard] MongoDB fetch failed — map will be empty:', err?.message || err);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Map / analysis state ──────────────────────────────────────────────
   const [loc,     setLoc]     = useState(null);  // pinned map location
   const [selLand, setSelLand] = useState(null);  // selected vacant land parcel
   const [radius,  setRadius]  = useState(0.75);  // comp search radius (miles)
+  const [radiusEnabled, setRadiusEnabled] = useState(true); // radius toggle
 
   // ── Project-derived subject-property specs ────────────────────────────
   const totalSF     = project.totalSF || 2200;
@@ -109,8 +134,8 @@ export default function FeasibilityDashboard() {
 
   // ── Derived analysis values ───────────────────────────────────────────
   const nearbyComps = useMemo(
-    () => computeNearbyComps(loc, radius, DALLAS_COMPS),
-    [loc, radius]
+    () => computeNearbyComps(loc, radius, liveComps, radiusEnabled),
+    [loc, radius, liveComps, radiusEnabled]
   );
 
   const valuation = useMemo(
@@ -165,64 +190,12 @@ export default function FeasibilityDashboard() {
           onLandSelect={setSelLand}
           radius={radius}
           onRadiusChange={setRadius}
+          radiusEnabled={radiusEnabled}
+          onRadiusEnabledChange={setRadiusEnabled}
           nearbyComps={nearbyComps}
+          comps={liveComps}
+          land={liveLand}
         />
-
-        {/* ── Search / address bar (z-index 800 — above all Leaflet layers) ── */}
-        <div style={{
-          position: "absolute", top: 16, left: 16, right: 16,
-          display: "flex", gap: 8, zIndex: 800,
-        }}>
-          <div style={{
-            flex: 1, display: "flex", alignItems: "center", gap: 8,
-            background:   colors.cardSurface,
-            border:       `1px solid ${colors.cardBorder}`,
-            borderRadius: radii.md,
-            padding:      "8px 12px",
-          }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                 stroke={colors.textDim} strokeWidth="2">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <span style={{ fontFamily: fonts.label, fontSize: 13, color: colors.textDim }}>
-              {selLand?.address || DEMO.address}
-            </span>
-          </div>
-          <button style={{
-            width: 38, height: 38, display: "flex",
-            alignItems: "center", justifyContent: "center",
-            background: colors.cardSurface,
-            border:     `1px solid ${colors.cardBorder}`,
-            borderRadius: radii.md,
-            cursor: "pointer", color: colors.textDim,
-          }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                 stroke="currentColor" strokeWidth="2">
-              <line x1="4"  y1="6"  x2="20" y2="6"  />
-              <line x1="8"  y1="12" x2="16" y2="12" />
-              <line x1="11" y1="18" x2="13" y2="18" />
-            </svg>
-          </button>
-        </div>
-
-        {/* ── Radius filter chip ── */}
-        <div style={{
-          position: "absolute", top: 62, left: 16,
-          display: "flex", gap: 6, zIndex: 800,
-        }}>
-          <span style={{
-            display: "inline-flex", alignItems: "center", gap: 4,
-            padding: "3px 10px",
-            background:   colors.accentDim,
-            border:       `1px solid ${colors.accent}`,
-            borderRadius: 999,
-            fontFamily: fonts.label, fontSize: 11,
-            color: colors.accent, fontWeight: 600,
-          }}>
-            {radius.toFixed(1)} mi radius
-          </span>
-        </div>
 
         {/* ── Parcel info card (bottom-left, above Leaflet) ── */}
         <div style={{
@@ -295,6 +268,27 @@ export default function FeasibilityDashboard() {
             )}
           </div>
 
+          {selLand?.url && (
+            <a
+              href={selLand.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display:      "block",
+                padding:      "7px 0",
+                background:   colors.accent,
+                borderRadius: radii.md,
+                color:        "#fff",
+                fontFamily:   fonts.label, fontSize: 12, fontWeight: 600,
+                cursor:       "pointer", textAlign: "center",
+                textDecoration: "none",
+                marginBottom: 6,
+              }}
+            >
+              View Listing ↗
+            </a>
+          )}
+
           <button style={{
             padding:      "7px 0",
             background:   "transparent",
@@ -360,25 +354,13 @@ export default function FeasibilityDashboard() {
         {/* ── Sub-scores ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", gap: 12 }}>
-            <SubScoreBar label="Profitability"   level="High" color={colors.success}   />
-            <SubScoreBar label="Market Strength" level="Med"  color={colors.warn}      />
+            <SubScoreBar label="Profitability"   level={valuation ? valuation.profitabilityLevel : "High"}  color={valuation ? (valuation.profitabilityLevel === "High" ? colors.success : valuation.profitabilityLevel === "Med" ? colors.warn : colors.danger) : colors.success} />
+            <SubScoreBar label="Market Strength" level={valuation ? valuation.marketStrengthLevel : "Med"} color={valuation ? (valuation.marketStrengthLevel === "High" ? colors.success : valuation.marketStrengthLevel === "Med" ? colors.warn : colors.danger) : colors.warn} />
           </div>
           <div style={{ display: "flex", gap: 12 }}>
-            <SubScoreBar label="Risk Profile"   level="Low"  color={colors.secondary} />
-            <SubScoreBar label="Infrastructure" level="High" color={colors.success}   />
+            <SubScoreBar label="Risk Profile"   level={valuation ? valuation.riskLevel : "Low"}           color={valuation ? (valuation.riskLevel === "Low" ? colors.secondary : valuation.riskLevel === "Med" ? colors.warn : colors.danger) : colors.secondary} />
+            <SubScoreBar label="Infrastructure" level={valuation ? valuation.infrastructureLevel : "High"} color={valuation ? (valuation.infrastructureLevel === "High" ? colors.success : valuation.infrastructureLevel === "Med" ? colors.warn : colors.danger) : colors.success} />
           </div>
-        </div>
-
-        {/* ── Mode Toggle ── */}
-        <div style={{ display: "flex", justifyContent: "center" }}>
-          <ModeToggle
-            options={[
-              { value: "developer", label: "Developer Mode" },
-              { value: "investor",  label: "Investor Mode"  },
-            ]}
-            active={mode}
-            onChange={setMode}
-          />
         </div>
 
         {/* ── Financial Estimates ── */}
@@ -405,28 +387,54 @@ export default function FeasibilityDashboard() {
                 LIVE · {nearbyComps.length} COMPS
               </span>
             )}
+            {!valuation && marketStats && (
+              <span style={{
+                marginLeft: "auto", fontSize: 9, fontWeight: 700,
+                padding: "2px 7px", borderRadius: radii.sm,
+                background: "rgba(46,213,115,0.12)", color: colors.success,
+                fontFamily: fonts.data, letterSpacing: "0.6px",
+              }}>
+                DB · {marketStats.comparables?.count || 0} COMPS · {marketStats.land?.count || 0} LAND
+              </span>
+            )}
           </div>
 
           {/* Land Acquisition — only when a parcel is selected */}
           {selLand && (
-            <div style={{
-              display: "flex", justifyContent: "space-between",
-              alignItems: "baseline", marginBottom: 12,
-            }}>
-              <div>
-                <div style={{ fontFamily: fonts.label, fontSize: 12, color: colors.textDim }}>
-                  Land Acquisition
-                </div>
-                <div style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim }}>
-                  {selLand.lot_sf.toLocaleString()} SF · {selLand.zoning}
-                </div>
-              </div>
-              <span style={{
-                fontFamily: fonts.data, fontSize: 18, fontWeight: 700,
-                color: colors.textBright,
+            <div style={{ marginBottom: 12 }}>
+              <div style={{
+                display: "flex", justifyContent: "space-between",
+                alignItems: "baseline",
               }}>
-                {fmtUSD(selLand.price)}
-              </span>
+                <div>
+                  <div style={{ fontFamily: fonts.label, fontSize: 12, color: colors.textDim }}>
+                    Land Acquisition
+                  </div>
+                  <div style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim }}>
+                    {selLand.lot_sf.toLocaleString()} SF · {selLand.zoning}
+                  </div>
+                </div>
+                <span style={{
+                  fontFamily: fonts.data, fontSize: 18, fontWeight: 700,
+                  color: colors.textBright,
+                }}>
+                  {fmtUSD(selLand.price)}
+                </span>
+              </div>
+              {selLand.url && (
+                <a
+                  href={selLand.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-block", marginTop: 4,
+                    fontFamily: fonts.label, fontSize: 10, fontWeight: 600,
+                    color: colors.accent, textDecoration: "none",
+                  }}
+                >
+                  View Listing ↗
+                </a>
+              )}
             </div>
           )}
 
