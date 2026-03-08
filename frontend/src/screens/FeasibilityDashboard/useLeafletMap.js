@@ -13,7 +13,6 @@ import { useRef, useEffect } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { colors } from "../../theme/tokens";
-import { haversine } from "./valuationEngine";
 
 // ── Tile providers ────────────────────────────────────────────────────────
 const TILE_ATTRIBUTION =
@@ -156,21 +155,19 @@ export function useLeafletMap({
     markersL.current.clearLayers();
     if (!showComps) return;
 
-    // Always render ALL comps on the map. When a location is pinned,
-    // nearby comps render at full opacity; out-of-radius comps dim.
-    const nearbySet = loc ? new Set(nearbyComps.map((c) => c.id)) : null;
+    // When a location is pinned AND radius is enabled, render ONLY the
+    // nearby (radius-filtered) comps. Otherwise show every comp.
+    const compsToRender = (loc && radiusEnabled) ? nearbyComps : allComps;
 
-    allComps.forEach((c) => {
+    compsToRender.forEach((c) => {
       if (c.lat == null || c.lng == null) return;
-      const isNearby = !nearbySet || nearbySet.has(c.id);
-      const opacity  = isNearby ? 1 : 0.35;
       const col = compColor(c.price_per_sf);
       const m   = L.marker([c.lat, c.lng], {
         icon: L.divIcon({
           className: "",
           iconSize:   [22, 22],
           iconAnchor: [11, 11],
-          html: `<div style="width:22px;height:22px;display:flex;align-items:center;justify-content:center;opacity:${opacity}">
+          html: `<div style="width:22px;height:22px;display:flex;align-items:center;justify-content:center">
             <div style="width:10px;height:10px;background:${col};border:2px solid #1a2233;border-radius:50%"></div>
           </div>`,
         }),
@@ -196,7 +193,7 @@ export function useLeafletMap({
       );
       m.addTo(markersL.current);
     });
-  }, [nearbyComps, allComps, showComps, loc]);
+  }, [nearbyComps, allComps, showComps, loc, radiusEnabled]);
 
   // ── Effect 5: Land parcel markers ────────────────────────────────────
   useEffect(() => {
