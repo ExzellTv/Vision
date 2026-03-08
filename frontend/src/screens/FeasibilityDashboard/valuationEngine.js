@@ -59,17 +59,18 @@ export function getZone(lat, lng, zoningDistricts) {
 
 /**
  * Filter and sort comparable sales within `radius` miles of `loc`.
+ * When `radiusEnabled` is false, returns ALL comps sorted by distance.
  * Returns an empty array when loc is null.
  */
-export function computeNearbyComps(loc, radius, comps) {
+export function computeNearbyComps(loc, radius, comps, radiusEnabled = true) {
   if (!loc) return [];
-  return comps
-    .filter((c) => haversine(loc.lat, loc.lng, c.lat, c.lng) <= radius)
-    .sort(
-      (a, b) =>
-        haversine(loc.lat, loc.lng, a.lat, a.lng) -
-        haversine(loc.lat, loc.lng, b.lat, b.lng)
-    );
+  const withDist = comps
+    .filter((c) => c.lat != null && c.lng != null && c.sf > 0)
+    .map((c) => ({ ...c, _dist: haversine(loc.lat, loc.lng, c.lat, c.lng) }))
+    .sort((a, b) => a._dist - b._dist);
+
+  if (!radiusEnabled) return withDist;
+  return withDist.filter((c) => c._dist <= radius);
 }
 
 // ── Full blended valuation (SCA + Cost + Income) ─────────────────────────
@@ -94,11 +95,16 @@ export function runValuation(loc, selLand, nearbyComps, subjectSF, subjectBeds, 
   // 1. Sales Comparison Approach — inverse-distance weighted adjusted comps
   const compResults = nearbyComps.slice(0, 7).map((c) => {
     const dist     = haversine(loc.lat, loc.lng, c.lat, c.lng);
-    const adjSize  = (subjectSF    - c.sf)        * ADJ_SIZE_PSF;
-    const adjAge   = (SUBJECT_YEAR - c.year_built) * ADJ_AGE_PY;
-    const adjBed   = (subjectBeds  - c.bedrooms)   * ADJ_BED;
-    const adjBath  = (subjectBaths - c.bathrooms)  * ADJ_BATH;
-    const adjLot   = (lotSf        - c.lot_sf)     * ADJ_LOT_PSF;
+    const cSf      = c.sf || subjectSF;                          // guard zero/null
+    const cYear    = c.year_built || SUBJECT_YEAR;                // guard missing
+    const cBeds    = c.bedrooms ?? subjectBeds;                   // guard null
+    const cBaths   = c.bathrooms ?? subjectBaths;                 // guard null
+    const cLotSf   = c.lot_sf || lotSf;                          // guard zero/null
+    const adjSize  = (subjectSF    - cSf)    * ADJ_SIZE_PSF;
+    const adjAge   = (SUBJECT_YEAR - cYear)  * ADJ_AGE_PY;
+    const adjBed   = (subjectBeds  - cBeds)  * ADJ_BED;
+    const adjBath  = (subjectBaths - cBaths) * ADJ_BATH;
+    const adjLot   = (lotSf        - cLotSf) * ADJ_LOT_PSF;
     const totalAdj = adjSize + adjAge + adjBed + adjBath + adjLot;
     const adjusted = c.sale_price + totalAdj;
     const weight   = 1 / Math.max(dist, 0.01);
@@ -132,9 +138,20 @@ export function runValuation(loc, selLand, nearbyComps, subjectSF, subjectBeds, 
   const cv =
     Math.sqrt(adjValues.reduce((s, v) => s + (v - adjMean) ** 2, 0) / adjValues.length) /
     adjMean;
-  const norm        = (val, lo, hi) => Math.max(0, Math.min(1, (val - lo) / (hi - lo)));
-  const infraScore  = landPrice > 0 ? 60 : 50;
-  const feasScore   = Math.min(
+  const norm = (val, lo, hi) => Math.max(0, Math.min(1, (val - lo) / (hi - lo)));
+
+  // Infrastructure score — multi-factor: land price, lot size, market freshness, topography, utilities
+  let infraScore = 50;
+  if (landPrice > 0) {
+    infraScore += 10;                                                               // defined acquisition price
+    if (lotSf >= 5000) infraScore += 10;                                           // adequate lot size
+    if (selLand?.days_on_market != null && selLand.days_on_market < 30) infraScore += 10; // fresh listing
+    if (selLand?.topography === "Level") infraScore += 10;                         // flat topography
+    if (selLand?.utilities && selLand.utilities !== "Unknown") infraScore += 10;   // known utilities
+  }
+  infraScore = Math.min(infraScore, 100);
+
+  const feasScore = Math.min(
     Math.round(
       (0.30 * norm(margin, 0, 35) +
        0.25 * norm(compResults.length, 0, 15) +
@@ -143,6 +160,15 @@ export function runValuation(loc, selLand, nearbyComps, subjectSF, subjectBeds, 
     ),
     100
   );
+
+  // Sub-score levels derived from real comp data — used for UI display bars
+  const profitabilityLevel  = margin > 20 ? "High" : margin > 8 ? "Med" : "Low";
+  const marketStrengthLevel =
+    compResults.length >= 8 && cv < 0.10 ? "High" :
+    compResults.length >= 3 && cv < 0.20 ? "Med"  : "Low";
+  // Risk is inverse: low CV + healthy margin → low risk (good)
+  const riskLevel           = cv < 0.08 && margin > 15 ? "Low" : cv < 0.15 || margin > 5 ? "Med" : "High";
+  const infrastructureLevel = infraScore >= 70 ? "High" : infraScore >= 55 ? "Med" : "Low";
 
   return {
     compResults,
@@ -160,6 +186,12 @@ export function runValuation(loc, selLand, nearbyComps, subjectSF, subjectBeds, 
     feasScore,
     landPrice,
     lotSf,
+    cv,
+    infraScore,
+    profitabilityLevel,
+    marketStrengthLevel,
+    riskLevel,
+    infrastructureLevel,
   };
 }
 

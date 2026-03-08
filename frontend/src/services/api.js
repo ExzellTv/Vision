@@ -76,6 +76,13 @@ export const scheduleApi = {
     request(`/schedule/${id}/phase/${phase}`, { method: "PATCH", body: JSON.stringify(data) }),
 };
 
+// Map Data (MongoDB-backed)
+export const mapApi = {
+  getComparables:  () => request("/map/comparables"),
+  getLandListings: () => request("/map/land-listings"),
+  getMarketStats:  () => request("/map/market-stats"),
+};
+
 // Compliance
 export const complianceApi = {
   check: (projectId, buildingContext) => request("/compliance/check", {
