@@ -56,3 +56,10 @@ export const scheduleApi = {
   updatePhase: (id, phase, data) =>
     request(`/schedule/${id}/phase/${phase}`, { method: "PATCH", body: JSON.stringify(data) }),
 };
+
+// Map Data (MongoDB-backed)
+export const mapApi = {
+  getComparables:  () => request("/map/comparables"),
+  getLandListings: () => request("/map/land-listings"),
+  getMarketStats:  () => request("/map/market-stats"),
+};
