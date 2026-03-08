@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import * as THREE from "three";
 import { colors, fonts } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
+import { projectsApi, costApi } from "../../services/api";
 
 /* ───────────────────────────────────────────────────────────
    LAYER EDITOR — Screen #2
@@ -38,7 +40,7 @@ const fmtCost = (v) => {
 };
 
 // ── Materials Data (MVP hardcoded) — PRD Section 2.2.1 ──
-const MATERIALS_DATA = [
+export const MATERIALS_DATA = [
   {
     layerIndex: 0,
     name: "Foundation",
@@ -57,7 +59,7 @@ const MATERIALS_DATA = [
       { name: "Wood SPF", cost: 48000 },
       { name: "Steel Studs", cost: 56000 },
       { name: "LVL/Glulam", cost: 62000 },
-      { name: "Hybrid", cost: 54000 },
+      { name: "Concrete Block", cost: 52000 },
     ],
   },
   {
@@ -66,8 +68,8 @@ const MATERIALS_DATA = [
     color: "#a0845c",
     options: [
       { name: "OSB", cost: 18000 },
-      { name: "Plywood CDX", cost: 22000 },
       { name: "ZIP System", cost: 28000 },
+      { name: "SIP Panels", cost: 44000 },
     ],
   },
   {
@@ -75,10 +77,9 @@ const MATERIALS_DATA = [
     name: "Insulation",
     color: "#e8a0c0",
     options: [
-      { name: "Fiberglass", cost: 12000 },
-      { name: "Mineral Wool", cost: 16000 },
-      { name: "Spray Foam Open", cost: 22000 },
-      { name: "Spray Foam Closed", cost: 28000 },
+      { name: "Fiberglass Batt", cost: 12000 },
+      { name: "Open-Cell Foam", cost: 22000 },
+      { name: "Closed-Cell Foam", cost: 34000 },
     ],
   },
   {
@@ -87,8 +88,8 @@ const MATERIALS_DATA = [
     color: "#e8e2da",
     options: [
       { name: "Standard", cost: 14000 },
-      { name: "Moisture-resistant", cost: 16000 },
-      { name: "Fire-rated", cost: 18000 },
+      { name: "Moisture-Resistant", cost: 16000 },
+      { name: "Acoustic", cost: 19000 },
     ],
   },
   {
@@ -100,7 +101,7 @@ const MATERIALS_DATA = [
       { name: "Fiber Cement", cost: 24000 },
       { name: "Brick Veneer", cost: 38000 },
       { name: "Stone Veneer", cost: 52000 },
-      { name: "Stucco", cost: 20000 },
+      { name: "Metal Panel", cost: 32000 },
     ],
   },
   {
@@ -108,20 +109,59 @@ const MATERIALS_DATA = [
     name: "Paint",
     color: "#b8c8d8",
     options: [
-      { name: "Budget Latex", cost: 4000 },
-      { name: "Mid-grade", cost: 6000 },
-      { name: "Premium", cost: 9000 },
+      { name: "Basic Latex", cost: 4000 },
+      { name: "Ceramic Coat", cost: 9000 },
+    ],
+  },
+  {
+    layerIndex: 7,
+    name: "Roof",
+    color: "#7a5c3a",
+    options: [
+      { name: "Gable — Asphalt",   cost: 14000 },
+      { name: "Gable — Metal",     cost: 22000 },
+      { name: "Hip — Asphalt",     cost: 16000 },
+      { name: "Hip — Clay Tile",   cost: 34000 },
+      { name: "Flat — TPO",        cost: 11000 },
+      { name: "Shed — Metal",      cost: 18000 },
+      { name: "Mansard — Slate",   cost: 48000 },
+    ],
+  },
+  {
+    layerIndex: 8,
+    name: "Color Palette",
+    color: "#e87070",
+    options: [
+      { name: "Custom Colors", cost: 0 },
     ],
   },
 ];
 
 const VIZ_MODES = [
   { key: "standard", label: "Standard" },
-  { key: "exploded", label: "Exploded" },
   { key: "ghost", label: "Ghost" },
   { key: "section", label: "Section" },
-  { key: "heatmap", label: "Heatmap" },
   { key: "buildup", label: "Build-Up" },
+];
+
+// ── Paint swatches for the Color Palette layer ──
+const PAINT_COLORS = [
+  { name: "Classic White",  hex: "#F5F0E8" },
+  { name: "Light Gray",     hex: "#C8CDD4" },
+  { name: "Charcoal",       hex: "#3A3E45" },
+  { name: "Midnight",       hex: "#1A1D24" },
+  { name: "Navy Blue",      hex: "#1D3461" },
+  { name: "Steel Blue",     hex: "#4682B4" },
+  { name: "Sky Blue",       hex: "#8AB4D0" },
+  { name: "Sage Green",     hex: "#7A9E87" },
+  { name: "Forest Green",   hex: "#2D5A27" },
+  { name: "Warm Beige",     hex: "#D4B896" },
+  { name: "Sand",           hex: "#DDD0B3" },
+  { name: "Terracotta",     hex: "#C4622D" },
+  { name: "Deep Red",       hex: "#8B1A1A" },
+  { name: "Slate Blue",     hex: "#6B7FA0" },
+  { name: "Olive",          hex: "#6B7340" },
+  { name: "Cream",          hex: "#FFFDD0" },
 ];
 
 // ── Default Layer State ──
@@ -136,7 +176,7 @@ function createDefaultLayers() {
 }
 
 // ── PBR Materials for each layer ──
-function createLayerMaterials() {
+export function createLayerMaterials() {
   return {
     foundation: new THREE.MeshStandardMaterial({
       color: 0x6b7a8a, roughness: 0.92, metalness: 0.02,
@@ -150,44 +190,41 @@ function createLayerMaterials() {
     frame_lvl: new THREE.MeshStandardMaterial({
       color: 0xa88050, roughness: 0.6, metalness: 0.0,
     }),
-    frame_hybrid: new THREE.MeshStandardMaterial({
-      color: 0x9a8a70, roughness: 0.55, metalness: 0.3,
+    frame_cmu: new THREE.MeshStandardMaterial({
+      color: 0x909898, roughness: 0.97, metalness: 0.02,
     }),
     sheathing_osb: new THREE.MeshStandardMaterial({
       color: 0xa0845c, roughness: 0.8, metalness: 0.0,
     }),
-    sheathing_plywood: new THREE.MeshStandardMaterial({
-      color: 0xb89468, roughness: 0.75, metalness: 0.0,
-    }),
     sheathing_zip: new THREE.MeshStandardMaterial({
       color: 0x4a8a4a, roughness: 0.7, metalness: 0.0,
     }),
+    sheathing_sip: new THREE.MeshStandardMaterial({
+      color: 0xf0e8d0, roughness: 0.55, metalness: 0.0,
+    }),
     insulation_fiberglass: new THREE.MeshStandardMaterial({
       color: 0xe8a0c0, roughness: 0.95, metalness: 0.0,
-    }),
-    insulation_mineral: new THREE.MeshStandardMaterial({
-      color: 0xc8b040, roughness: 0.95, metalness: 0.0,
     }),
     insulation_foam_open: new THREE.MeshStandardMaterial({
       color: 0xe8d878, roughness: 0.9, metalness: 0.0,
     }),
     insulation_foam_closed: new THREE.MeshStandardMaterial({
-      color: 0xd0c060, roughness: 0.85, metalness: 0.0,
+      color: 0xd4b830, roughness: 0.82, metalness: 0.0,
     }),
     drywall: new THREE.MeshStandardMaterial({
       color: 0xe8e2da, roughness: 0.85, metalness: 0.0,
     }),
     drywall_moisture: new THREE.MeshStandardMaterial({
-      color: 0xd8e2d8, roughness: 0.85, metalness: 0.0,
+      color: 0xb8d8c0, roughness: 0.85, metalness: 0.0,
     }),
-    drywall_fire: new THREE.MeshStandardMaterial({
-      color: 0xe0d8d0, roughness: 0.85, metalness: 0.0,
+    drywall_acoustic: new THREE.MeshStandardMaterial({
+      color: 0xd0c8b8, roughness: 0.92, metalness: 0.0,
     }),
     cladding_vinyl: new THREE.MeshStandardMaterial({
       color: 0xd0d4d8, roughness: 0.6, metalness: 0.05,
     }),
     cladding_fiber: new THREE.MeshStandardMaterial({
-      color: 0x8a9bb0, roughness: 0.75, metalness: 0.05,
+      color: 0x7a8fa8, roughness: 0.78, metalness: 0.05,
     }),
     cladding_brick: new THREE.MeshStandardMaterial({
       color: 0xa04030, roughness: 0.9, metalness: 0.0,
@@ -195,30 +232,45 @@ function createLayerMaterials() {
     cladding_stone: new THREE.MeshStandardMaterial({
       color: 0x908878, roughness: 0.95, metalness: 0.0,
     }),
-    cladding_stucco: new THREE.MeshStandardMaterial({
-      color: 0xd8d0c0, roughness: 0.92, metalness: 0.0,
+    cladding_metal: new THREE.MeshStandardMaterial({
+      color: 0x8898a8, roughness: 0.2, metalness: 0.85,
     }),
     paint_budget: new THREE.MeshStandardMaterial({
       color: 0xb8c8d8, roughness: 0.8, metalness: 0.0,
     }),
-    paint_mid: new THREE.MeshStandardMaterial({
-      color: 0xc0d0e0, roughness: 0.75, metalness: 0.0,
+    paint_ceramic: new THREE.MeshStandardMaterial({
+      color: 0xd8e8f0, roughness: 0.45, metalness: 0.08,
     }),
-    paint_premium: new THREE.MeshStandardMaterial({
-      color: 0xd0dce8, roughness: 0.7, metalness: 0.0,
+    // Roof layer materials
+    roof_asphalt: new THREE.MeshStandardMaterial({
+      color: 0x2a2a2e, roughness: 0.95, metalness: 0.0, side: THREE.DoubleSide,
+    }),
+    roof_metal: new THREE.MeshStandardMaterial({
+      color: 0x8a9aaa, roughness: 0.2, metalness: 0.9, side: THREE.DoubleSide,
+    }),
+    roof_clay: new THREE.MeshStandardMaterial({
+      color: 0xb05030, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide,
+    }),
+    roof_tpo: new THREE.MeshStandardMaterial({
+      color: 0xddd8cc, roughness: 0.85, metalness: 0.0, side: THREE.DoubleSide,
+    }),
+    roof_slate: new THREE.MeshStandardMaterial({
+      color: 0x4a4e5a, roughness: 0.92, metalness: 0.02, side: THREE.DoubleSide,
     }),
   };
 }
 
 // Map from layer index + material index to material key
-const MATERIAL_KEY_MAP = {
+export const MATERIAL_KEY_MAP = {
   0: ["foundation", "foundation", "foundation"],
-  1: ["frame_wood", "frame_steel", "frame_lvl", "frame_hybrid"],
-  2: ["sheathing_osb", "sheathing_plywood", "sheathing_zip"],
-  3: ["insulation_fiberglass", "insulation_mineral", "insulation_foam_open", "insulation_foam_closed"],
-  4: ["drywall", "drywall_moisture", "drywall_fire"],
-  5: ["cladding_vinyl", "cladding_fiber", "cladding_brick", "cladding_stone", "cladding_stucco"],
-  6: ["paint_budget", "paint_mid", "paint_premium"],
+  1: ["frame_wood", "frame_steel", "frame_lvl", "frame_cmu"],
+  2: ["sheathing_osb", "sheathing_zip", "sheathing_sip"],
+  3: ["insulation_fiberglass", "insulation_foam_open", "insulation_foam_closed"],
+  4: ["drywall", "drywall_moisture", "drywall_acoustic"],
+  5: ["cladding_vinyl", "cladding_fiber", "cladding_brick", "cladding_stone", "cladding_metal"],
+  6: ["paint_budget", "paint_ceramic"],
+  7: ["roof_asphalt", "roof_metal", "roof_asphalt", "roof_clay", "roof_tpo", "roof_metal", "roof_slate"],
+  8: [],
 };
 
 // ── House dimensions (mutable — updated from project floor plan before each build) ──
@@ -233,21 +285,128 @@ let WALL_H = SH - 0.08;
 // Each entry: { cx, cz, w, d } — center position and size in Three.js units
 let ROOMS = [];
 
-function updateRooms(rooms, storyPlans) {
+/**
+ * Merge sub-rooms that share an edge and have the same extent on the other axis.
+ * Prevents visual fragmentation from per-room clipping.
+ */
+function mergeAdjacentRooms(rooms) {
+  if (rooms.length <= 1) return rooms;
+  const EPS = 0.02;
+  const merged = rooms.map((r) => ({ ...r }));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = 0; i < merged.length && !changed; i++) {
+      for (let j = i + 1; j < merged.length && !changed; j++) {
+        const a = merged[i], b = merged[j];
+        const aMinX = a.cx - a.w / 2, aMaxX = a.cx + a.w / 2;
+        const aMinZ = a.cz - a.d / 2, aMaxZ = a.cz + a.d / 2;
+        const bMinX = b.cx - b.w / 2, bMaxX = b.cx + b.w / 2;
+        const bMinZ = b.cz - b.d / 2, bMaxZ = b.cz + b.d / 2;
+        // Same x-range, adjacent in z
+        if (Math.abs(aMinX - bMinX) < EPS && Math.abs(aMaxX - bMaxX) < EPS &&
+            (Math.abs(aMaxZ - bMinZ) < EPS || Math.abs(bMaxZ - aMinZ) < EPS)) {
+          const nMinZ = Math.min(aMinZ, bMinZ), nMaxZ = Math.max(aMaxZ, bMaxZ);
+          merged[i] = { ...a, cz: (nMinZ + nMaxZ) / 2, d: nMaxZ - nMinZ };
+          merged.splice(j, 1); changed = true;
+        // Same z-range, adjacent in x
+        } else if (Math.abs(aMinZ - bMinZ) < EPS && Math.abs(aMaxZ - bMaxZ) < EPS &&
+                   (Math.abs(aMaxX - bMinX) < EPS || Math.abs(bMaxX - aMinX) < EPS)) {
+          const nMinX = Math.min(aMinX, bMinX), nMaxX = Math.max(aMaxX, bMaxX);
+          merged[i] = { ...a, cx: (nMinX + nMaxX) / 2, w: nMaxX - nMinX };
+          merged.splice(j, 1); changed = true;
+        }
+      }
+    }
+  }
+  return merged;
+}
+
+/**
+ * Clip upper-story rooms so they only exist where supported by the floor below.
+ * Intersects each upper room against each individual support room and keeps only
+ * the overlapping portions. Merged afterwards to prevent fragmentation.
+ */
+function clipUpperRoomsToSupport(allRooms) {
+  const maxStory = Math.max(...allRooms.map((r) => r.storyIndex ?? 0));
+  if (maxStory === 0) return allRooms;
+
+  const byStory = {};
+  allRooms.forEach((r) => {
+    const si = r.storyIndex ?? 0;
+    if (!byStory[si]) byStory[si] = [];
+    byStory[si].push(r);
+  });
+
+  const result = [...(byStory[0] || [])];
+
+  for (let si = 1; si <= maxStory; si++) {
+    const upperRooms = byStory[si] || [];
+    const supportRooms = result.filter((r) => (r.storyIndex ?? 0) === si - 1);
+    if (supportRooms.length === 0) { result.push(...upperRooms); continue; }
+
+    const clipped = [];
+    upperRooms.forEach((ur) => {
+      const uMinX = ur.cx - ur.w / 2, uMaxX = ur.cx + ur.w / 2;
+      const uMinZ = ur.cz - ur.d / 2, uMaxZ = ur.cz + ur.d / 2;
+      supportRooms.forEach((sr) => {
+        const sMinX = sr.cx - sr.w / 2, sMaxX = sr.cx + sr.w / 2;
+        const sMinZ = sr.cz - sr.d / 2, sMaxZ = sr.cz + sr.d / 2;
+        const iMinX = Math.max(uMinX, sMinX), iMaxX = Math.min(uMaxX, sMaxX);
+        const iMinZ = Math.max(uMinZ, sMinZ), iMaxZ = Math.min(uMaxZ, sMaxZ);
+        if (iMaxX > iMinX + 0.001 && iMaxZ > iMinZ + 0.001) {
+          clipped.push({
+            cx: (iMinX + iMaxX) / 2, cz: (iMinZ + iMaxZ) / 2,
+            w: iMaxX - iMinX, d: iMaxZ - iMinZ,
+            yBase: ur.yBase, storyIndex: ur.storyIndex,
+          });
+        }
+      });
+    });
+
+    result.push(...mergeAdjacentRooms(clipped));
+  }
+
+  return result;
+}
+
+export function updateRooms(rooms, storyPlans) {
   const storyH = SLAB_H + WALL_H;
 
   // Multi-story path: use storyPlans array
   if (storyPlans && storyPlans.length > 1) {
-    const allRooms = [];
+    // Gather all rooms from all stories; center using story 0's actual bounding box
+    const rawByStory = [];
     storyPlans.forEach((plan, si) => {
       const planRooms = plan.rooms || [];
-      const halfW = W / 2;
-      const halfD = D / 2;
+      rawByStory.push({ si, rooms: planRooms });
+    });
+
+    // Compute centering offset from story 0's actual room extents
+    const s0Rooms = rawByStory.find((s) => s.si === 0)?.rooms || [];
+    let cenW, cenD;
+    if (s0Rooms.length > 0) {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      s0Rooms.forEach((r) => {
+        minX = Math.min(minX, r.x);
+        maxX = Math.max(maxX, r.x + r.w);
+        minY = Math.min(minY, r.y);
+        maxY = Math.max(maxY, r.y + r.h);
+      });
+      cenW = ftToUnits((minX + maxX) / 2);
+      cenD = ftToUnits((minY + maxY) / 2);
+    } else {
+      cenW = W / 2;
+      cenD = D / 2;
+    }
+
+    const allRooms = [];
+    rawByStory.forEach(({ si, rooms: planRooms }) => {
       const yBase = si * storyH;
       planRooms.forEach((r) => {
         allRooms.push({
-          cx: ftToUnits(r.x + r.w / 2) - halfW,
-          cz: ftToUnits(r.y + r.h / 2) - halfD,
+          cx: ftToUnits(r.x + r.w / 2) - cenW,
+          cz: ftToUnits(r.y + r.h / 2) - cenD,
           w: Math.max(ftToUnits(r.w), 0.1),
           d: Math.max(ftToUnits(r.h), 0.1),
           yBase,
@@ -255,7 +414,8 @@ function updateRooms(rooms, storyPlans) {
         });
       });
     });
-    ROOMS = allRooms.length > 0 ? allRooms : [{ cx: 0, cz: 0, w: W, d: D, yBase: 0, storyIndex: 0 }];
+    // Clip upper stories so they don't extend beyond the floor below
+    ROOMS = allRooms.length > 0 ? clipUpperRoomsToSupport(allRooms) : [{ cx: 0, cz: 0, w: W, d: D, yBase: 0, storyIndex: 0 }];
     return;
   }
 
@@ -264,11 +424,19 @@ function updateRooms(rooms, storyPlans) {
     ROOMS = [{ cx: 0, cz: 0, w: W, d: D, yBase: 0, storyIndex: 0 }];
     return;
   }
-  const halfW = W / 2;
-  const halfD = D / 2;
+  // Compute centering from actual room extents
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  rooms.forEach((r) => {
+    minX = Math.min(minX, r.x);
+    maxX = Math.max(maxX, r.x + r.w);
+    minY = Math.min(minY, r.y);
+    maxY = Math.max(maxY, r.y + r.h);
+  });
+  const cenW = ftToUnits((minX + maxX) / 2);
+  const cenD = ftToUnits((minY + maxY) / 2);
   const converted = rooms.map((r) => ({
-    cx: ftToUnits(r.x + r.w / 2) - halfW,
-    cz: ftToUnits(r.y + r.h / 2) - halfD,
+    cx: ftToUnits(r.x + r.w / 2) - cenW,
+    cz: ftToUnits(r.y + r.h / 2) - cenD,
     w: Math.max(ftToUnits(r.w), 0.1),
     d: Math.max(ftToUnits(r.h), 0.1),
     yBase: 0,
@@ -285,7 +453,8 @@ function buildFoundationSlab(mats) {
   ROOMS.forEach((r) => {
     if ((r.storyIndex ?? 0) > 0) return; // upper floors sit on top — no foundation
     const yOff = r.yBase ?? 0;
-    const geo = new THREE.BoxGeometry(r.w + 0.05, SLAB_H, r.d + 0.05);
+    // Extend to match the outer face of the cladding layer (WALL_THICK/2 + 0.04 + panelThick per side)
+    const geo = new THREE.BoxGeometry(r.w + 0.25, SLAB_H, r.d + 0.25);
     const mesh = new THREE.Mesh(geo, mats.foundation);
     mesh.position.set(r.cx, yOff + SLAB_H / 2, r.cz);
     mesh.castShadow = true;
@@ -453,7 +622,7 @@ function buildSheathingLayer(mats) {
 
   ROOMS.forEach((r) => {
     const baseY = (r.yBase ?? 0) + ((r.storyIndex ?? 0) === 0 ? SLAB_H : 0);
-    const fGeo = new THREE.BoxGeometry(r.w + 0.06, panelH, sheathThick);
+    const fGeo = new THREE.BoxGeometry(r.w, panelH, sheathThick);
     const f = new THREE.Mesh(fGeo, mats.sheathing_osb);
     f.position.set(r.cx, baseY + 0.06 + panelH / 2, r.cz + r.d / 2 + off);
     f.castShadow = true;
@@ -463,7 +632,7 @@ function buildSheathingLayer(mats) {
     b.castShadow = true;
     group.add(b);
 
-    const sGeo = new THREE.BoxGeometry(sheathThick, panelH, r.d + 0.06);
+    const sGeo = new THREE.BoxGeometry(sheathThick, panelH, r.d);
     const l = new THREE.Mesh(sGeo, mats.sheathing_osb);
     l.position.set(r.cx - r.w / 2 - off, baseY + 0.06 + panelH / 2, r.cz);
     l.castShadow = true;
@@ -557,7 +726,7 @@ function buildCladdingLayer(mats) {
 
   ROOMS.forEach((r) => {
     const baseY = (r.yBase ?? 0) + ((r.storyIndex ?? 0) === 0 ? SLAB_H : 0);
-    const fGeo = new THREE.BoxGeometry(r.w + 0.12, panelH, panelThick);
+    const fGeo = new THREE.BoxGeometry(r.w, panelH, panelThick);
     const f = new THREE.Mesh(fGeo, mats.cladding_fiber);
     f.position.set(r.cx, baseY + 0.04 + panelH / 2, r.cz + r.d / 2 + off);
     f.castShadow = true;
@@ -569,7 +738,7 @@ function buildCladdingLayer(mats) {
     b.receiveShadow = true;
     group.add(b);
 
-    const sGeo = new THREE.BoxGeometry(panelThick, panelH, r.d + 0.12);
+    const sGeo = new THREE.BoxGeometry(panelThick, panelH, r.d);
     const l = new THREE.Mesh(sGeo, mats.cladding_fiber);
     l.position.set(r.cx - r.w / 2 - off, baseY + 0.04 + panelH / 2, r.cz);
     l.castShadow = true;
@@ -593,7 +762,7 @@ function buildPaintLayer(mats) {
 
   ROOMS.forEach((r) => {
     const baseY = (r.yBase ?? 0) + ((r.storyIndex ?? 0) === 0 ? SLAB_H : 0);
-    const fGeo = new THREE.BoxGeometry(r.w + 0.14, panelH, panelThick);
+    const fGeo = new THREE.BoxGeometry(r.w, panelH, panelThick);
     const f = new THREE.Mesh(fGeo, mats.paint_budget);
     f.position.set(r.cx, baseY + 0.03 + panelH / 2, r.cz + r.d / 2 + off);
     group.add(f);
@@ -601,7 +770,7 @@ function buildPaintLayer(mats) {
     b.position.set(r.cx, baseY + 0.03 + panelH / 2, r.cz - r.d / 2 - off);
     group.add(b);
 
-    const sGeo = new THREE.BoxGeometry(panelThick, panelH, r.d + 0.14);
+    const sGeo = new THREE.BoxGeometry(panelThick, panelH, r.d);
     const l = new THREE.Mesh(sGeo, mats.paint_budget);
     l.position.set(r.cx - r.w / 2 - off, baseY + 0.03 + panelH / 2, r.cz);
     group.add(l);
@@ -612,15 +781,403 @@ function buildPaintLayer(mats) {
   return group;
 }
 
+// ── Roof helpers ──
+
+/**
+ * Compute a bounding-box footprint for a set of rooms.
+ * Returns { topY, cx, cz, w, d }.
+ */
+function computeFootprint(rooms, overhang) {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  let topY = 0;
+  rooms.forEach((r) => {
+    minX = Math.min(minX, r.cx - r.w / 2);
+    maxX = Math.max(maxX, r.cx + r.w / 2);
+    minZ = Math.min(minZ, r.cz - r.d / 2);
+    maxZ = Math.max(maxZ, r.cz + r.d / 2);
+    const base = (r.yBase ?? 0) + ((r.storyIndex ?? 0) === 0 ? SLAB_H : 0);
+    topY = Math.max(topY, base + WALL_H + 0.02);
+  });
+  minX -= overhang; maxX += overhang;
+  minZ -= overhang; maxZ += overhang;
+  return {
+    topY,
+    cx: (minX + maxX) / 2,
+    cz: (minZ + maxZ) / 2,
+    w: maxX - minX,
+    d: maxZ - minZ,
+  };
+}
+
+/**
+ * Check whether a room is fully covered by a set of other rooms (on the story above).
+ * Samples a grid of points inside the room and checks if each is inside some cover room.
+ */
+function isRoomFullyCovered(room, coverRooms) {
+  const EPS = 0.02;
+  const rMinX = room.cx - room.w / 2 + EPS, rMaxX = room.cx + room.w / 2 - EPS;
+  const rMinZ = room.cz - room.d / 2 + EPS, rMaxZ = room.cz + room.d / 2 - EPS;
+  const N = 3;
+  for (let xi = 0; xi <= N; xi++) {
+    for (let zi = 0; zi <= N; zi++) {
+      const px = rMinX + (rMaxX - rMinX) * xi / N;
+      const pz = rMinZ + (rMaxZ - rMinZ) * zi / N;
+      let hit = false;
+      for (const cr of coverRooms) {
+        if (px >= cr.cx - cr.w / 2 - EPS && px <= cr.cx + cr.w / 2 + EPS &&
+            pz >= cr.cz - cr.d / 2 - EPS && pz <= cr.cz + cr.d / 2 + EPS) {
+          hit = true; break;
+        }
+      }
+      if (!hit) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Cluster rooms that share an edge or overlap into groups (union-find).
+ * Returns an array of arrays of rooms.
+ */
+function clusterRooms(rooms) {
+  if (rooms.length === 0) return [];
+  const EPS = 0.02;
+  function touching(a, b) {
+    return a.cx - a.w / 2 <= b.cx + b.w / 2 + EPS &&
+           a.cx + a.w / 2 >= b.cx - b.w / 2 - EPS &&
+           a.cz - a.d / 2 <= b.cz + b.d / 2 + EPS &&
+           a.cz + a.d / 2 >= b.cz - b.d / 2 - EPS;
+  }
+  const parent = rooms.map((_, i) => i);
+  function find(i) { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; }
+  function union(a, b) { parent[find(a)] = find(b); }
+  for (let i = 0; i < rooms.length; i++)
+    for (let j = i + 1; j < rooms.length; j++)
+      if (touching(rooms[i], rooms[j])) union(i, j);
+  const groups = {};
+  rooms.forEach((r, i) => { const root = find(i); if (!groups[root]) groups[root] = []; groups[root].push(r); });
+  return Object.values(groups);
+}
+
+/**
+ * Compute roof footprints for all stories that need a roof.
+ * Returns an array of { topY, cx, cz, w, d } footprints.
+ * For each story, rooms NOT fully covered by rooms on the floor above are "exposed"
+ * and grouped into clusters, each getting its own roof footprint.
+ */
+function getRoofFootprints(overhang = ftToUnits(1.5)) {
+  if (!ROOMS.length) {
+    return [{
+      topY: SLAB_H + WALL_H + 0.02,
+      cx: 0, cz: 0,
+      w: W + overhang * 2, d: D + overhang * 2,
+    }];
+  }
+
+  const maxStory = Math.max(...ROOMS.map((r) => r.storyIndex ?? 0));
+
+  if (maxStory === 0) {
+    return [computeFootprint(ROOMS, overhang)];
+  }
+
+  const footprints = [];
+
+  // Walk from top story down; find rooms that need a roof on each level
+  for (let si = maxStory; si >= 0; si--) {
+    const storyRooms = ROOMS.filter((r) => (r.storyIndex ?? 0) === si);
+    const aboveRooms = ROOMS.filter((r) => (r.storyIndex ?? 0) === si + 1);
+
+    const exposedRooms = aboveRooms.length === 0
+      ? storyRooms
+      : storyRooms.filter((r) => !isRoomFullyCovered(r, aboveRooms));
+
+    if (exposedRooms.length > 0) {
+      const clusters = clusterRooms(exposedRooms);
+      clusters.forEach((cluster) => {
+        footprints.push(computeFootprint(cluster, overhang));
+      });
+    }
+  }
+
+  return footprints;
+}
+
+// Keep legacy single-footprint helper for any callers
+function getRoofFootprint(overhang = ftToUnits(1.5)) {
+  return getRoofFootprints(overhang)[0];
+}
+
+// Helper: add a quad (2 triangles, double-sided) from 4 world-space corners
+function addQuad(group, mat, a, b, c, d) {
+  const verts = new Float32Array([
+    ...a, ...b, ...c,  // tri 1 front
+    ...a, ...c, ...d,  // tri 2 front
+    ...c, ...b, ...a,  // tri 1 back
+    ...d, ...c, ...a,  // tri 2 back
+  ]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  geo.computeVertexNormals();
+  group.add(new THREE.Mesh(geo, mat));
+}
+
+// Helper: add a triangle (double-sided)
+function addTri(group, mat, a, b, c) {
+  const verts = new Float32Array([...a, ...b, ...c, ...c, ...b, ...a]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  geo.computeVertexNormals();
+  group.add(new THREE.Mesh(geo, mat));
+}
+
+function buildGableRoof(mat, bounds) {
+  const group = new THREE.Group();
+  group.name = "roof_gable";
+  const { topY, cx, cz, w, d } = bounds.roofFootprint;
+  const pitch = ftToUnits(6.5);
+
+  // Ridge runs along the long axis of the footprint
+  if (w >= d) {
+    // ── Ridge along X, slopes in Z ──
+    const run = d / 2;
+    const x0 = cx - w / 2, x1 = cx + w / 2;
+    const zFront = cz + d / 2, zBack = cz - d / 2;
+    const ridgeY = topY + pitch;
+
+    // Front slope (z+ eave → ridge)
+    addQuad(group, mat,
+      [x0, topY, zFront], [x1, topY, zFront],
+      [x1, ridgeY, cz],   [x0, ridgeY, cz],
+    );
+    // Back slope (z- eave → ridge)
+    addQuad(group, mat,
+      [x1, topY, zBack], [x0, topY, zBack],
+      [x0, ridgeY, cz],  [x1, ridgeY, cz],
+    );
+    // Gable triangles (west / east ends)
+    addTri(group, mat, [x0, topY, zBack], [x0, topY, zFront], [x0, ridgeY, cz]);
+    addTri(group, mat, [x1, topY, zFront], [x1, topY, zBack], [x1, ridgeY, cz]);
+    // Ridge beam
+    const rg = new THREE.BoxGeometry(w + 0.05, 0.07, 0.07);
+    const rm = new THREE.Mesh(rg, mat);
+    rm.position.set(cx, ridgeY + 0.035, cz);
+    group.add(rm);
+  } else {
+    // ── Ridge along Z, slopes in X ──
+    const z0 = cz - d / 2, z1 = cz + d / 2;
+    const xLeft = cx - w / 2, xRight = cx + w / 2;
+    const ridgeY = topY + pitch;
+
+    // Left slope (x- eave → ridge)
+    addQuad(group, mat,
+      [xLeft, topY, z0], [xLeft, topY, z1],
+      [cx, ridgeY, z1],  [cx, ridgeY, z0],
+    );
+    // Right slope (x+ eave → ridge)
+    addQuad(group, mat,
+      [xRight, topY, z1], [xRight, topY, z0],
+      [cx, ridgeY, z0],   [cx, ridgeY, z1],
+    );
+    // Gable triangles (south / north ends)
+    addTri(group, mat, [xLeft, topY, z0], [xRight, topY, z0], [cx, ridgeY, z0]);
+    addTri(group, mat, [xRight, topY, z1], [xLeft, topY, z1], [cx, ridgeY, z1]);
+    // Ridge beam
+    const rg = new THREE.BoxGeometry(0.07, 0.07, d + 0.05);
+    const rm = new THREE.Mesh(rg, mat);
+    rm.position.set(cx, ridgeY + 0.035, cz);
+    group.add(rm);
+  }
+
+  return group;
+}
+
+function buildHipRoof(mat, bounds) {
+  const group = new THREE.Group();
+  group.name = "roof_hip";
+  const { topY, cx, cz, w, d } = bounds.roofFootprint;
+  const pitch = ftToUnits(6);
+  const ridgeY = topY + pitch;
+
+  // Ridge length = |w - d|, setback inward along the short axis by d/2 (or w/2)
+  if (w >= d) {
+    // Ridge along X
+    const ridgeHalf = Math.max(0.01, (w - d) / 2);
+    const rx0 = cx - ridgeHalf, rx1 = cx + ridgeHalf;
+    const x0 = cx - w / 2, x1 = cx + w / 2;
+    const z0 = cz - d / 2, z1 = cz + d / 2;
+
+    // Front face (z+): trapezoid
+    addQuad(group, mat, [x0, topY, z1], [x1, topY, z1], [rx1, ridgeY, cz], [rx0, ridgeY, cz]);
+    // Back face (z-): trapezoid
+    addQuad(group, mat, [x1, topY, z0], [x0, topY, z0], [rx0, ridgeY, cz], [rx1, ridgeY, cz]);
+    // Left hip (x-): triangle
+    addTri(group, mat, [x0, topY, z0], [x0, topY, z1], [rx0, ridgeY, cz]);
+    // Right hip (x+): triangle
+    addTri(group, mat, [x1, topY, z1], [x1, topY, z0], [rx1, ridgeY, cz]);
+    // Ridge beam
+    const rl = Math.max(0.05, rx1 - rx0);
+    const rg = new THREE.BoxGeometry(rl + 0.05, 0.07, 0.07);
+    const rm = new THREE.Mesh(rg, mat);
+    rm.position.set(cx, ridgeY + 0.035, cz);
+    group.add(rm);
+  } else {
+    // Ridge along Z
+    const ridgeHalf = Math.max(0.01, (d - w) / 2);
+    const rz0 = cz - ridgeHalf, rz1 = cz + ridgeHalf;
+    const x0 = cx - w / 2, x1 = cx + w / 2;
+    const z0 = cz - d / 2, z1 = cz + d / 2;
+
+    // Left face (x-): trapezoid
+    addQuad(group, mat, [x0, topY, z0], [x0, topY, z1], [cx, ridgeY, rz1], [cx, ridgeY, rz0]);
+    // Right face (x+): trapezoid
+    addQuad(group, mat, [x1, topY, z1], [x1, topY, z0], [cx, ridgeY, rz0], [cx, ridgeY, rz1]);
+    // Front hip (z+): triangle
+    addTri(group, mat, [x1, topY, z1], [x0, topY, z1], [cx, ridgeY, rz1]);
+    // Back hip (z-): triangle
+    addTri(group, mat, [x0, topY, z0], [x1, topY, z0], [cx, ridgeY, rz0]);
+    // Ridge beam
+    const rl = Math.max(0.05, rz1 - rz0);
+    const rg = new THREE.BoxGeometry(0.07, 0.07, rl + 0.05);
+    const rm = new THREE.Mesh(rg, mat);
+    rm.position.set(cx, ridgeY + 0.035, cz);
+    group.add(rm);
+  }
+
+  return group;
+}
+
+function buildFlatRoof(mat, bounds) {
+  const group = new THREE.Group();
+  group.name = "roof_flat";
+  const { topY, cx, cz, w, d } = bounds.roofFootprint;
+  const slabH = ftToUnits(0.5);
+  const parapetH = ftToUnits(1.5);
+  const parapetT = ftToUnits(0.33);
+
+  // Slab
+  const slabGeo = new THREE.BoxGeometry(w, slabH, d);
+  const slab = new THREE.Mesh(slabGeo, mat);
+  slab.position.set(cx, topY + slabH / 2, cz);
+  group.add(slab);
+
+  // Parapet walls
+  [
+    { size: [w + parapetT * 2, parapetH, parapetT], pos: [cx, topY + slabH + parapetH / 2, cz + d / 2 + parapetT / 2] },
+    { size: [w + parapetT * 2, parapetH, parapetT], pos: [cx, topY + slabH + parapetH / 2, cz - d / 2 - parapetT / 2] },
+    { size: [parapetT, parapetH, d], pos: [cx + w / 2 + parapetT / 2, topY + slabH + parapetH / 2, cz] },
+    { size: [parapetT, parapetH, d], pos: [cx - w / 2 - parapetT / 2, topY + slabH + parapetH / 2, cz] },
+  ].forEach(({ size, pos }) => {
+    const geo = new THREE.BoxGeometry(...size);
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(...pos);
+    group.add(m);
+  });
+
+  return group;
+}
+
+function buildShedRoof(mat, bounds) {
+  const group = new THREE.Group();
+  group.name = "roof_shed";
+  const { topY, cx, cz, w, d } = bounds.roofFootprint;
+  const pitchH = ftToUnits(6);
+
+  const x0 = cx - w / 2, x1 = cx + w / 2;
+  const z0 = cz - d / 2, z1 = cz + d / 2;
+
+  // Single slope: low at z-, high at z+
+  addQuad(group, mat,
+    [x0, topY, z0], [x1, topY, z0],
+    [x1, topY + pitchH, z1], [x0, topY + pitchH, z1],
+  );
+  // End caps
+  addTri(group, mat, [x0, topY, z0], [x0, topY, z1], [x0, topY + pitchH, z1]);
+  addTri(group, mat, [x1, topY, z1], [x1, topY, z0], [x1, topY + pitchH, z1]);
+
+  return group;
+}
+
+function buildMansardRoof(mat, bounds) {
+  const group = new THREE.Group();
+  group.name = "roof_mansard";
+  const { topY, cx, cz, w, d } = bounds.roofFootprint;
+  const lowerH = ftToUnits(5);
+  const setback = ftToUnits(2.5);
+  const upperH = ftToUnits(1.5);
+  const iw = Math.max(0.3, w - setback * 2);
+  const id = Math.max(0.3, d - setback * 2);
+
+  // 4 steep trapezoidal lower slopes
+  addQuad(group, mat,
+    [cx - w / 2, topY, cz + d / 2], [cx + w / 2, topY, cz + d / 2],
+    [cx + iw / 2, topY + lowerH, cz + id / 2], [cx - iw / 2, topY + lowerH, cz + id / 2],
+  );
+  addQuad(group, mat,
+    [cx + w / 2, topY, cz - d / 2], [cx - w / 2, topY, cz - d / 2],
+    [cx - iw / 2, topY + lowerH, cz - id / 2], [cx + iw / 2, topY + lowerH, cz - id / 2],
+  );
+  addQuad(group, mat,
+    [cx - w / 2, topY, cz - d / 2], [cx - w / 2, topY, cz + d / 2],
+    [cx - iw / 2, topY + lowerH, cz + id / 2], [cx - iw / 2, topY + lowerH, cz - id / 2],
+  );
+  addQuad(group, mat,
+    [cx + w / 2, topY, cz + d / 2], [cx + w / 2, topY, cz - d / 2],
+    [cx + iw / 2, topY + lowerH, cz - id / 2], [cx + iw / 2, topY + lowerH, cz + id / 2],
+  );
+
+  // Flat top slab
+  const topGeo = new THREE.BoxGeometry(iw, upperH, id);
+  const top = new THREE.Mesh(topGeo, mat);
+  top.position.set(cx, topY + lowerH + upperH / 2, cz);
+  group.add(top);
+
+  return group;
+}
+
+function buildRoofLayer(mats, roofType = 0) {
+  const matKey = (MATERIAL_KEY_MAP[7] || [])[roofType] || "roof_asphalt";
+  const mat = mats[matKey] || mats.roof_asphalt;
+
+  const overhangMap = [1.5, 1.5, 1.5, 1.5, 0.4, 1.5, 1.0];
+  const overhang = ftToUnits(overhangMap[roofType] ?? 1.5);
+  const footprints = getRoofFootprints(overhang);
+
+  const builders = [
+    buildGableRoof,   // 0  Gable — Asphalt
+    buildGableRoof,   // 1  Gable — Metal
+    buildHipRoof,     // 2  Hip — Asphalt
+    buildHipRoof,     // 3  Hip — Clay Tile
+    buildFlatRoof,    // 4  Flat — TPO
+    buildShedRoof,    // 5  Shed — Metal
+    buildMansardRoof, // 6  Mansard — Slate
+  ];
+  const fn = builders[roofType] || buildGableRoof;
+
+  // Build a roof section for each footprint (top story + exposed lower stories)
+  const group = new THREE.Group();
+  group.name = "layer_roof";
+  footprints.forEach((fp) => {
+    const section = fn(mat, { roofFootprint: fp });
+    group.add(section);
+  });
+  return group;
+}
+
+function buildColorPaletteLayer() {
+  const group = new THREE.Group();
+  group.name = "layer_color_palette";
+  return group;
+}
+
 // ── Update module-level dims from project floor plan ──
-function updateDims(fpW, fpD) {
+export function updateDims(fpW, fpD) {
   W = ftToUnits(fpW || 44);
   D = ftToUnits(fpD || 50);
   SH = ftToUnits(9); // per-story height; stories stack via yBase in ROOMS
   WALL_H = SH - 0.08;
 }
 
-function rebuildLayerGroups(scene, mats, foundationType = 0) {
+export function rebuildLayerGroups(scene, mats, foundationType = 0, roofType = 0) {
   const builders = [
     (m) => buildFoundationLayer(m, foundationType),
     buildFrameLayer,
@@ -629,6 +1186,8 @@ function rebuildLayerGroups(scene, mats, foundationType = 0) {
     buildDrywallLayer,
     buildCladdingLayer,
     buildPaintLayer,
+    (m) => buildRoofLayer(m, roofType),
+    buildColorPaletteLayer,
   ];
   return builders.map((fn) => {
     const g = fn(mats);
@@ -638,7 +1197,7 @@ function rebuildLayerGroups(scene, mats, foundationType = 0) {
 }
 
 // ── Build Scene ──
-function buildScene(canvas) {
+export function buildScene(canvas) {
   const renderer = new THREE.WebGLRenderer({
     canvas, antialias: true, alpha: false,
   });
@@ -661,7 +1220,7 @@ function buildScene(canvas) {
 }
 
 // ── Lighting ──
-function setupLighting(scene) {
+export function setupLighting(scene) {
   const group = new THREE.Group();
   group.name = "lighting";
 
@@ -716,7 +1275,7 @@ function setupLighting(scene) {
 }
 
 // ── Orbit Controls (manual implementation) ──
-function createOrbitControls(camera, domElement) {
+export function createOrbitControls(camera, domElement) {
   const state = {
     isRotating: false,
     isPanning: false,
@@ -823,16 +1382,64 @@ export default function LayerEditor() {
   const clippingPlaneRef = useRef(null);
   const buildUpTimerRef = useRef(null);
 
+  const navigate = useNavigate();
   const [layers, setLayers] = useState(createDefaultLayers);
   const [activeLayer, setActiveLayer] = useState(0);
   const [vizMode, setVizMode] = useState("standard");
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null); // "ok" | "err"
   const foundationTypeRef = useRef(0); // tracks current foundation option (0=slab, 1=pier&beam, 2=crawlspace)
+  const roofTypeRef = useRef(0);
+  const wallColorRef = useRef("#d0dce8");
+  const roofColorRef = useRef("#2a2a2a");
+  const [wallColor, setWallColor] = useState("#d0dce8");
+  const [roofColor, setRoofColor] = useState("#2a2a2a");
+  const [paintTarget, setPaintTarget] = useState("walls");
+  const [dragColor, setDragColor] = useState(null);
+  const [dragTarget, setDragTarget] = useState(null);
 
   const sqft = project.totalSF || 2200;
 
   const totalCost = useMemo(() => layers.reduce((s, l) => s + l.cost, 0), [layers]);
   const costPerSF = useMemo(() => Math.round(totalCost / sqft), [totalCost, sqft]);
   const maxLayerCost = useMemo(() => Math.max(...layers.map((l) => l.cost)), [layers]);
+
+  // ── ML Intelligence ──
+  const [mlData, setMlData] = useState(null);
+  const [mlLoading, setMlLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setMlLoading(true);
+      try {
+        const features = {
+          square_footage: sqft,
+          bedrooms: project.generateParams?.beds || 3,
+          bathrooms: project.generateParams?.baths || 2,
+          latitude: project.generateParams?.lat || 32.7767,
+          longitude: project.generateParams?.lng || -96.7970,
+          quality_score: 5.0,
+        };
+        const res = await costApi.predict(features);
+        if (!cancelled) setMlData(res);
+      } catch {
+        // ML panel gracefully hidden on error
+      } finally {
+        if (!cancelled) setMlLoading(false);
+      }
+    }, 400); // debounce
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [sqft, project.generateParams]);
+
+  // Inject spin animation for ML loading spinner
+  useEffect(() => {
+    if (document.getElementById("ml-spin-keyframes")) return;
+    const style = document.createElement("style");
+    style.id = "ml-spin-keyframes";
+    style.textContent = "@keyframes spin{to{transform:rotate(360deg)}}";
+    document.head.appendChild(style);
+  }, []);
 
   // ── Three.js Init ──
   useEffect(() => {
@@ -849,8 +1456,12 @@ export default function LayerEditor() {
     updateDims(project.footprintWidth, project.footprintDepth);
     updateRooms(project.floorPlan?.rooms, project.storyPlans);
 
-    // Build layer groups
-    const layerGroups = rebuildLayerGroups(scene, mats);
+    // Build layer groups (use saved foundation/roof type if available)
+    const initFoundation = project.materials?.[0]?.materialIndex ?? 0;
+    const initRoof = project.materials?.[7]?.materialIndex ?? 0;
+    foundationTypeRef.current = initFoundation;
+    roofTypeRef.current = initRoof;
+    const layerGroups = rebuildLayerGroups(scene, mats, initFoundation, initRoof);
     layerGroupsRef.current = layerGroups;
 
     // Clipping plane for section mode
@@ -901,6 +1512,64 @@ export default function LayerEditor() {
     };
   }, []);
 
+  // ── Restore saved materials & paint colors on mount ──
+  const materialsRestoredRef = useRef(false);
+  useEffect(() => {
+    if (materialsRestoredRef.current) return;
+    const saved = project.materials;
+    if (!saved || !saved.length) return;
+    materialsRestoredRef.current = true;
+
+    // Restore layer selections (materialIndex, material name, cost)
+    setLayers((prev) =>
+      prev.map((l, i) => {
+        const s = saved[i];
+        if (!s) return l;
+        const optIdx = s.materialIndex ?? 0;
+        const opt = MATERIALS_DATA[i]?.options[optIdx];
+        if (!opt) return l;
+        return { ...l, materialIndex: optIdx, material: opt.name, cost: opt.cost };
+      })
+    );
+
+    // Restore foundation / roof type refs for rebuild consistency
+    foundationTypeRef.current = saved[0]?.materialIndex ?? 0;
+    roofTypeRef.current = saved[7]?.materialIndex ?? 0;
+
+    // Restore paint colors
+    const savedWall = saved[6]?.wallColor;
+    const savedRoof = saved[7]?.roofColor;
+    if (savedWall) { wallColorRef.current = savedWall; setWallColor(savedWall); }
+    if (savedRoof) { roofColorRef.current = savedRoof; setRoofColor(savedRoof); }
+
+    // Apply to 3D scene
+    const groups = layerGroupsRef.current;
+    const mats = matsRef.current;
+    if (groups.length && mats) {
+      saved.forEach((s, i) => {
+        if (i >= 8 || !s) return;
+        const matKey = MATERIAL_KEY_MAP[i]?.[s.materialIndex ?? 0];
+        if (matKey && mats[matKey] && groups[i]) {
+          groups[i].traverse((child) => { if (child.isMesh) child.material = mats[matKey]; });
+        }
+      });
+      // Apply wall paint color
+      if (savedWall && groups[6]) {
+        const wc = new THREE.Color(savedWall);
+        groups[6].traverse((child) => {
+          if (child.isMesh) { child.material = child.material.clone(); child.material.color = wc; child.material.needsUpdate = true; }
+        });
+      }
+      // Apply roof paint color
+      if (savedRoof && groups[7]) {
+        const rc = new THREE.Color(savedRoof);
+        groups[7].traverse((child) => {
+          if (child.isMesh) { child.material = child.material.clone(); child.material.color = rc; child.material.needsUpdate = true; }
+        });
+      }
+    }
+  }, [project.materials]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Rebuild 3D model when floor plan dimensions change ──
   const dimInitRef = useRef(false);
   useEffect(() => {
@@ -922,7 +1591,7 @@ export default function LayerEditor() {
     });
 
     // Rebuild with new dims
-    const newGroups = rebuildLayerGroups(sceneData.scene, mats, foundationTypeRef.current);
+    const newGroups = rebuildLayerGroups(sceneData.scene, mats, foundationTypeRef.current, roofTypeRef.current);
     layerGroupsRef.current = newGroups;
     layers.forEach((l, i) => { if (newGroups[i]) newGroups[i].visible = l.visible; });
   }, [project.footprintWidth, project.footprintDepth, project.floorPlan, project.storyPlans]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -938,6 +1607,7 @@ export default function LayerEditor() {
 
   // ── Sync material changes ──
   const updateLayerMaterial = useCallback((layerIdx, matIdx) => {
+    if (layerIdx === 8) return; // Color palette is UI-only — no material to swap
     const groups = layerGroupsRef.current;
     const mats = matsRef.current;
     if (!groups[layerIdx] || !mats) return;
@@ -991,14 +1661,6 @@ export default function LayerEditor() {
     });
 
     switch (vizMode) {
-      case "exploded": {
-        const gap = ftToUnits(2.5);
-        groups.forEach((g, i) => {
-          g.position.y = i * gap;
-        });
-        break;
-      }
-
       case "ghost": {
         groups.forEach((g, i) => {
           g.visible = true; // show all for ghost
@@ -1053,36 +1715,17 @@ export default function LayerEditor() {
         break;
       }
 
-      case "heatmap": {
-        groups.forEach((g, i) => {
-          const t = layers[i].cost / maxLayerCost;
-          const hc = heatColor(t);
-          g.traverse((child) => {
-            if (child.isMesh) {
-              child.material = new THREE.MeshStandardMaterial({
-                color: hc,
-                roughness: 0.5,
-                metalness: 0.1,
-                emissive: hc,
-                emissiveIntensity: 0.15,
-              });
-            }
-          });
-        });
-        break;
-      }
-
       case "buildup": {
         // Hide all, then reveal bottom-to-top over 5 seconds
         groups.forEach((g) => { g.visible = false; });
         let currentLayer = 0;
-        const interval = 5000 / 7;
+        const interval = 5000 / MATERIALS_DATA.length;
         buildUpTimerRef.current = setInterval(() => {
-          if (currentLayer < 7 && groups[currentLayer]) {
+          if (currentLayer < MATERIALS_DATA.length && groups[currentLayer]) {
             groups[currentLayer].visible = true;
           }
           currentLayer++;
-          if (currentLayer >= 7) {
+          if (currentLayer >= MATERIALS_DATA.length) {
             clearInterval(buildUpTimerRef.current);
             buildUpTimerRef.current = null;
           }
@@ -1101,6 +1744,79 @@ export default function LayerEditor() {
       }
     };
   }, [vizMode, activeLayer, layers, maxLayerCost, updateLayerMaterial]);
+
+  // ── Save to MongoDB ──
+  const handleSave = useCallback(async () => {
+    setSaving(true); setSaveStatus(null);
+    try {
+      const materialsPayload = layers.map((l, i) => {
+        const entry = { name: l.name, material: l.material, cost: l.cost, materialIndex: l.materialIndex };
+        if (i === 6) entry.wallColor = wallColorRef.current;
+        if (i === 7) entry.roofColor = roofColorRef.current;
+        return entry;
+      });
+      const payload = {
+        name: project.projectName || "New Project",
+        materials: materialsPayload,
+      };
+      let saved;
+      if (project.projectId) {
+        saved = await projectsApi.update(project.projectId, payload);
+      } else {
+        saved = await projectsApi.create(payload);
+      }
+      if (saved?.id) project.setProjectId(saved.id);
+      project.setMaterials(materialsPayload);
+
+      // Sync building context from material selections
+      const foundationMap = { "Slab": "slab_on_grade", "Pier & Beam": "pier", "Crawlspace": "crawlspace" };
+      const foundationName = layers[0]?.material || "Slab";
+      const framingName = layers[1]?.material || "Wood SPF";
+      project.setBuildingContext({
+        foundation_type: foundationMap[foundationName] || "slab_on_grade",
+        framing_material: framingName,
+      });
+
+      setSaveStatus("ok");
+      setTimeout(() => setSaveStatus(null), 2500);
+    } catch (_) {
+      setSaveStatus("err");
+      setTimeout(() => setSaveStatus(null), 2500);
+    } finally {
+      setSaving(false);
+    }
+  }, [layers, project]);
+
+  // ── Color paint callbacks ──
+  const applyWallColor = useCallback((hex) => {
+    wallColorRef.current = hex;
+    setWallColor(hex);
+    const groups = layerGroupsRef.current;
+    if (!groups[6]) return; // paint layer is index 6
+    const color = new THREE.Color(hex);
+    groups[6].traverse((child) => {
+      if (child.isMesh) {
+        child.material = child.material.clone();
+        child.material.color = color;
+        child.material.needsUpdate = true;
+      }
+    });
+  }, []);
+
+  const applyRoofColor = useCallback((hex) => {
+    roofColorRef.current = hex;
+    setRoofColor(hex);
+    const groups = layerGroupsRef.current;
+    if (!groups[7]) return; // roof layer is index 7
+    const color = new THREE.Color(hex);
+    groups[7].traverse((child) => {
+      if (child.isMesh) {
+        child.material = child.material.clone();
+        child.material.color = color;
+        child.material.needsUpdate = true;
+      }
+    });
+  }, []);
 
   // ── Handlers ──
   const handleToggleLayer = useCallback((idx) => {
@@ -1121,6 +1837,8 @@ export default function LayerEditor() {
         : l
     ));
 
+    if (layerIdx === 8) return; // Color palette — no geometry to update
+
     if (layerIdx === 0) {
       // Foundation type changed — rebuild geometry
       foundationTypeRef.current = optionIdx;
@@ -1137,385 +1855,715 @@ export default function LayerEditor() {
       newGroup.visible = wasVisible;
       sceneData.scene.add(newGroup);
       layerGroupsRef.current = [newGroup, ...layerGroupsRef.current.slice(1)];
+    } else if (layerIdx === 7) {
+      // Roof style changed — rebuild roof geometry
+      roofTypeRef.current = optionIdx;
+      const sceneData = sceneRef.current;
+      const mats = matsRef.current;
+      if (!sceneData || !mats) return;
+      const oldGroup = layerGroupsRef.current[7];
+      const wasVisible = oldGroup?.visible ?? true;
+      if (oldGroup) {
+        sceneData.scene.remove(oldGroup);
+        oldGroup.traverse((child) => { if (child.geometry) child.geometry.dispose(); });
+      }
+      const newGroup = buildRoofLayer(mats, optionIdx);
+      newGroup.visible = wasVisible;
+      // Re-apply current roof color
+      if (roofColorRef.current !== "#2a2a2a") {
+        const c = new THREE.Color(roofColorRef.current);
+        newGroup.traverse((child) => {
+          if (child.isMesh) { child.material = child.material.clone(); child.material.color = c; }
+        });
+      }
+      sceneData.scene.add(newGroup);
+      layerGroupsRef.current = [
+        ...layerGroupsRef.current.slice(0, 7),
+        newGroup,
+        ...layerGroupsRef.current.slice(8),
+      ];
     } else {
       updateLayerMaterial(layerIdx, optionIdx);
     }
   }, [updateLayerMaterial]);
 
   // ── Styles ──
-  const S = {
-    root: {
-      display: "flex",
-      width: "100%",
-      height: "100vh",
-      background: colors.bg,
-      fontFamily: fonts.label,
-      color: colors.text,
-      overflow: "hidden",
-    },
-    viewport: {
-      flex: "0 0 65%",
-      position: "relative",
-      background: "#0a0e17",
-      minHeight: 0,
-    },
-    canvas: {
-      width: "100%",
-      height: "100%",
-      display: "block",
-    },
-    vizBar: {
-      position: "absolute",
-      bottom: 16,
-      left: "50%",
-      transform: "translateX(-50%)",
-      display: "flex",
-      gap: 4,
-      background: "rgba(15, 20, 32, 0.85)",
-      backdropFilter: "blur(12px)",
-      border: `1px solid ${colors.panelBorder}`,
-      borderRadius: 8,
-      padding: "4px 6px",
-      zIndex: 10,
-    },
-    vizBtn: (active) => ({
-      padding: "6px 14px",
-      fontSize: 12,
-      fontFamily: fonts.data,
-      fontWeight: 600,
-      letterSpacing: "0.02em",
-      border: "none",
-      borderRadius: 6,
-      cursor: "pointer",
-      transition: "all 0.15s ease",
-      background: active ? colors.accent : "transparent",
-      color: active ? "#0a0e17" : colors.textDim,
-    }),
-    panel: {
-      flex: "0 0 35%",
-      display: "flex",
-      flexDirection: "column",
-      background: colors.panel,
-      borderLeft: `1px solid ${colors.panelBorder}`,
-      overflowY: "auto",
-      minHeight: 0,
-    },
-    panelSection: {
-      padding: "16px 20px",
-      borderBottom: `1px solid ${colors.panelBorder}`,
-    },
-    sectionTitle: {
-      fontSize: 11,
-      fontFamily: fonts.data,
-      fontWeight: 700,
-      letterSpacing: "0.1em",
-      textTransform: "uppercase",
-      color: colors.textDim,
-      marginBottom: 12,
-    },
-    layerRow: (isActive) => ({
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      padding: "8px 10px",
-      borderRadius: 6,
-      cursor: "pointer",
-      transition: "all 0.15s ease",
-      background: isActive ? colors.surfaceHover : "transparent",
-      border: isActive ? `1px solid ${colors.accent}33` : "1px solid transparent",
-    }),
-    checkbox: (checked, layerColor) => ({
-      width: 18,
-      height: 18,
-      borderRadius: 4,
-      border: `2px solid ${checked ? layerColor : colors.textDim}`,
-      background: checked ? layerColor : "transparent",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      cursor: "pointer",
-      flexShrink: 0,
-      transition: "all 0.15s ease",
-    }),
-    checkMark: {
-      color: "#0a0e17",
-      fontSize: 12,
-      fontWeight: 800,
-      lineHeight: 1,
-    },
-    layerLabel: {
-      fontSize: 13,
-      fontWeight: 500,
-      color: colors.text,
-      flex: 1,
-    },
-    layerNumber: {
-      fontSize: 11,
-      fontFamily: fonts.data,
-      color: colors.textDim,
-      width: 16,
-      textAlign: "right",
-      flexShrink: 0,
-    },
-    colorDot: (c) => ({
-      width: 8,
-      height: 8,
-      borderRadius: "50%",
-      background: c,
-      flexShrink: 0,
-    }),
-    materialOption: (isSelected) => ({
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      padding: "8px 12px",
-      borderRadius: 6,
-      cursor: "pointer",
-      transition: "all 0.15s ease",
-      background: isSelected ? `${colors.accent}18` : "transparent",
-      border: isSelected ? `1px solid ${colors.accent}44` : "1px solid transparent",
-    }),
-    radio: (isSelected) => ({
-      width: 16,
-      height: 16,
-      borderRadius: "50%",
-      border: `2px solid ${isSelected ? colors.accent : colors.textDim}`,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      flexShrink: 0,
-    }),
-    radioDot: {
-      width: 8,
-      height: 8,
-      borderRadius: "50%",
-      background: colors.accent,
-    },
-    materialName: {
-      flex: 1,
-      fontSize: 13,
-      color: colors.text,
-    },
-    costDelta: (positive) => ({
-      fontSize: 11,
-      fontFamily: fonts.data,
-      fontWeight: 600,
-      color: positive ? colors.warn : colors.success,
-      background: positive ? colors.warnDim : colors.successDim,
-      padding: "2px 8px",
-      borderRadius: 10,
-    }),
-    costRow: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      marginBottom: 8,
-    },
-    costLabel: {
-      width: 90,
-      fontSize: 12,
-      color: colors.textDim,
-      fontFamily: fonts.data,
-    },
-    costMaterial: {
-      flex: 1,
-      fontSize: 11,
-      color: colors.textDim,
-      fontFamily: fonts.data,
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      whiteSpace: "nowrap",
-    },
-    costBarOuter: {
-      flex: 1,
-      height: 6,
-      background: colors.surface,
-      borderRadius: 3,
-      overflow: "hidden",
-    },
-    costBarInner: (pct, color) => ({
-      width: `${pct}%`,
-      height: "100%",
-      background: color || colors.accent,
-      borderRadius: 3,
-      transition: "width 0.3s ease",
-    }),
-    costValue: {
-      width: 55,
-      textAlign: "right",
-      fontSize: 12,
-      fontFamily: fonts.data,
-      fontWeight: 600,
-      color: colors.text,
-    },
-    totalRow: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "baseline",
-      paddingTop: 12,
-      marginTop: 8,
-      borderTop: `1px solid ${colors.panelBorder}`,
-    },
-    totalLabel: {
-      fontSize: 13,
-      fontWeight: 700,
-      color: colors.textDim,
-      textTransform: "uppercase",
-      letterSpacing: "0.08em",
-      fontFamily: fonts.data,
-    },
-    totalValue: {
-      fontSize: 24,
-      fontWeight: 800,
-      fontFamily: fonts.data,
-      color: colors.accent,
-    },
-    sfMetric: {
-      fontSize: 12,
-      fontFamily: fonts.data,
-      color: colors.textDim,
-      marginTop: 4,
-      textAlign: "right",
-    },
-    activeLayerLabel: {
-      fontSize: 13,
-      fontFamily: fonts.data,
-      color: colors.accent,
-      marginBottom: 10,
-      fontWeight: 600,
-    },
-  };
-
   const layerData = MATERIALS_DATA[activeLayer];
   const currentMaterialIndex = layers[activeLayer].materialIndex;
   const currentCost = layers[activeLayer].cost;
 
-  return (
-    <div style={S.root}>
-      {/* ── Left: 3D Viewport ── */}
-      <div style={S.viewport}>
-        <canvas ref={canvasRef} style={S.canvas} />
-        <div style={S.vizBar}>
-          {VIZ_MODES.map((m) => (
-            <button
-              key={m.key}
-              style={S.vizBtn(vizMode === m.key)}
-              onClick={() => setVizMode(m.key)}
-              onMouseEnter={(e) => {
-                if (vizMode !== m.key) {
-                  e.currentTarget.style.background = colors.surfaceHover;
-                  e.currentTarget.style.color = colors.text;
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (vizMode !== m.key) {
-                  e.currentTarget.style.background = "transparent";
-                  e.currentTarget.style.color = colors.textDim;
-                }
-              }}
-            >
-              {m.label}
-            </button>
-          ))}
+  // Workflow stages for breadcrumb
+  const STAGES = [
+    { key: "develop", label: "Plan", route: "/develop" },
+    { key: "edit",    label: "3D Edit", route: "/edit" },
+    { key: "feasibility", label: "Feasibility", route: "/feasibility" },
+    { key: "structural", label: "Structural", route: "/structural" },
+    { key: "schedule",   label: "Schedule", route: "/schedule" },
+  ];
+  const currentStageIdx = 1; // 3D Edit
+
+  /* ── Guard: only show "no project" if user navigated here directly ── */
+  const hasActiveWorkflow = project.projectId || project.generateParams || project.floorPlan;
+  if (!hasActiveWorkflow) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", background: "#0d1117", fontFamily: "'Inter', sans-serif" }}>
+        <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 24 }}>
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M6 6h8l6 6v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z" stroke="#3b82f6" strokeWidth="1.5" fill="none" /><path d="M14 6v6h6" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" /><path d="M9 17h10M9 20h6" stroke="#3b82f6" strokeWidth="1.2" strokeLinecap="round" opacity="0.6" /></svg>
+        </div>
+        <h2 style={{ margin: "0 0 10px", fontSize: 22, fontWeight: 700, color: "#f1f5f9" }}>No project selected</h2>
+        <p style={{ margin: "0 0 32px", fontSize: 14, color: "#64748b", textAlign: "center", maxWidth: 340, lineHeight: 1.6 }}>Please select or create a project first before accessing this section.</p>
+        <div style={{ display: "flex", gap: 12 }}>
+          <button onClick={() => navigate("/projects")} style={{ padding: "11px 24px", background: "linear-gradient(135deg, #2563eb, #1d4ed8)", border: "none", borderRadius: 8, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", boxShadow: "0 2px 14px rgba(37,99,235,0.4)" }}>Go to Projects</button>
+          <button onClick={() => navigate("/")} style={{ padding: "11px 24px", background: "transparent", border: "1px solid #2a3548", borderRadius: 8, color: "#94a3b8", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Back to Dashboard</button>
         </div>
       </div>
+    );
+  }
 
-      {/* ── Right: Control Panel ── */}
-      <div style={S.panel}>
-        {/* Layer Toggle Panel */}
-        <div style={S.panelSection}>
-          <div style={S.sectionTitle}>Layer Controls</div>
-          {[...MATERIALS_DATA].reverse().map((ld, ri) => {
-            const i = 6 - ri; // reverse: 7 at top, 1 at bottom
-            const layer = layers[i];
-            const isActive = activeLayer === i;
-            return (
-              <div
-                key={i}
-                style={S.layerRow(isActive)}
-                onClick={() => handleSelectLayer(i)}
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column",
+      width: "100%", height: "100vh",
+      background: colors.bg, fontFamily: fonts.label, color: colors.text, overflow: "hidden",
+    }}>
+
+      {/* ── Main content row ── */}
+      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+
+        {/* ── Left: 3D Viewport ── */}
+        <div style={{ flex: "0 0 65%", position: "relative", background: "#080c14", minHeight: 0 }}>
+          <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
+
+          {/* Project name overlay — top left */}
+          <div style={{
+            position: "absolute", top: 16, left: 16,
+            display: "flex", alignItems: "center", gap: 8,
+            background: "rgba(8,12,20,0.75)", backdropFilter: "blur(10px)",
+            border: "1px solid #1a2236", borderRadius: 8, padding: "6px 12px",
+          }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: "50%",
+              background: colors.accent, boxShadow: `0 0 6px ${colors.accent}`,
+            }} />
+            <span style={{ fontSize: 12, fontFamily: fonts.data, color: colors.textBright, fontWeight: 600 }}>
+              {project.projectName || "New Project"}
+            </span>
+            <span style={{
+              fontSize: 10, fontFamily: fonts.data, color: colors.textDim,
+              background: "#1a2236", padding: "2px 6px", borderRadius: 4,
+            }}>
+              {project.stories || 1}F
+            </span>
+          </div>
+
+          {/* Viz mode bar — bottom center */}
+          <div style={{
+            position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)",
+            display: "flex", gap: 2,
+            background: "rgba(8,12,20,0.92)", backdropFilter: "blur(16px)",
+            border: "1px solid #1a2236", borderRadius: 10,
+            padding: "4px 5px", zIndex: 10,
+          }}>
+            {VIZ_MODES.map((m) => (
+              <button
+                key={m.key}
+                onClick={() => setVizMode(m.key)}
+                style={{
+                  padding: "5px 13px",
+                  fontSize: 11, fontFamily: fonts.data, fontWeight: 600,
+                  letterSpacing: "0.04em", textTransform: "uppercase",
+                  border: "none", borderRadius: 7, cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  background: vizMode === m.key ? colors.accent : "transparent",
+                  color: vizMode === m.key ? "#080c14" : colors.textDim,
+                  boxShadow: vizMode === m.key ? `0 0 12px ${colors.accent}55` : "none",
+                }}
               >
-                <div
-                  style={S.checkbox(layer.visible, ld.color)}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleToggleLayer(i);
-                  }}
-                >
-                  {layer.visible && <span style={S.checkMark}>&#10003;</span>}
-                </div>
-                <span style={S.layerNumber}>{i + 1}.</span>
-                <span style={S.layerLabel}>{ld.name}</span>
-                <span style={S.colorDot(ld.color)} />
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Total cost badge — bottom right of viewport */}
+          <div style={{
+            position: "absolute", bottom: 16, right: 16,
+            background: "rgba(8,12,20,0.85)", backdropFilter: "blur(10px)",
+            border: "1px solid #1a2236", borderRadius: 8, padding: "8px 14px",
+            textAlign: "right",
+          }}>
+            <div style={{ fontSize: 11, fontFamily: fonts.data, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.08em" }}>Est. Cost</div>
+            <div style={{ fontSize: 20, fontFamily: fonts.data, fontWeight: 800, color: colors.accent, lineHeight: 1.2 }}>
+              ${totalCost.toLocaleString()}
+            </div>
+            <div style={{ fontSize: 11, fontFamily: fonts.data, color: colors.textDim }}>
+              ${costPerSF}/SF · {sqft.toLocaleString()} SF
+            </div>
+            {mlData && mlData.feasibility && (
+              <div style={{
+                marginTop: 4, paddingTop: 4, borderTop: "1px solid #1a2236",
+                fontSize: 10, fontFamily: fonts.data,
+                color: mlData.feasibility.viable ? colors.success : colors.danger,
+              }}>
+                MV ${Math.round(mlData.feasibility.market_value_estimate).toLocaleString()} · {mlData.feasibility.margin_pct > 0 ? "+" : ""}{mlData.feasibility.margin_pct}%
               </div>
-            );
-          })}
+            )}
+          </div>
         </div>
 
-        {/* Material Picker */}
-        <div style={S.panelSection}>
-          <div style={S.sectionTitle}>Material Picker</div>
-          <div style={S.activeLayerLabel}>
-            Layer {activeLayer + 1}: {layerData.name}
+        {/* ── Right: Control Panel ── */}
+        <div style={{
+          flex: "0 0 35%",
+          display: "flex", flexDirection: "column",
+          background: colors.panel,
+          borderLeft: "1px solid #1a2236",
+          minHeight: 0, overflow: "hidden",
+        }}>
+
+          {/* Panel header */}
+          <div style={{
+            flexShrink: 0,
+            padding: "14px 20px",
+            borderBottom: "1px solid #1a2236",
+            display: "flex", alignItems: "center", gap: 10,
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <rect x="3" y="3" width="8" height="8" rx="1.5" stroke={colors.accent} strokeWidth="1.8"/>
+              <rect x="13" y="3" width="8" height="8" rx="1.5" stroke={colors.textDim} strokeWidth="1.8"/>
+              <rect x="3" y="13" width="8" height="8" rx="1.5" stroke={colors.textDim} strokeWidth="1.8"/>
+              <rect x="13" y="13" width="8" height="8" rx="1.5" stroke={colors.textDim} strokeWidth="1.8"/>
+            </svg>
+            <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, flex: 1 }}>LAYER EDITOR</span>
+            <span style={{
+              fontSize: 10, fontFamily: fonts.data, color: colors.accent,
+              background: `${colors.accent}15`, border: `1px solid ${colors.accent}30`,
+              padding: "2px 8px", borderRadius: 10, letterSpacing: "0.06em",
+            }}>9 LAYERS</span>
           </div>
-          {layerData.options.map((opt, oi) => {
-            const isSelected = oi === currentMaterialIndex;
-            const delta = opt.cost - currentCost;
-            return (
-              <div
-                key={oi}
-                style={S.materialOption(isSelected)}
-                onClick={() => handleMaterialChange(activeLayer, oi)}
-              >
-                <div style={S.radio(isSelected)}>
-                  {isSelected && <div style={S.radioDot} />}
+
+          {/* Scrollable section */}
+          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+
+            {/* Layer Controls */}
+            <div style={{ padding: "14px 20px", borderBottom: "1px solid #1a2236" }}>
+              <div style={{
+                fontSize: 10, fontFamily: fonts.data, fontWeight: 700,
+                letterSpacing: "0.12em", textTransform: "uppercase",
+                color: colors.textDim, marginBottom: 10,
+              }}>Layer Controls</div>
+
+              {[...MATERIALS_DATA].reverse().map((ld, ri) => {
+                const i = MATERIALS_DATA.length - 1 - ri;
+                const layer = layers[i];
+                const isActive = activeLayer === i;
+                return (
+                  <div
+                    key={i}
+                    onClick={() => handleSelectLayer(i)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10,
+                      padding: "7px 10px", borderRadius: 7, cursor: "pointer",
+                      marginBottom: 2,
+                      transition: "all 0.15s ease",
+                      background: isActive ? `${colors.accent}10` : "transparent",
+                      border: isActive ? `1px solid ${colors.accent}30` : "1px solid transparent",
+                    }}
+                  >
+                    {/* Visibility toggle */}
+                    <div
+                      onClick={(e) => { e.stopPropagation(); handleToggleLayer(i); }}
+                      style={{
+                        width: 18, height: 18, borderRadius: 4, flexShrink: 0,
+                        border: `2px solid ${layer.visible ? ld.color : "#2a3548"}`,
+                        background: layer.visible ? ld.color : "transparent",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        cursor: "pointer", transition: "all 0.15s ease",
+                      }}
+                    >
+                      {layer.visible && (
+                        <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                          <path d="M1 4L3.5 6.5L9 1" stroke="#080c14" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                    </div>
+                    {/* Layer number */}
+                    <span style={{ fontSize: 10, fontFamily: fonts.data, color: colors.textDim, width: 14, flexShrink: 0 }}>{i + 1}</span>
+                    {/* Layer name */}
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: isActive ? 600 : 400, color: isActive ? colors.textBright : colors.text }}>
+                      {ld.name}
+                    </span>
+                    {/* Selected material chip */}
+                    <span style={{
+                      fontSize: 10, fontFamily: fonts.data,
+                      color: isActive ? colors.accent : colors.textDim,
+                      background: isActive ? `${colors.accent}10` : "transparent",
+                      padding: "1px 6px", borderRadius: 4,
+                      whiteSpace: "nowrap",
+                    }}>{layer.material}</span>
+                    {/* Color dot */}
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: ld.color, flexShrink: 0 }} />
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Material Picker */}
+            <div style={{ padding: "14px 20px", borderBottom: "1px solid #1a2236" }}>
+              <div style={{
+                fontSize: 10, fontFamily: fonts.data, fontWeight: 700,
+                letterSpacing: "0.12em", textTransform: "uppercase",
+                color: colors.textDim, marginBottom: 4,
+              }}>Material Picker</div>
+              <div style={{
+                fontSize: 13, fontFamily: fonts.data, fontWeight: 600,
+                color: colors.accent, marginBottom: 10,
+              }}>Layer {activeLayer + 1}: {layerData.name}</div>
+
+              {activeLayer === 8 ? (
+                /* ── Color Palette (Layer 9) ── */
+                <div>
+                  {/* Drop targets */}
+                  <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                    {[
+                      { key: "walls", label: "Walls", color: wallColor, fn: applyWallColor },
+                      { key: "roof",  label: "Roof",  color: roofColor, fn: applyRoofColor },
+                    ].map(({ key, label, color, fn }) => (
+                      <div
+                        key={key}
+                        onDragOver={(e) => { e.preventDefault(); setDragTarget(key); }}
+                        onDragLeave={() => setDragTarget(null)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const hex = e.dataTransfer.getData("text/plain");
+                          if (hex) fn(hex);
+                          setDragTarget(null);
+                          setDragColor(null);
+                        }}
+                        onClick={() => setPaintTarget(key)}
+                        style={{
+                          flex: 1, borderRadius: 8, padding: "10px 8px",
+                          cursor: "pointer", textAlign: "center",
+                          border: `2px solid ${(dragTarget === key || paintTarget === key) ? colors.accent : "#2a3548"}`,
+                          background: dragTarget === key ? `${colors.accent}15` : "rgba(26,34,54,0.6)",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div style={{
+                          width: 32, height: 32, borderRadius: "50%",
+                          background: color,
+                          border: "2px solid #2a3548",
+                          margin: "0 auto 6px",
+                        }} />
+                        <div style={{ fontSize: 11, fontFamily: fonts.data, color: colors.textDim }}>{label}</div>
+                        <div style={{ fontSize: 10, fontFamily: fonts.data, color: colors.textDim, marginTop: 2 }}>{color}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Swatch grid */}
+                  <div style={{
+                    display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginBottom: 12,
+                  }}>
+                    {PAINT_COLORS.map((sw) => (
+                      <div
+                        key={sw.hex}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/plain", sw.hex);
+                          setDragColor(sw.hex);
+                        }}
+                        onDragEnd={() => setDragColor(null)}
+                        onClick={() => {
+                          if (paintTarget === "walls") applyWallColor(sw.hex);
+                          else applyRoofColor(sw.hex);
+                        }}
+                        title={sw.name}
+                        style={{
+                          height: 32, borderRadius: 6,
+                          background: sw.hex,
+                          cursor: "grab",
+                          border: dragColor === sw.hex ? `2px solid ${colors.accent}` : "2px solid transparent",
+                          transition: "transform 0.1s ease, border-color 0.1s ease",
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.1)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Custom hex input */}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <input
+                      type="color"
+                      value={paintTarget === "walls" ? wallColor : roofColor}
+                      onChange={(e) => {
+                        if (paintTarget === "walls") applyWallColor(e.target.value);
+                        else applyRoofColor(e.target.value);
+                      }}
+                      style={{ width: 32, height: 28, border: "none", padding: 0, cursor: "pointer", background: "none" }}
+                    />
+                    <input
+                      type="text"
+                      value={paintTarget === "walls" ? wallColor : roofColor}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (/^#[0-9A-Fa-f]{6}$/.test(v)) {
+                          if (paintTarget === "walls") applyWallColor(v);
+                          else applyRoofColor(v);
+                        }
+                      }}
+                      placeholder="#RRGGBB"
+                      style={{
+                        flex: 1, padding: "5px 10px", borderRadius: 6,
+                        background: "rgba(26,34,54,0.8)", border: "1px solid #2a3548",
+                        color: colors.text, fontFamily: fonts.data, fontSize: 12,
+                        outline: "none",
+                      }}
+                    />
+                    <div style={{
+                      fontSize: 10, fontFamily: fonts.data, color: colors.textDim,
+                      background: `${colors.accent}10`, border: `1px solid ${colors.accent}20`,
+                      padding: "4px 8px", borderRadius: 6,
+                    }}>
+                      {paintTarget === "walls" ? "WALLS" : "ROOF"}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 10, fontSize: 10, fontFamily: fonts.data, color: colors.textDim }}>
+                    Drag swatches onto drop targets, or click a swatch to paint the active surface.
+                  </div>
                 </div>
-                <span style={S.materialName}>{opt.name}</span>
-                {delta !== 0 && (
-                  <span style={S.costDelta(delta > 0)}>
-                    {delta > 0 ? "+" : ""}{fmtCost(Math.abs(delta))}
+              ) : (
+                layerData.options.map((opt, oi) => {
+                  const isSelected = oi === currentMaterialIndex;
+                  const delta = opt.cost - currentCost;
+                  return (
+                    <div
+                      key={oi}
+                      onClick={() => handleMaterialChange(activeLayer, oi)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "9px 12px", borderRadius: 7,
+                        cursor: "pointer", marginBottom: 4,
+                        transition: "all 0.15s ease",
+                        background: isSelected ? `${colors.accent}12` : "rgba(26,34,54,0.4)",
+                        border: isSelected ? `1px solid ${colors.accent}40` : "1px solid #1a2236",
+                      }}
+                    >
+                      <div style={{
+                        width: 16, height: 16, borderRadius: "50%", flexShrink: 0,
+                        border: `2px solid ${isSelected ? colors.accent : "#2a3548"}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        {isSelected && <div style={{ width: 7, height: 7, borderRadius: "50%", background: colors.accent }} />}
+                      </div>
+                      <span style={{ flex: 1, fontSize: 13, color: isSelected ? colors.textBright : colors.text }}>{opt.name}</span>
+                      <span style={{ fontSize: 11, fontFamily: fonts.data, color: colors.textDim }}>
+                        ${(opt.cost / 1000).toFixed(0)}K
+                      </span>
+                      {delta !== 0 && (
+                        <span style={{
+                          fontSize: 10, fontFamily: fonts.data, fontWeight: 600,
+                          color: delta > 0 ? colors.warn : colors.success,
+                          background: delta > 0 ? colors.warnDim : colors.successDim,
+                          padding: "2px 6px", borderRadius: 6,
+                        }}>
+                          {delta > 0 ? "+" : ""}{fmtCost(Math.abs(delta))}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Cost Breakdown */}
+            <div style={{ padding: "14px 20px" }}>
+              <div style={{
+                fontSize: 10, fontFamily: fonts.data, fontWeight: 700,
+                letterSpacing: "0.12em", textTransform: "uppercase",
+                color: colors.textDim, marginBottom: 12,
+              }}>Cost Breakdown</div>
+
+              {layers.map((l, i) => {
+                const pct = maxLayerCost > 0 ? (l.cost / maxLayerCost) * 100 : 0;
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9 }}>
+                    <div style={{ width: 5, height: 5, borderRadius: "50%", background: MATERIALS_DATA[i].color, flexShrink: 0 }} />
+                    <span style={{ width: 82, fontSize: 11, fontFamily: fonts.data, color: colors.textDim, flexShrink: 0 }}>{l.name}</span>
+                    <div style={{ flex: 1, height: 5, background: "#141b2d", borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{
+                        width: `${pct}%`, height: "100%",
+                        background: MATERIALS_DATA[i].color, borderRadius: 3,
+                        transition: "width 0.3s ease",
+                      }} />
+                    </div>
+                    <span style={{ width: 48, textAlign: "right", fontSize: 12, fontFamily: fonts.data, fontWeight: 600, color: colors.text }}>
+                      {fmtCost(l.cost)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── ML Intelligence Panel ── */}
+          {mlData && !mlLoading && (
+            <div style={{ padding: "14px 20px", borderTop: "1px solid #1a2236" }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8, marginBottom: 12,
+              }}>
+                <div style={{
+                  fontSize: 10, fontFamily: fonts.data, fontWeight: 700,
+                  letterSpacing: "0.12em", textTransform: "uppercase",
+                  color: colors.accent, flex: 1,
+                }}>ML Market Intelligence</div>
+                {mlData.cluster && (
+                  <span style={{
+                    fontSize: 9, fontFamily: fonts.data, fontWeight: 700,
+                    letterSpacing: "0.08em", textTransform: "uppercase",
+                    padding: "2px 8px", borderRadius: 10,
+                    background: mlData.cluster.tier === "premium" ? `${colors.success}20`
+                      : mlData.cluster.tier === "above_average" ? `${colors.accent}15`
+                      : mlData.cluster.tier === "value" ? `${colors.warn}20`
+                      : "rgba(26,34,54,0.6)",
+                    color: mlData.cluster.tier === "premium" ? colors.success
+                      : mlData.cluster.tier === "above_average" ? colors.accent
+                      : mlData.cluster.tier === "value" ? colors.warn
+                      : colors.textDim,
+                    border: `1px solid ${
+                      mlData.cluster.tier === "premium" ? `${colors.success}40`
+                      : mlData.cluster.tier === "above_average" ? `${colors.accent}30`
+                      : mlData.cluster.tier === "value" ? `${colors.warn}40`
+                      : "#2a3548"
+                    }`,
+                  }}>
+                    {mlData.cluster.tier.replace(/_/g, " ")}
                   </span>
                 )}
               </div>
-            );
-          })}
-        </div>
 
-        {/* Cost Breakdown */}
-        <div style={{ ...S.panelSection, borderBottom: "none", flex: 1 }}>
-          <div style={S.sectionTitle}>Cost Breakdown</div>
-          {layers.map((l, i) => {
-            const pct = maxLayerCost > 0 ? (l.cost / maxLayerCost) * 100 : 0;
-            return (
-              <div key={i} style={S.costRow}>
-                <span style={S.costLabel}>{l.name}</span>
-                <div style={S.costBarOuter}>
-                  <div style={S.costBarInner(pct, MATERIALS_DATA[i].color)} />
+              {/* Market Value vs Construction Cost */}
+              {mlData.feasibility && (() => {
+                const f = mlData.feasibility;
+                const marginColor = f.margin_pct > 20 ? colors.success
+                  : f.margin_pct > 10 ? colors.warn
+                  : colors.danger;
+                return (
+                  <div style={{
+                    background: "rgba(26,34,54,0.4)", border: "1px solid #1a2236",
+                    borderRadius: 8, padding: "10px 12px", marginBottom: 10,
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                      <div>
+                        <div style={{ fontSize: 9, fontFamily: fonts.data, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.08em" }}>Market Value</div>
+                        <div style={{ fontSize: 16, fontFamily: fonts.data, fontWeight: 700, color: colors.textBright }}>
+                          ${Math.round(f.market_value_estimate).toLocaleString()}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 9, fontFamily: fonts.data, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.08em" }}>ML Cost/SF</div>
+                        <div style={{ fontSize: 16, fontFamily: fonts.data, fontWeight: 700, color: colors.accent }}>
+                          ${mlData.cost_per_sf}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Margin bar */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ flex: 1, height: 4, background: "#141b2d", borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{
+                          width: `${Math.min(Math.max(f.margin_pct, 0), 50) * 2}%`,
+                          height: "100%", background: marginColor, borderRadius: 2,
+                          transition: "width 0.3s ease",
+                        }} />
+                      </div>
+                      <span style={{ fontSize: 11, fontFamily: fonts.data, fontWeight: 700, color: marginColor }}>
+                        {f.margin_pct > 0 ? "+" : ""}{f.margin_pct}%
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 9, fontFamily: fonts.data, color: colors.textDim, marginTop: 4 }}>
+                      {f.viable ? "✓ Feasible" : "✗ Below 15% threshold"} · CI: ${mlData.confidence_interval_95.low}–${mlData.confidence_interval_95.high}/SF
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Per-layer: Selected vs ML Suggested */}
+              {mlData.construction_cost_breakdown && (
+                <div>
+                  <div style={{
+                    fontSize: 9, fontFamily: fonts.data, color: colors.textDim,
+                    textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8,
+                  }}>Selected vs ML Estimate</div>
+                  {layers.slice(0, 8).map((l, i) => {
+                    const layerKey = ["foundation", "framing", "sheathing", "insulation", "drywall", "cladding", "paint", "roof"][i];
+                    const mlLayer = mlData.construction_cost_breakdown[layerKey];
+                    if (!mlLayer) return null;
+                    const diff = l.cost - mlLayer.estimated_cost;
+                    const diffPct = mlLayer.estimated_cost > 0 ? (diff / mlLayer.estimated_cost) * 100 : 0;
+                    const diffColor = Math.abs(diffPct) < 15 ? colors.success
+                      : Math.abs(diffPct) < 30 ? colors.warn : colors.danger;
+                    return (
+                      <div key={i} style={{
+                        display: "flex", alignItems: "center", gap: 6, marginBottom: 5,
+                        fontSize: 11, fontFamily: fonts.data,
+                      }}>
+                        <span style={{ width: 62, color: colors.textDim, flexShrink: 0 }}>{l.name}</span>
+                        <span style={{ width: 44, textAlign: "right", color: colors.text, flexShrink: 0 }}>{fmtCost(l.cost)}</span>
+                        <span style={{ color: colors.textDim, flexShrink: 0 }}>→</span>
+                        <span style={{ width: 44, textAlign: "right", color: colors.accent, flexShrink: 0 }}>{fmtCost(mlLayer.estimated_cost)}</span>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: diffColor, flexShrink: 0 }}>
+                          {diff > 0 ? "+" : ""}{Math.round(diffPct)}%
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
-                <span style={S.costValue}>{fmtCost(l.cost)}</span>
+              )}
+            </div>
+          )}
+          {mlLoading && (
+            <div style={{
+              padding: "14px 20px", borderTop: "1px solid #1a2236",
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <div style={{
+                width: 12, height: 12, borderRadius: "50%",
+                border: `2px solid ${colors.accent}30`,
+                borderTopColor: colors.accent,
+                animation: "spin 0.8s linear infinite",
+              }} />
+              <span style={{ fontSize: 11, fontFamily: fonts.data, color: colors.textDim }}>Analyzing market data…</span>
+            </div>
+          )}
+
+          {/* ── Sticky Footer: Total + Actions ── */}
+          <div style={{
+            flexShrink: 0,
+            padding: "14px 20px",
+            borderTop: "1px solid #1a2236",
+            background: "#080c14",
+          }}>
+            {/* Total cost row */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, fontFamily: fonts.data, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Total Construction</div>
+                <div style={{ fontSize: 22, fontFamily: fonts.data, fontWeight: 800, color: colors.accent }}>
+                  ${totalCost.toLocaleString()}
+                </div>
               </div>
-            );
-          })}
-          <div style={{ marginTop: 4 }}>
-            {layers.map((l, i) => (
-              <div key={i} style={{ fontSize: 10, fontFamily: fonts.data, color: colors.textDim, marginBottom: 2 }}>
-                <span style={{ display: "inline-block", width: 90 }}>{l.name}</span>
-                <span style={{ color: colors.text }}>{l.material}</span>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 10, fontFamily: fonts.data, color: colors.textDim, letterSpacing: "0.06em" }}>Per SF</div>
+                <div style={{ fontSize: 18, fontFamily: fonts.data, fontWeight: 700, color: colors.textBright }}>
+                  ${costPerSF}
+                </div>
+                <div style={{ fontSize: 10, fontFamily: fonts.data, color: colors.textDim }}>{sqft.toLocaleString()} SF</div>
               </div>
-            ))}
-          </div>
-          <div style={S.totalRow}>
-            <span style={S.totalLabel}>Total</span>
-            <div>
-              <div style={S.totalValue}>
-                ${totalCost.toLocaleString()}
-              </div>
-              <div style={S.sfMetric}>
-                ${costPerSF}/SF
-              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                style={{
+                  flex: 1, padding: "9px 0",
+                  background: saveStatus === "ok" ? colors.successDim
+                    : saveStatus === "err" ? colors.dangerDim
+                    : "rgba(26,34,54,0.8)",
+                  border: `1px solid ${
+                    saveStatus === "ok" ? colors.success
+                    : saveStatus === "err" ? colors.danger
+                    : "#2a3548"
+                  }`,
+                  borderRadius: 8,
+                  color: saveStatus === "ok" ? colors.success
+                    : saveStatus === "err" ? colors.danger
+                    : colors.text,
+                  fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
+                  cursor: saving ? "not-allowed" : "pointer",
+                  opacity: saving ? 0.7 : 1,
+                  transition: "all 0.2s ease",
+                }}
+              >
+                {saving ? "Saving…" : saveStatus === "ok" ? "✓ Saved" : saveStatus === "err" ? "✗ Failed" : "Save"}
+              </button>
+              <button
+                onClick={async () => { await handleSave(); navigate("/schedule"); }}
+                style={{
+                  flex: 2, padding: "9px 0",
+                  background: "linear-gradient(135deg, #00d4ff, #0099cc)",
+                  border: "none", borderRadius: 8,
+                  color: "#080c14",
+                  fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
+                  cursor: "pointer", letterSpacing: "0.02em",
+                  transition: "opacity 0.15s ease",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = "0.85"}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
+              >
+                Schedule
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6H10M7 3L10 6L7 9" stroke="#080c14" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── Bottom: Workflow Stage Bar ── */}
+      <div style={{
+        flexShrink: 0,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        gap: 0,
+        padding: "0 32px",
+        height: 46,
+        background: "#080c14",
+        borderTop: "1px solid #1a2236",
+      }}>
+        {STAGES.map((stage, idx) => {
+          const isActive  = idx === currentStageIdx;
+          const isDone    = idx < currentStageIdx;
+          const isLocked  = idx > currentStageIdx;
+          return (
+            <div key={stage.key} style={{ display: "flex", alignItems: "center" }}>
+              {idx > 0 && (
+                <div style={{
+                  width: 28, height: 1,
+                  background: isDone ? `${colors.accent}40` : "#1a2236",
+                }} />
+              )}
+              <button
+                onClick={() => !isLocked && navigate(stage.route)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "5px 14px", borderRadius: 20,
+                  background: isActive ? `${colors.accent}15` : "transparent",
+                  border: isActive ? `1px solid ${colors.accent}35` : "1px solid transparent",
+                  cursor: isLocked ? "default" : "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {isDone && (
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <path d="M1.5 5L3.8 7.5L8.5 2" stroke={colors.accent} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+                {isActive && (
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: colors.accent, boxShadow: `0 0 6px ${colors.accent}` }} />
+                )}
+                <span style={{
+                  fontSize: 11, fontFamily: fonts.data, fontWeight: isActive ? 700 : 500,
+                  letterSpacing: "0.06em", textTransform: "uppercase",
+                  color: isActive ? colors.accent : isDone ? `${colors.accent}70` : "#2a3548",
+                }}>
+                  {stage.label}
+                </span>
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
