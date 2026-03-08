@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
+import { projectsApi } from "../../services/api";
 import FeasibilityGauge from "../../components/shared/FeasibilityGauge";
 import MetricCard from "../../components/shared/MetricCard";
 import ModeToggle from "../../components/shared/ModeToggle";
@@ -83,6 +84,33 @@ function RiskBar({ percent }) {
 export default function ExecutiveView() {
   const project = useProject();
   const [viewMode, setViewMode] = useState("executive");
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null); // "ok" | "err"
+
+  const handleSave = useCallback(async () => {
+    setSaving(true); setSaveStatus(null);
+    try {
+      const payload = {
+        name: project.projectName || "New Project",
+        generate_params: { ...(project.generateParams || {}), totalSF, stories },
+        floor_plan: project.floorPlan || null,
+      };
+      let saved;
+      if (project.projectId) {
+        saved = await projectsApi.update(project.projectId, payload);
+      } else {
+        saved = await projectsApi.create(payload);
+      }
+      if (saved?.id) project.setProjectId(saved.id);
+      setSaveStatus("ok");
+      setTimeout(() => setSaveStatus(null), 2500);
+    } catch (_) {
+      setSaveStatus("err");
+      setTimeout(() => setSaveStatus(null), 2500);
+    } finally {
+      setSaving(false);
+    }
+  }, [project, totalSF, stories]);
 
   // Derive display values from project state, falling back to DEMO defaults
   const projectName = project.projectName || DEMO.projectName;
@@ -346,10 +374,26 @@ export default function ExecutiveView() {
             >
               {projectName}
             </h2>
-            {/* Three-dot menu */}
-            <span style={{ color: colors.textDim, cursor: "pointer", fontSize: 18, letterSpacing: 2 }}>
-              :
-            </span>
+            {/* Save button */}
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                padding: "6px 14px",
+                background: saveStatus === "ok" ? colors.successDim : saveStatus === "err" ? colors.dangerDim : "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                border: `1px solid ${saveStatus === "ok" ? colors.success : saveStatus === "err" ? colors.danger : "transparent"}`,
+                borderRadius: 6,
+                color: saveStatus === "ok" ? colors.success : saveStatus === "err" ? colors.danger : "#fff",
+                fontFamily: fonts.label,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: saving ? "not-allowed" : "pointer",
+                opacity: saving ? 0.7 : 1,
+                transition: "all 0.2s ease",
+              }}
+            >
+              {saving ? "Saving…" : saveStatus === "ok" ? "✓ Saved" : saveStatus === "err" ? "Failed" : "Save"}
+            </button>
           </div>
           <div
             style={{

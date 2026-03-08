@@ -1,0 +1,128 @@
+{
+  "metrics": {
+    "training_samples": 217,
+    "features": 6,
+    "regressor": {
+      "type": "GradientBoostingRegressor",
+      "train_r2": 0.7798,
+      "train_mae_psf": 24.2,
+      "train_rmse_psf": 32.16,
+      "cv_r2_mean": 0.0556,
+      "cv_r2_std": 0.2672,
+      "cv_mae_mean_psf": 48.75
+    },
+    "clusters": {
+      "type": "KMeans",
+      "n_clusters": 5,
+      "inertia": 1.39,
+      "cluster_summaries": [
+        {
+          "cluster_id": 1,
+          "count": 23,
+          "avg_psf": 361.27,
+          "median_psf": 353.57,
+          "min_psf": 323.55,
+          "max_psf": 424.26,
+          "avg_sf": 1164.0,
+          "center_lat": 32.7979,
+          "center_lng": -96.7993
+        },
+        {
+          "cluster_id": 0,
+          "count": 52,
+          "avg_psf": 283.21,
+          "median_psf": 283.85,
+          "min_psf": 254.57,
+          "max_psf": 319.75,
+          "avg_sf": 1504.0,
+          "center_lat": 32.8012,
+          "center_lng": -96.8049
+        },
+        {
+          "cluster_id": 3,
+          "count": 55,
+          "avg_psf": 223.0,
+          "median_psf": 222.08,
+          "min_psf": 186.34,
+          "max_psf": 252.27,
+          "avg_sf": 1408.0,
+          "center_lat": 32.7924,
+          "center_lng": -96.7932
+        },
+        {
+          "cluster_id": 4,
+          "count": 52,
+          "avg_psf": 171.88,
+          "median_psf": 176.98,
+          "min_psf": 84.16,
+          "max_psf": 216.17,
+          "avg_sf": 1544.0,
+          "center_lat": 32.802,
+          "center_lng": -96.7258
+        },
+        {
+          "cluster_id": 2,
+          "count": 35,
+          "avg_psf": 158.26,
+          "median_psf": 164.71,
+          "min_psf": 87.71,
+          "max_psf": 224.07,
+          "avg_sf": 2234.0,
+          "center_lat": 32.6939,
+          "center_lng": -96.8992
+        }
+      ]
+    },
+    "price_distribution": {
+      "mean_psf": 229.39,
+      "median_psf": 219.02,
+      "std_psf": 68.54,
+      "min_psf": 84.16,
+      "max_psf": 424.26
+    }
+  },
+  "feature_importance": {
+    "dist_to_core": 0.2968,
+    "bedrooms": 0.1503,
+    "longitude": 0.1474,
+    "square_footage": 0.1411,
+    "latitude": 0.1316,
+    "zip_75210": 0.0499,
+    "zip_75208": 0.0291,
+    "zip_75235": 0.024,
+    "bathrooms": 0.02,
+    "zip_75204": 0.0053
+  },
+  "feature_names": [
+    "square_footage",
+    "bedrooms",
+    "bathrooms",
+    "latitude",
+    "longitude",
+    "dist_to_core"
+  ],
+  "known_zips": [
+    "75204",
+    "75206",
+    "75208",
+    "75210",
+    "75219",
+    "75228",
+    "75233",
+    "75235",
+    "75236"
+  ],
+  "zip_medians": {
+    "75210": 184.0666870571181,
+    "75201": 161.95652173913044,
+    "75233": 167.21288596156467,
+    "75236": 173.92565960664496,
+    "75235": 229.8755130339512,
+    "75204": 290.94303756685355,
+    "75206": 270.0416782870069,
+    "75208": 257.55494505494505,
+    "75214": 293.713163064833,
+    "75219": 286.6,
+    "75228": 200.2288329519451
+  }
+}

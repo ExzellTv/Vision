@@ -13,12 +13,12 @@ router = APIRouter()
 @router.post("/create")
 def create_schedule(req: ScheduleCreateRequest) -> dict:
     """Create a project schedule."""
-    result = schedule_service.create_schedule(
-        project_name=req.project_name,
-        total_sf=req.total_sf,
-        stories=req.stories,
-        foundation_type=req.foundation_type,
-    )
+    result = schedule_service.create_schedule({
+        "project_name": req.project_name,
+        "total_sf": req.total_sf,
+        "stories": req.stories,
+        "foundation_type": req.foundation_type,
+    })
     return result
 
 

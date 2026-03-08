@@ -1,41 +1,16 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import { colors, fonts } from "../../theme/tokens";
 
+const LOGO = "/VisionLogo.png";
+
 const NAV_LINKS = [
   { label: "Dashboard", path: "/", match: ["/"] },
-  {
-    label: "Projects",
-    path: "/develop",
-    match: ["/develop", "/edit", "/schedule"],
-  },
-  {
-    label: "Analysis",
-    path: "/feasibility",
-    match: ["/feasibility"],
-  },
-  {
-    label: "Intelligence",
-    path: "/structural",
-    match: ["/structural", "/executive"],
-  },
+  { label: "Projects", path: "/projects", match: ["/projects"] },
+  { label: "Plan", path: "/develop", match: ["/develop"] },
+  { label: "Schedule", path: "/schedule", match: ["/schedule"] },
+  { label: "Intelligence", path: "/structural", match: ["/structural", "/executive"] },
+  { label: "Analysis", path: "/feasibility", match: ["/feasibility"] },
 ];
-
-function EyeIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-      <circle
-        cx="11"
-        cy="11"
-        r="10"
-        fill="rgba(0,212,255,0.12)"
-        stroke={colors.accent}
-        strokeWidth="1.2"
-      />
-      <ellipse cx="11" cy="11" rx="5" ry="3" stroke={colors.accent} strokeWidth="1.2" fill="none" />
-      <circle cx="11" cy="11" r="2" fill={colors.accent} />
-    </svg>
-  );
-}
 
 export default function NavBar() {
   const navigate = useNavigate();
@@ -68,17 +43,11 @@ export default function NavBar() {
           minWidth: 120,
         }}
       >
-        <EyeIcon />
-        <span
-          style={{
-            fontSize: 16,
-            fontWeight: 700,
-            color: colors.textBright,
-            letterSpacing: "0.3px",
-          }}
-        >
-          Vision
-        </span>
+        <img
+          src={LOGO}
+          alt="Vision"
+          style={{ height: 28, width: "auto", objectFit: "contain", display: "block" }}
+        />
       </div>
 
       {/* Nav links */}
