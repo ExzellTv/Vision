@@ -156,20 +156,21 @@ export function useLeafletMap({
     markersL.current.clearLayers();
     if (!showComps) return;
 
-    // When a location is pinned, nearbyComps is already filtered by the
-    // valuation engine (respects radiusEnabled). When no location is
-    // pinned, show all comps.
-    const compsToRender = loc ? nearbyComps : allComps;
+    // Always render ALL comps on the map. When a location is pinned,
+    // nearby comps render at full opacity; out-of-radius comps dim.
+    const nearbySet = loc ? new Set(nearbyComps.map((c) => c.id)) : null;
 
-    compsToRender.forEach((c) => {
+    allComps.forEach((c) => {
       if (c.lat == null || c.lng == null) return;
+      const isNearby = !nearbySet || nearbySet.has(c.id);
+      const opacity  = isNearby ? 1 : 0.35;
       const col = compColor(c.price_per_sf);
       const m   = L.marker([c.lat, c.lng], {
         icon: L.divIcon({
           className: "",
           iconSize:   [22, 22],
           iconAnchor: [11, 11],
-          html: `<div style="width:22px;height:22px;display:flex;align-items:center;justify-content:center">
+          html: `<div style="width:22px;height:22px;display:flex;align-items:center;justify-content:center;opacity:${opacity}">
             <div style="width:10px;height:10px;background:${col};border:2px solid #1a2233;border-radius:50%"></div>
           </div>`,
         }),

@@ -3,21 +3,6 @@ import { colors, fonts, card, radii } from "../../theme/tokens";
 import { complianceApi, projectsApi } from "../../services/api";
 import { useProject } from "../../hooks/useProjectStore";
 
-// ─── Structural params defaults ────────────────────────────────────────────
-const _DEFAULT_PARAMS = {
-  span_ft: 24, stories: 2, foundation_type: "slab",
-  dead_load_psf: 25, live_load_psf: 40, section_designation: "W14x22",
-  wind_load_psf: 0, snow_load_psf: 5, seismic_factor: 0.15,
-  tributary_width_ft: 8, footing_area_sf: 4, story_height_ft: 9,
-};
-
-const MATERIALS = [
-  { name: "Lumber & Framing",    color: colors.wood },
-  { name: "Concrete Foundation", color: colors.concrete },
-  { name: "Steel Reinforcement", color: colors.steel },
-  { name: "Labor & Overhead",    color: colors.accent },
-];
-
 // ─── Derive structural building context from a real MongoDB project ──────────
 // materials[0] = Foundation layer, materials[1] = Structural Frame layer
 function deriveContextFromProject(project) {
@@ -632,10 +617,10 @@ export default function StructuralIntelligence() {
             {selectedProjectContext.section || "W14x22"} · {selectedProjectContext.span_ft || 24}ft span · {selectedProjectContext.stories || 2} stories · {(selectedProjectContext.total_sf || 2200).toLocaleString()} SF · {selectedProjectContext.framing_material || "Wood SPF"} — Advisory only
           </p>
         </div>
-
+        <div />
       </div>
 
-      {/* ── Code Compliance ── */}
+      {/* ── Compliance Panel ── */}
       <div style={{ flex: 1, overflow: "auto" }}>
         <ComplianceScreen selectedProject={selectedProject} setSelectedProject={setSelectedProject} projects={mongoProjects} projectContext={selectedProjectContext} />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", borderTop: `1px solid ${colors.cardBorder}` }}>
@@ -650,8 +635,6 @@ export default function StructuralIntelligence() {
           </div>
         </div>
       </div>
-
-
     </div>
   );
 }

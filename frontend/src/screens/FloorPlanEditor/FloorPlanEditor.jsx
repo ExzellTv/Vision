@@ -207,6 +207,77 @@ function distToSegment(px, py, x1, y1, x2, y2) {
   return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
 }
 
+/* ───────────── Stair auto-placement for multi-story ────────── */
+
+const STAIR_W = 6;
+const STAIR_H = 9;
+
+/** Return true if rect (x,y,w,h) overlaps any room in the array. */
+function _overlapsAny(rect, rooms) {
+  const EPS = 0.01;
+  return rooms.some(r =>
+    !(rect.x + rect.w <= r.x + EPS || r.x + r.w <= rect.x + EPS ||
+      rect.y + rect.h <= r.y + EPS || r.y + r.h <= rect.y + EPS));
+}
+
+/**
+ * Find a non-overlapping position for stairs inside the plan footprint.
+ * Strategy: try shrinking the best candidate room to carve out space,
+ * falling back to scanning for open gaps.
+ */
+function placeStairs(rooms, width, depth) {
+  const sw = STAIR_W, sh = STAIR_H;
+
+  // 1) Try to carve space from the hallway (top-right corner of hallway)
+  const hallway = rooms.find(r => r.type === "hallway");
+  if (hallway && hallway.w >= sw && hallway.h >= sh + 4) {
+    const stairRect = { x: hallway.x, y: hallway.y + hallway.h - sh, w: sw, h: sh };
+    // Shrink hallway to make room
+    hallway.h -= sh;
+    if (!_overlapsAny(stairRect, rooms)) {
+      rooms.push({ type: "stair", label: "Stairs", x: stairRect.x, y: stairRect.y, w: stairRect.w, h: stairRect.h, bearing: [false, false, true, false], isStair: true });
+      return;
+    }
+    // Revert if it still overlaps somehow
+    hallway.h += sh;
+  }
+
+  // 2) Try carving from the kitchen (bottom-right corner)
+  const kitchen = rooms.find(r => r.type === "kitchen");
+  if (kitchen && kitchen.w >= sw + 4 && kitchen.h >= sh) {
+    const stairRect = { x: kitchen.x + kitchen.w - sw, y: kitchen.y, w: sw, h: sh };
+    kitchen.w -= sw;
+    if (!_overlapsAny(stairRect, rooms)) {
+      rooms.push({ type: "stair", label: "Stairs", x: stairRect.x, y: stairRect.y, w: stairRect.w, h: stairRect.h, bearing: [false, false, false, false], isStair: true });
+      return;
+    }
+    kitchen.w += sw;
+  }
+
+  // 3) Try carving from the living room (bottom-right corner)
+  const living = rooms.find(r => r.type === "living");
+  if (living && living.w >= sw + 4 && living.h >= sh) {
+    const stairRect = { x: living.x + living.w - sw, y: living.y + living.h - sh, w: sw, h: sh };
+    living.w -= sw;
+    if (!_overlapsAny(stairRect, rooms)) {
+      rooms.push({ type: "stair", label: "Stairs", x: stairRect.x, y: stairRect.y, w: stairRect.w, h: stairRect.h, bearing: [false, false, false, false], isStair: true });
+      return;
+    }
+    living.w += sw;
+  }
+
+  // 4) Scan grid for any open gap inside the footprint
+  for (let y = 0; y <= depth - sh; y += 1) {
+    for (let x = 0; x <= width - sw; x += 1) {
+      const cand = { x, y, w: sw, h: sh };
+      if (!_overlapsAny(cand, rooms)) {
+        rooms.push({ type: "stair", label: "Stairs", x, y, w: sw, h: sh, bearing: [false, false, false, false], isStair: true });
+        return;
+      }
+    }
+  }
+}
+
 /* ───────────────────── Local Fallback Generator ────────────── */
 
 function placeCommonRooms(rooms, cursor, width, depth, openFloorPlan, garage) {
@@ -408,6 +479,11 @@ function generateLocalFloorPlan(params) {
     rooms[i] = { ...r, x: rx, y: ry, w: rw, h: rh };
   }
 
+  // Auto-place stairs for multi-story plans
+  if (stories > 1) {
+    placeStairs(rooms, width, depth);
+  }
+
   const doors = generateDoors(rooms, garage);
   const windows = rooms.flatMap((room) => generateWindowsForRoom(room, width, depth));
   const score = Math.round((0.7 + Math.random() * 0.25) * 100) / 100;
@@ -501,6 +577,37 @@ function generateUpperFloorPlan(params, refPlan) {
   }
   // No secondary bedrooms — right side left blank for user customization
   // (remaining vertical space intentionally left empty — no closet auto-generated)
+
+  // Auto-place stairs aligned with ground floor stair position
+  const refStair = refPlan?.rooms?.find(r => r.isStair);
+  if (refStair) {
+    const stairRect = { x: refStair.x, y: refStair.y, w: refStair.w, h: refStair.h };
+    // Shrink any overlapping room to make space for the stair landing
+    for (let i = 0; i < rooms.length; i++) {
+      if (_overlapsAny(stairRect, [rooms[i]])) {
+        const r = rooms[i];
+        // Try shrinking from the side closest to stair
+        if (stairRect.x >= r.x && stairRect.x < r.x + r.w) {
+          // Stair overlaps horizontally — shrink room width
+          const newW = stairRect.x - r.x;
+          if (newW >= 4) { rooms[i] = { ...r, w: newW }; continue; }
+        }
+        if (stairRect.y >= r.y && stairRect.y < r.y + r.h) {
+          // Stair overlaps vertically — shrink room height
+          const newH = stairRect.y - r.y;
+          if (newH >= 4) { rooms[i] = { ...r, h: newH }; continue; }
+        }
+      }
+    }
+    if (!_overlapsAny(stairRect, rooms)) {
+      rooms.push({ type: "stair", label: "Stairs", ...stairRect, bearing: [false, false, false, false], isStair: true });
+    } else {
+      // Fallback: find any non-overlapping position
+      placeStairs(rooms, width, depth);
+    }
+  } else {
+    placeStairs(rooms, width, depth);
+  }
 
   return {
     id: `upper-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1380,7 +1487,7 @@ export default function FloorPlanEditor() {
     } else {
       const stamp = Date.now();
       setPlacedItems(
-        activePlan.rooms.map((r, i) => ({ id: `room-${stamp}-${i}`, isRoom: true, ...r }))
+        activePlan.rooms.map((r, i) => ({ id: `room-${stamp}-${i}`, isRoom: !r.isStair, ...r }))
       );
     }
     setSelectedItemIdx(-1);
@@ -1878,34 +1985,6 @@ export default function FloorPlanEditor() {
         ]);
       }
     }
-    // Clear any stale per-floor items from a previous generation
-    floorItemsRef.current = {};
-
-    // For multi-story plans, pre-seed each floor with its rooms + a stair block
-    if (storiesToGen > 1) {
-      const stamp = Date.now();
-      for (let si = 0; si < storiesToGen; si++) {
-        const plan = newAllStoryVariants[si][0];
-        const seededRooms = plan.rooms.map((r, i) => ({
-          id: `room-${stamp}-${si}-${i}`, isRoom: true, ...r,
-        }));
-        // Position stair in the hallway if present, otherwise center of plan
-        const hallway = plan.rooms.find((r) => r.type === "hallway");
-        const sw = 6, sh = 9;
-        const snap = (v) => Math.round(v * 2) / 2;
-        const sx = snap(hallway
-          ? Math.max(hallway.x, Math.min(hallway.x + hallway.w - sw, hallway.x + (hallway.w - sw) / 2))
-          : Math.max(0, (plan.width - sw) / 2));
-        const sy = snap(hallway
-          ? Math.max(hallway.y, Math.min(hallway.y + hallway.h - sh, hallway.y + (hallway.h - sh) / 2))
-          : Math.max(0, (plan.depth - sh) / 2));
-        floorItemsRef.current[si] = [
-          ...seededRooms,
-          { id: `stair-${stamp}-${si}`, type: "stair", isRoom: false, x: sx, y: sy, w: sw, h: sh, rotation: 0 },
-        ];
-      }
-    }
-
     setAllStoryVariants(newAllStoryVariants);
     setActiveVariantPerStory(newAllStoryVariants.map(() => 0));
     setActiveStory(0);
