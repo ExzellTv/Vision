@@ -3,10 +3,11 @@ import { colors, fonts, card, radii } from "../../theme/tokens";
 import { complianceApi, projectsApi } from "../../services/api";
 import { useProject } from "../../hooks/useProjectStore";
 
-// Canvas uses PX_PER_FT=4; rooms may be stored in canvas px or feet.
-// If a dimension > 50 it's almost certainly canvas px → convert to ft.
+// Rooms are stored in feet by both the AI generator and the canvas draw tool.
+// Only treat as canvas pixels when the value is clearly non-foot scale (> 200),
+// using PX_PER_FT=7 (the actual canvas ratio in FloorPlanDraw).
 function _roomDimFt(raw) {
-  return raw > 50 ? Math.round(raw / 4) : (raw || 0);
+  return raw > 200 ? Math.round(raw / 7) : (raw || 0);
 }
 
 // ─── Derive structural building context from a real MongoDB project ──────────
@@ -42,10 +43,12 @@ function deriveContextFromProject(project) {
   });
 
   // ── Max span from all rooms across all floors ────────────────────────────
+  // Beam span = the SHORT room dimension: joists run along the length and
+  // bridge the width, so a 15×60 ft room requires 15 ft beams, not 60 ft.
   let maxRoomSpan = 0;
   for (const r of allRooms) {
-    const bigger = Math.max(r.width_ft, r.depth_ft);
-    if (bigger > maxRoomSpan) maxRoomSpan = bigger;
+    const span = Math.min(r.width_ft, r.depth_ft);
+    if (span > maxRoomSpan) maxRoomSpan = span;
   }
   const fpWidth  = fp.width || dims.footprint_width || Math.sqrt(totalSF / stories) || 44;
   const rawSpan  = maxRoomSpan > 8 ? maxRoomSpan : fpWidth;
