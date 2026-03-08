@@ -1380,8 +1380,13 @@ export default function LayerEditor() {
   const [dragTarget, setDragTarget] = useState(null);
 
   const sqft = project.totalSF || 2200;
+  // Base SF used as reference for material cost calibration
+  const BASE_SF = 2200;
 
-  const totalCost = useMemo(() => layers.reduce((s, l) => s + l.cost, 0), [layers]);
+  const totalCost = useMemo(
+    () => Math.round(layers.reduce((s, l) => s + l.cost, 0) * (sqft / BASE_SF)),
+    [layers, sqft]
+  );
   const costPerSF = useMemo(() => Math.round(totalCost / sqft), [totalCost, sqft]);
   const maxLayerCost = useMemo(() => Math.max(...layers.map((l) => l.cost)), [layers]);
 

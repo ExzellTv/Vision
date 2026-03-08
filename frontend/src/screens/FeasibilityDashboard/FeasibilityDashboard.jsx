@@ -1,12 +1,13 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import FeasibilityGauge from "../../components/shared/FeasibilityGauge";
 import StatusBadge from "../../components/shared/StatusBadge";
 
 import LeafletMap from "./LeafletMap";
-import { computeNearbyComps, runValuation, fmtK, fmtUSD } from "./valuationEngine";
-import { mapApi } from "../../services/api";
+import ImportModelModal from "./ImportModelModal";
+import { computeNearbyComps, runValuation, fmtK, fmtUSD, BUILD_COST_PSF } from "./valuationEngine";
+import { mapApi, projectsApi } from "../../services/api";
 
 /* ── Hardcoded Dallas fixture data (shown when no location is selected) ── */
 const DEMO = {
@@ -27,6 +28,15 @@ const DEMO = {
   margin:           28.4,
   marginConfidence: 4.1,
   marketYoy:        12,
+};
+
+/* ── Land filter default — mirrors LeafletMap's LAND_FILTER_DEFAULT ── */
+const LAND_FILTER_DEFAULT = {
+  minPrice: "", maxPrice: "",
+  minLotSf: "", maxLotSf: "",
+  status:   "",
+  zoning:   "",
+  maxDom:   "",
 };
 
 /* ── Sub-score bar ── */
@@ -96,15 +106,25 @@ export default function FeasibilityDashboard() {
   const [radius,  setRadius]  = useState(0.75);  // comp search radius (miles)
   const [radiusEnabled, setRadiusEnabled] = useState(true); // radius toggle
 
-  // ── Project-derived subject-property specs ────────────────────────────
-  const totalSF     = project.totalSF || 2200;
-  const stories     = project.stories || 1;
-  const style       = project.floorPlan?.style || "traditional";
-  const projectName = project.projectName || "New Project";
+  // ── Import Model state ───────────────────────────────────────────────
+  const [importedModel,   setImportedModel]   = useState(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [landFilters,     setLandFilters]     = useState(LAND_FILTER_DEFAULT);
 
-  // Bedroom / bathroom count from the generated floor plan (fallback 3/2)
-  const bedrooms  = project.floorPlan?.rooms?.filter((r) => r.type === "bedroom").length  || 3;
-  const bathrooms = project.floorPlan?.rooms?.filter((r) => r.type === "bathroom").length || 2;
+  // ── Project-derived subject-property specs ────────────────────────────
+  // Base values from the active project store
+  const storeSF      = project.totalSF || 2200;
+  const storeStories = project.stories || 1;
+  const storeBeds    = project.floorPlan?.rooms?.filter((r) => r.type === "bedroom").length  || 3;
+  const storeBaths   = project.floorPlan?.rooms?.filter((r) => r.type === "bathroom").length || 2;
+  const style        = project.floorPlan?.style || "traditional";
+  const projectName  = project.projectName || "New Project";
+
+  // Override with imported model if present — does NOT mutate useProjectStore
+  const totalSF   = importedModel?.generate_params?.targetSF  ?? storeSF;
+  const stories   = importedModel?.generate_params?.stories   ?? storeStories;
+  const bedrooms  = importedModel?.generate_params?.bedrooms  ?? storeBeds;
+  const bathrooms = importedModel?.generate_params?.bathrooms ?? storeBaths;
 
   // ── Derived analysis values ───────────────────────────────────────────
   const nearbyComps = useMemo(
@@ -117,8 +137,32 @@ export default function FeasibilityDashboard() {
     [loc, selLand, nearbyComps, totalSF, bedrooms, bathrooms]
   );
 
+
+  // ── Import Model handlers ─────────────────────────────────────────────
+  const handleImportModel = useCallback((proj) => {
+    setImportedModel(proj);
+    setShowImportModal(false);
+
+    // Compute minimum lot size from project footprint + 1.75× setback buffer
+    const gp = proj.generate_params || {};
+    let footprintSF;
+    if (gp.lotWidth && gp.lotDepth)     footprintSF = gp.lotWidth * gp.lotDepth;
+    else if (gp.targetSF && gp.stories) footprintSF = gp.targetSF / gp.stories;
+    else if (gp.targetSF)               footprintSF = gp.targetSF;
+    else                                footprintSF = 2200;
+
+    const minLotSf = Math.max(Math.ceil(footprintSF * 1.75), 3000).toString();
+    setLandFilters((prev) => ({ ...prev, minLotSf }));
+  }, []);
+
+  const handleClearImport = useCallback(() => {
+    setImportedModel(null);
+    // Reset only minLotSf — other manual filters are preserved
+    setLandFilters((prev) => ({ ...prev, minLotSf: "" }));
+  }, []);
+
   // ── Display values: live valuation when available, DEMO otherwise ─────
-  const estTotalCost   = Math.round(DEMO.costPerSf * totalSF);
+  const estTotalCost   = Math.round(BUILD_COST_PSF * totalSF);
   const estMarketValue = Math.round(estTotalCost / (1 - DEMO.margin / 100));
 
   const displayScore   = valuation ? valuation.feasScore                            : DEMO.score;
@@ -133,6 +177,7 @@ export default function FeasibilityDashboard() {
   const parcelLotSize = selLand ? selLand.lot_sf.toLocaleString("en-US")            : "";
 
   return (
+    <>
     <div style={{
       display:    "flex",
       width:      "100%",
@@ -163,6 +208,8 @@ export default function FeasibilityDashboard() {
           nearbyComps={nearbyComps}
           comps={liveComps}
           land={liveLand}
+          landFilters={landFilters}
+          onLandFiltersChange={setLandFilters}
         />
 
         {/* ── Parcel info card — only when a land parcel is selected ── */}
@@ -490,6 +537,72 @@ export default function FeasibilityDashboard() {
 
         {/* ── Action Buttons ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: "auto" }}>
+
+          {/* Import Model button / active import badge */}
+          {importedModel ? (
+            <div style={{
+              display:        "flex",
+              alignItems:     "center",
+              justifyContent: "space-between",
+              padding:        "8px 12px",
+              background:     colors.accentDim,
+              border:         `1px solid ${colors.accent}`,
+              borderRadius:   radii.md,
+            }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <span style={{
+                  fontFamily:    fonts.label, fontSize: 9, fontWeight: 700,
+                  color:         colors.accent, textTransform: "uppercase",
+                  letterSpacing: "0.6px", display: "block",
+                }}>
+                  Using Model
+                </span>
+                <div style={{
+                  fontFamily:   fonts.data, fontSize: 11, color: colors.textBright,
+                  marginTop:    2,
+                  overflow:     "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  maxWidth:     190,
+                }}>
+                  {importedModel.name || "Untitled Project"}
+                </div>
+              </div>
+              <button
+                onClick={handleClearImport}
+                style={{
+                  background:  "transparent",
+                  border:      "none",
+                  color:       colors.textDim,
+                  fontSize:    18,
+                  cursor:      "pointer",
+                  padding:     "0 4px",
+                  lineHeight:  1,
+                  flexShrink:  0,
+                  marginLeft:  8,
+                }}
+                title="Clear import"
+              >
+                ×
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowImportModal(true)}
+              style={{
+                padding:       "12px 0",
+                background:    "transparent",
+                border:        `1px solid ${colors.accent}`,
+                borderRadius:  radii.md,
+                color:         colors.accent,
+                fontFamily:    fonts.label, fontSize: 14, fontWeight: 700,
+                cursor:        "pointer", textAlign: "center",
+                letterSpacing: "0.3px",
+              }}
+            >
+              Import Model
+            </button>
+          )}
+
+          {/* Generate PDF Report */}
           <button style={{
             padding:      "12px 0",
             background:   colors.accent,
@@ -505,5 +618,14 @@ export default function FeasibilityDashboard() {
         </div>
       </div>
     </div>
+
+    {/* ── Import Model modal ── */}
+    {showImportModal && (
+      <ImportModelModal
+        onImport={handleImportModel}
+        onClose={() => setShowImportModal(false)}
+      />
+    )}
+    </>
   );
 }

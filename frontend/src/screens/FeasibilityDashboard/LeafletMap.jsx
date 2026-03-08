@@ -5,7 +5,11 @@
  * lifecycle is delegated to useLeafletMap. This component owns:
  *  - layer visibility state (showComps, showLand)
  *  - tile type state (activeLayer)
- *  - listing filter state (compFilters, landFilters, filterOpen)
+ *  - comp listing filter state (compFilters, filterOpen)
+ *
+ * Props flowing down from FeasibilityDashboard (land filter lifted state):
+ *  - landFilters        → controlled land filter object
+ *  - onLandFiltersChange → setter for land filter (allows import model to set minLotSf)
  *  - draggable position state for the layers menu and filter panel
  *  - the map container ref passed to the hook
  *  - all overlay UI rendered as React elements
@@ -146,6 +150,8 @@ export default function LeafletMap({
   nearbyComps,
   comps,
   land,
+  landFilters,         // controlled by FeasibilityDashboard
+  onLandFiltersChange, // setter provided by FeasibilityDashboard
 }) {
   const mapRef = useRef(null);
 
@@ -154,8 +160,8 @@ export default function LeafletMap({
   const [showLand,  setShowLand]  = useState(true);
 
   // ── Filter state ──────────────────────────────────────────────────────
+  // compFilters is local; landFilters is lifted to FeasibilityDashboard
   const [compFilters, setCompFilters] = useState(COMP_FILTER_DEFAULT);
-  const [landFilters, setLandFilters] = useState(LAND_FILTER_DEFAULT);
   const [filterOpen,  setFilterOpen]  = useState(null); // null | "comp" | "land"
   const filterPanelRef = useRef(null);
 
@@ -716,10 +722,10 @@ export default function LeafletMap({
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
                     <input type="number" min={0} placeholder="Min" style={inputS}
                            value={landFilters.minPrice}
-                           onChange={(e) => setLandFilters((f) => ({ ...f, minPrice: e.target.value }))} />
+                           onChange={(e) => onLandFiltersChange((f) => ({ ...f, minPrice: e.target.value }))} />
                     <input type="number" min={0} placeholder="Max" style={inputS}
                            value={landFilters.maxPrice}
-                           onChange={(e) => setLandFilters((f) => ({ ...f, maxPrice: e.target.value }))} />
+                           onChange={(e) => onLandFiltersChange((f) => ({ ...f, maxPrice: e.target.value }))} />
                   </div>
                 </div>
 
@@ -729,10 +735,10 @@ export default function LeafletMap({
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
                     <input type="number" min={0} placeholder="Min" style={inputS}
                            value={landFilters.minLotSf}
-                           onChange={(e) => setLandFilters((f) => ({ ...f, minLotSf: e.target.value }))} />
+                           onChange={(e) => onLandFiltersChange((f) => ({ ...f, minLotSf: e.target.value }))} />
                     <input type="number" min={0} placeholder="Max" style={inputS}
                            value={landFilters.maxLotSf}
-                           onChange={(e) => setLandFilters((f) => ({ ...f, maxLotSf: e.target.value }))} />
+                           onChange={(e) => onLandFiltersChange((f) => ({ ...f, maxLotSf: e.target.value }))} />
                   </div>
                 </div>
 
@@ -744,7 +750,7 @@ export default function LeafletMap({
                       className="vmap-select"
                       style={{ ...inputS, cursor: "pointer" }}
                       value={landFilters.status}
-                      onChange={(e) => setLandFilters((f) => ({ ...f, status: e.target.value }))}
+                      onChange={(e) => onLandFiltersChange((f) => ({ ...f, status: e.target.value }))}
                     >
                       <option value="">All statuses</option>
                       {landStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -760,7 +766,7 @@ export default function LeafletMap({
                       className="vmap-select"
                       style={{ ...inputS, cursor: "pointer" }}
                       value={landFilters.zoning}
-                      onChange={(e) => setLandFilters((f) => ({ ...f, zoning: e.target.value }))}
+                      onChange={(e) => onLandFiltersChange((f) => ({ ...f, zoning: e.target.value }))}
                     >
                       <option value="">All zones</option>
                       {landZonings.map((z) => <option key={z} value={z}>{z}</option>)}
@@ -773,7 +779,7 @@ export default function LeafletMap({
                   <label style={labelS}>Max Days on Market</label>
                   <input type="number" min={0} placeholder="Any" style={inputS}
                          value={landFilters.maxDom}
-                         onChange={(e) => setLandFilters((f) => ({ ...f, maxDom: e.target.value }))} />
+                         onChange={(e) => onLandFiltersChange((f) => ({ ...f, maxDom: e.target.value }))} />
                 </div>
               </>
             )}
@@ -797,7 +803,7 @@ export default function LeafletMap({
               onClick={() =>
                 filterOpen === "comp"
                   ? setCompFilters(COMP_FILTER_DEFAULT)
-                  : setLandFilters(LAND_FILTER_DEFAULT)
+                  : onLandFiltersChange(LAND_FILTER_DEFAULT)
               }
               style={{
                 fontFamily:    fonts.label,
