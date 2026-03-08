@@ -1374,6 +1374,7 @@ export default function FloorPlanEditor() {
   const [allStoryVariants, setAllStoryVariants] = useState(() => {
     if (project.storyPlans.length > 0) return project.storyPlans.map((p) => [p]);
     if (project.allVariants.length > 0) return [project.allVariants];
+    if (project.floorPlan) return [[project.floorPlan]];
     return [[]];
   });
   const [activeStory, setActiveStory] = useState(0);
@@ -1478,6 +1479,9 @@ export default function FloorPlanEditor() {
     const saved = floorItemsRef.current[activeStory];
     if (saved && saved.length > 0) {
       setPlacedItems(saved);
+    } else if (activePlan.placed_items && activePlan.placed_items.length > 0) {
+      // Restore all previously placed items (rooms + custom blocks/furniture)
+      setPlacedItems(activePlan.placed_items);
     } else {
       const stamp = Date.now();
       setPlacedItems(
@@ -2115,8 +2119,12 @@ export default function FloorPlanEditor() {
         const plan = svs[activeVariantPerStory[si] ?? 0];
         if (!plan) return null;
         // Prefer user-edited rooms for every floor (not just the active one)
-        const editedRooms = (floorItemsRef.current[si] || []).filter((item) => item.isRoom);
-        return { ...plan, rooms: editedRooms.length > 0 ? editedRooms : plan.rooms, doors: [], windows: [] };
+        const allItems = floorItemsRef.current[si] || [];
+        const editedRooms = allItems.filter((item) => item.isRoom);
+        const rooms = editedRooms.length > 0 ? editedRooms : plan.rooms;
+        // Recalculate totalSF from actual room dimensions so the saved value stays accurate
+        const totalSF = rooms.reduce((s, r) => s + (r.w || 0) * (r.h || 0), 0) || plan.totalSF;
+        return { ...plan, rooms, totalSF, placed_items: allItems, doors: [], windows: [] };
       })
       .filter(Boolean);
 
@@ -2130,11 +2138,12 @@ export default function FloorPlanEditor() {
     const fpDepth = fp?.depth || params.lotDepth || 50;
     const spanFt = Math.min(fpWidth, fpDepth, 24);
     const numStories = storyPlans.length || params.stories || 2;
-    const sf = fp?.totalSF || params.targetSF || 2200;
+    // Sum SF across all stories (not story-1 × count) so multi-storey projects are correct
+    const totalAllSF = storyPlans.reduce((s, sp) => s + (sp.totalSF || 0), 0) || params.targetSF || 2200;
     project.setBuildingContext({
       span_ft: spanFt,
       stories: numStories,
-      total_sf: sf * numStories,
+      total_sf: totalAllSF,
     });
 
     // Persist all story plans to MongoDB (best-effort — navigate regardless of outcome)

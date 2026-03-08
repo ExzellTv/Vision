@@ -314,22 +314,43 @@ function ComplianceScreen({ selectedProject, setSelectedProject, projects, proje
   const [modalOpen, setModalOpen] = useState(false);
   // Track the full result for passing to diagnosis
   const [lastResult, setLastResult] = useState(null);
-  // Cache diagnosis results per project so re-opening doesn't re-run
+  // In-memory diagnosis cache per project (backed by MongoDB on save)
   const diagCacheRef = useRef({});
   const lastProjectRef = useRef(selectedProject);
   const hasAutoRun = useRef(false);
 
-  // Clear stale results and auto-run when project changes
+  // Hydrate from saved MongoDB cache when project changes; only auto-run if no cache
   if (lastProjectRef.current !== selectedProject) {
     lastProjectRef.current = selectedProject;
     setDiagnoses(null);
     setModalOpen(false);
-    setChecks([]);
-    setMetrics(null);
-    setLoads(null);
-    setGoverning(null);
     setLastResult(null);
-    hasAutoRun.current = false;
+
+    // Try to restore compliance results from the project's persisted cache
+    const projectData = (projects || []).find(p => p.id === selectedProject);
+    const savedCompliance = projectData?.compliance_cache;
+    if (savedCompliance) {
+      setChecks(savedCompliance.checks || []);
+      setMetrics(savedCompliance.metrics || null);
+      setLoads(savedCompliance.loads || null);
+      setGoverning(savedCompliance.governing_combination || null);
+      setLastResult(savedCompliance);
+      hasAutoRun.current = true; // cache present — skip Gemini auto-run
+    } else {
+      setChecks([]);
+      setMetrics(null);
+      setLoads(null);
+      setGoverning(null);
+      hasAutoRun.current = false; // no cache — let useEffect trigger auto-run
+    }
+
+    // Restore diagnosis cache from the project's persisted data
+    const savedDiagnosis = projectData?.diagnosis_cache;
+    if (savedDiagnosis?.length) {
+      diagCacheRef.current[selectedProject] = savedDiagnosis;
+    } else {
+      delete diagCacheRef.current[selectedProject];
+    }
   }
 
   useEffect(() => {
@@ -355,6 +376,10 @@ function ComplianceScreen({ selectedProject, setSelectedProject, projects, proje
         setLoads(data.loads || null);
         setGoverning(data.governing_combination || null);
         setLastResult(data);
+        // Persist compliance result to MongoDB so it survives page refresh
+        if (selectedProject) {
+          projectsApi.update(selectedProject, { compliance_cache: data }).catch(() => {});
+        }
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
@@ -379,6 +404,10 @@ function ComplianceScreen({ selectedProject, setSelectedProject, projects, proje
         setDiagnoses(diags);
         diagCacheRef.current[selectedProject] = diags;
         setModalOpen(true);
+        // Persist diagnosis to MongoDB so it survives page refresh
+        if (selectedProject) {
+          projectsApi.update(selectedProject, { diagnosis_cache: diags }).catch(() => {});
+        }
       })
       .catch(err => setError(err.message))
       .finally(() => setDiagLoading(false));

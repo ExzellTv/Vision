@@ -1002,7 +1002,11 @@ export default function ProjectsScreen() {
     setProjectName(project.name);
     setProjectId(project.id);
     if (project.generate_params) setGenerateParams(project.generate_params);
-    if (project.floor_plan) setFloorPlan(project.floor_plan);
+    if (project.story_plans?.length > 0) {
+      setStoryPlans(project.story_plans);
+    } else if (project.floor_plan) {
+      setFloorPlan(project.floor_plan);
+    }
     navigate("/develop");
   };
 

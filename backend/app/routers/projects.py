@@ -53,6 +53,8 @@ class ProjectUpdate(BaseModel):
     notes: str | None = None
     schedule: dict[str, Any] | None = None
     building_context: dict[str, Any] | None = None
+    compliance_cache: dict[str, Any] | None = None
+    diagnosis_cache: list[dict[str, Any]] | None = None
 
 
 # ---------------------------------------------------------------------------
