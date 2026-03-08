@@ -1,12 +1,11 @@
-import React, { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import FeasibilityGauge from "../../components/shared/FeasibilityGauge";
 import StatusBadge from "../../components/shared/StatusBadge";
 import DisclaimerBanner from "../../components/shared/DisclaimerBanner";
 import LeafletMap from "./LeafletMap";
-import { computeNearbyComps, runValuation, getZone, fmtK, fmtUSD } from "./valuationEngine";
-import { ZONING_DISTRICTS } from "./mapData";
+import { computeNearbyComps, runValuation, fmtK, fmtUSD } from "./valuationEngine";
 import { mapApi } from "../../services/api";
 
 /* ── Hardcoded Dallas fixture data (shown when no location is selected) ── */
@@ -29,9 +28,6 @@ const DEMO = {
   marginConfidence: 4.1,
   marketYoy:        12,
 };
-
-/* ── Monte Carlo mini histogram data ── */
-const HISTOGRAM_BARS = [3, 5, 8, 14, 22, 30, 26, 18, 10, 6, 3, 2];
 
 /* ── Sub-score bar ── */
 function SubScoreBar({ label, level, color }) {
@@ -62,28 +58,6 @@ function SubScoreBar({ label, level, color }) {
         {level}
       </span>
     </div>
-  );
-}
-
-/* ── Monte Carlo histogram ── */
-function MonteCarloHistogram({ bars }) {
-  const max      = Math.max(...bars);
-  const barWidth = 14, barGap = 3, height = 48;
-  const svgWidth = bars.length * (barWidth + barGap);
-  return (
-    <svg width={svgWidth} height={height} viewBox={`0 0 ${svgWidth} ${height}`}
-         style={{ display: "block" }}>
-      {bars.map((val, i) => {
-        const barH = (val / max) * (height - 4);
-        return (
-          <rect key={i}
-            x={i * (barWidth + barGap)} y={height - barH}
-            width={barWidth} height={barH} rx={2}
-            fill={colors.secondary} opacity={0.85}
-          />
-        );
-      })}
-    </svg>
   );
 }
 
@@ -143,11 +117,6 @@ export default function FeasibilityDashboard() {
     [loc, selLand, nearbyComps, totalSF, bedrooms, bathrooms]
   );
 
-  const currentZone = useMemo(
-    () => (loc ? getZone(loc.lat, loc.lng, ZONING_DISTRICTS) : null),
-    [loc]
-  );
-
   // ── Display values: live valuation when available, DEMO otherwise ─────
   const estTotalCost   = Math.round(DEMO.costPerSf * totalSF);
   const estMarketValue = Math.round(estTotalCost / (1 - DEMO.margin / 100));
@@ -160,9 +129,8 @@ export default function FeasibilityDashboard() {
 
   // Parcel card — live data when land selected, DEMO data otherwise
   const parcelStatus  = selLand?.status === "Price Reduced" ? "warning" : "active";
-  const parcelType    = selLand ? `${selLand.zoning} Zone · ${selLand.topography}` : DEMO.parcelType;
-  const parcelLotSize = selLand ? selLand.lot_sf.toLocaleString("en-US")            : DEMO.lotSize;
-  const parcelMaxH    = currentZone ? String(currentZone.max_height_ft)             : DEMO.maxHeight;
+  const parcelType    = selLand ? `${selLand.zoning} Zone · ${selLand.topography}` : "";
+  const parcelLotSize = selLand ? selLand.lot_sf.toLocaleString("en-US")            : "";
 
   return (
     <div style={{
@@ -175,9 +143,9 @@ export default function FeasibilityDashboard() {
       overflow:   "hidden",
     }}>
 
-      {/* ════════ LEFT: Live Leaflet Map (60%) ════════ */}
+      {/* ════════ LEFT: Live Leaflet Map (70%) ════════ */}
       <div style={{
-        flex:       "0 0 60%",
+        flex:       "0 0 70%",
         position:   "relative",
         background: colors.bg,
         overflow:   "hidden",
@@ -197,63 +165,51 @@ export default function FeasibilityDashboard() {
           land={liveLand}
         />
 
-        {/* ── Parcel info card (bottom-left, above Leaflet) ── */}
-        <div style={{
-          position: "absolute", bottom: 20, left: 16, zIndex: 800,
-          ...card,
-          padding:             "14px 18px",
-          minWidth:            240,
-          display:             "flex",
-          flexDirection:       "column",
-          gap:                 10,
-          background:          "rgba(26,34,51,0.96)",
-          backdropFilter:      "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-        }}>
-          {/* Header row */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{
-              fontFamily: fonts.data, fontSize: 13, fontWeight: 700,
-              color: colors.textBright,
-              overflow: "hidden", textOverflow: "ellipsis",
-              whiteSpace: "nowrap", maxWidth: 160,
-            }}>
-              {selLand ? selLand.address : `Parcel #${DEMO.parcelId}`}
+        {/* ── Parcel info card — only when a land parcel is selected ── */}
+        {selLand && (
+          <div style={{
+            position: "absolute", bottom: 20, left: 16, zIndex: 800,
+            ...card,
+            padding:              "14px 18px",
+            minWidth:             240,
+            display:              "flex",
+            flexDirection:        "column",
+            gap:                  10,
+            background:           "rgba(26,34,51,0.96)",
+            backdropFilter:       "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+          }}>
+            {/* Header row */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{
+                fontFamily: fonts.data, fontSize: 13, fontWeight: 700,
+                color: colors.textBright,
+                overflow: "hidden", textOverflow: "ellipsis",
+                whiteSpace: "nowrap", maxWidth: 160,
+              }}>
+                {selLand.address}
+              </span>
+              <StatusBadge status={parcelStatus} />
+            </div>
+
+            <span style={{ fontFamily: fonts.label, fontSize: 11, color: colors.textDim }}>
+              {parcelType}
             </span>
-            <StatusBadge status={parcelStatus} />
-          </div>
 
-          <span style={{ fontFamily: fonts.label, fontSize: 11, color: colors.textDim }}>
-            {parcelType}
-          </span>
-
-          {/* Stats row */}
-          <div style={{ display: "flex", gap: 16 }}>
-            <div>
-              <div style={{
-                fontFamily: fonts.label, fontSize: 9, color: colors.textDim,
-                textTransform: "uppercase", letterSpacing: "0.5px",
-              }}>
-                Lot Size
+            {/* Stats row */}
+            <div style={{ display: "flex", gap: 16 }}>
+              <div>
+                <div style={{
+                  fontFamily: fonts.label, fontSize: 9, color: colors.textDim,
+                  textTransform: "uppercase", letterSpacing: "0.5px",
+                }}>
+                  Lot Size
+                </div>
+                <span style={{ fontFamily: fonts.data, fontSize: 13, color: colors.textBright }}>
+                  {parcelLotSize}{" "}
+                  <span style={{ fontSize: 10, color: colors.textDim }}>sf</span>
+                </span>
               </div>
-              <span style={{ fontFamily: fonts.data, fontSize: 13, color: colors.textBright }}>
-                {parcelLotSize}{" "}
-                <span style={{ fontSize: 10, color: colors.textDim }}>sf</span>
-              </span>
-            </div>
-            <div>
-              <div style={{
-                fontFamily: fonts.label, fontSize: 9, color: colors.textDim,
-                textTransform: "uppercase", letterSpacing: "0.5px",
-              }}>
-                Max Height
-              </div>
-              <span style={{ fontFamily: fonts.data, fontSize: 13, color: colors.textBright }}>
-                {parcelMaxH}{" "}
-                <span style={{ fontSize: 10, color: colors.textDim }}>ft</span>
-              </span>
-            </div>
-            {selLand && (
               <div>
                 <div style={{
                   fontFamily: fonts.label, fontSize: 9, color: colors.textDim,
@@ -265,47 +221,34 @@ export default function FeasibilityDashboard() {
                   {fmtUSD(selLand.price)}
                 </span>
               </div>
+            </div>
+
+            {selLand.url && (
+              <a
+                href={selLand.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display:        "block",
+                  padding:        "7px 0",
+                  background:     colors.accent,
+                  borderRadius:   radii.md,
+                  color:          "#fff",
+                  fontFamily:     fonts.label, fontSize: 12, fontWeight: 600,
+                  cursor:         "pointer", textAlign: "center",
+                  textDecoration: "none",
+                }}
+              >
+                View Listing ↗
+              </a>
             )}
           </div>
-
-          {selLand?.url && (
-            <a
-              href={selLand.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display:      "block",
-                padding:      "7px 0",
-                background:   colors.accent,
-                borderRadius: radii.md,
-                color:        "#fff",
-                fontFamily:   fonts.label, fontSize: 12, fontWeight: 600,
-                cursor:       "pointer", textAlign: "center",
-                textDecoration: "none",
-                marginBottom: 6,
-              }}
-            >
-              View Listing ↗
-            </a>
-          )}
-
-          <button style={{
-            padding:      "7px 0",
-            background:   "transparent",
-            border:       `1px solid ${colors.accent}`,
-            borderRadius: radii.md,
-            color:        colors.accent,
-            fontFamily:   fonts.label, fontSize: 12, fontWeight: 600,
-            cursor:       "pointer", textAlign: "center",
-          }}>
-            View Zoning Details
-          </button>
-        </div>
+        )}
       </div>
 
-      {/* ════════ RIGHT: Feasibility Analysis Panel (40%) ════════ */}
+      {/* ════════ RIGHT: Feasibility Analysis Panel (30%) ════════ */}
       <div style={{
-        flex:          "0 0 40%",
+        flex:          "0 0 30%",
         background:    colors.panel,
         borderLeft:    `1px solid ${colors.panelBorder}`,
         overflowY:     "auto",
@@ -545,53 +488,11 @@ export default function FeasibilityDashboard() {
           )}
         </div>
 
-        {/* ── Monte Carlo Risk ── */}
-        <div>
-          <div style={{
-            display: "flex", alignItems: "center",
-            justifyContent: "space-between", marginBottom: 10,
-          }}>
-            <div style={{
-              display: "flex", alignItems: "center", gap: 6,
-              fontFamily: fonts.label, fontSize: 13, fontWeight: 700,
-              color: colors.textBright,
-            }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                   stroke={colors.accent} strokeWidth="2">
-                <rect x="3"  y="12" width="4"  height="9"  rx="1" />
-                <rect x="10" y="6"  width="4"  height="15" rx="1" />
-                <rect x="17" y="3"  width="4"  height="18" rx="1" />
-              </svg>
-              Monte Carlo Risk
-            </div>
-            <span style={{
-              fontFamily: fonts.label, fontSize: 11,
-              color: colors.accent, cursor: "pointer",
-            }}>
-              Configure
-            </span>
-          </div>
-          <MonteCarloHistogram bars={HISTOGRAM_BARS} />
-        </div>
-
         {/* ── Mandatory legal disclaimer ── */}
         <DisclaimerBanner compact />
 
         {/* ── Action Buttons ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: "auto" }}>
-          <button style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-            padding:      "10px 0",
-            background:   "transparent",
-            border:       `1px solid ${colors.cardBorder}`,
-            borderRadius: radii.md,
-            color:        colors.text,
-            fontFamily:   fonts.label, fontSize: 13, fontWeight: 600,
-            cursor:       "pointer",
-          }}>
-            <span style={{ fontSize: 14 }}>+</span> Add to Comparison
-          </button>
-
           <button style={{
             padding:      "12px 0",
             background:   colors.accent,

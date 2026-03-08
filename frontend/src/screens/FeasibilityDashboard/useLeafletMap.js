@@ -13,7 +13,6 @@ import { useRef, useEffect } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { colors } from "../../theme/tokens";
-import { ZONING_DISTRICTS } from "./mapData";
 import { haversine } from "./valuationEngine";
 
 // ── Tile providers ────────────────────────────────────────────────────────
@@ -51,7 +50,6 @@ export function useLeafletMap({
   radius,
   radiusEnabled,
   showComps,
-  showZoning,
   showLand,
   activeLayer,
 }) {
@@ -63,7 +61,6 @@ export function useLeafletMap({
   const mapI     = useRef(null);
   const tileL    = useRef(null);
   const markersL = useRef(null);
-  const zoningL  = useRef(null);
   const landL    = useRef(null);
   const propM    = useRef(null);
   const radC     = useRef(null);
@@ -91,7 +88,6 @@ export function useLeafletMap({
     }).addTo(map);
 
     markersL.current = L.layerGroup().addTo(map);
-    zoningL.current  = L.layerGroup().addTo(map);
     landL.current    = L.layerGroup().addTo(map);
 
     // Map click → set analysis location, deselect any land parcel
@@ -252,28 +248,6 @@ export function useLeafletMap({
       m.addTo(landL.current);
     });
   }, [showLand, allLand]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Effect 6: Zoning district polygons ───────────────────────────────
-  useEffect(() => {
-    if (!zoningL.current) return;
-    zoningL.current.clearLayers();
-    if (!showZoning) return;
-
-    ZONING_DISTRICTS.forEach((z) => {
-      const poly = L.polygon(z.polygon, {
-        color:       z.color,
-        fillColor:   z.color,
-        fillOpacity: z.fillOpacity,
-        weight:      1.5,
-      });
-      poly.bindTooltip(z.id, {
-        permanent:  true,
-        direction:  "center",
-        className:  "vmap-zone-tip",
-      });
-      poly.addTo(zoningL.current);
-    });
-  }, [showZoning]);
 
   return { mapI };
 }
