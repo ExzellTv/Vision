@@ -1,23 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { colors, fonts, card, radii } from "../../theme/tokens";
-import { complianceApi, structuralApi } from "../../services/api";
+import { complianceApi, projectsApi } from "../../services/api";
+import { useProject } from "../../hooks/useProjectStore";
 
-const SCREENS = { COMPLIANCE: "compliance", FORCE: "force" };
-
-// ─── Project → structural params mapping (shared mock data) ─────────────────
-// TODO [SWAP]: Replace with real project data. Options:
-//   1. Fetch from API: const PROJECT_PARAMS = await projectsApi.getParams(projectId)
-//   2. Or pass per-project params from a parent store / context
-//   Remove _DEFAULT_PARAMS and PROJECT_PARAMS once real data is wired in.
+// ─── Structural params defaults ────────────────────────────────────────────
 const _DEFAULT_PARAMS = {
   span_ft: 24, stories: 2, foundation_type: "slab",
-  dead_load_psf: 85, live_load_psf: 100, section_designation: "W14x22",
+  dead_load_psf: 25, live_load_psf: 40, section_designation: "W14x22",
   wind_load_psf: 0, snow_load_psf: 5, seismic_factor: 0.15,
   tributary_width_ft: 8, footing_area_sf: 4, story_height_ft: 9,
 };
-const PROJECT_PARAMS = Object.fromEntries(
-  Array.from({ length: 10 }, (_, i) => [i + 1, { ..._DEFAULT_PARAMS }])
-);
 
 const MATERIALS = [
   { name: "Lumber & Framing",    color: colors.wood },
@@ -26,21 +18,103 @@ const MATERIALS = [
   { name: "Labor & Overhead",    color: colors.accent },
 ];
 
-// TODO [SWAP]: Replace with real project list from API.
-//   e.g. const [PROJECTS, setProjects] = useState([]); + useEffect fetching from projectsApi.list()
-//   Each item needs: { id: number, name: string, sqft: number }
-const PROJECTS = [
-  { id: 1, name: "Highland Park Residence",  sqft: 4200  },
-  { id: 2, name: "Oak Lawn Mixed-Use",        sqft: 12800 },
-  { id: 3, name: "Uptown Townhomes",          sqft: 3650  },
-  { id: 4, name: "Deep Ellum Live/Work",      sqft: 7900  },
-  { id: 5, name: "Bishop Arts Duplex",        sqft: 2480  },
-  { id: 6, name: "Bishop Arts Duplex",        sqft: 2480  },
-  { id: 7, name: "Bishop Arts Duplex",        sqft: 2480  },
-  { id: 8, name: "Bishop Arts Duplex",        sqft: 2480  },
-  { id: 9, name: "Bishop Arts Duplex",        sqft: 2480  },
-  { id: 10, name: "Bishop Arts Duplex",        sqft: 2480  },
-];
+// ─── Derive structural building context from a real MongoDB project ──────────
+// materials[0] = Foundation layer, materials[1] = Structural Frame layer
+function deriveContextFromProject(project) {
+  if (!project) return null;
+  const fp  = project.floor_plan      || {};
+  const gp  = project.generate_params || {};
+  const mats = project.materials      || [];
+  const dims = fp.dimensions || {};
+
+  const totalSF  = fp.totalSF || dims.total_sf || gp.targetSF || 2200;
+  const stories  = fp.stories || dims.stories  || gp.stories  || 2;
+
+  // Compute beam span from the longest room dimension (most realistic for residential)
+  const rooms = fp.rooms || [];
+  let maxRoomSpan = 0;
+  for (const r of rooms) {
+    const bigger = Math.max(r.w || r.width || 0, r.h || r.depth || 0);
+    if (bigger > maxRoomSpan) maxRoomSpan = bigger;
+  }
+  const fpWidth = fp.width || dims.footprint_width || Math.sqrt(totalSF / stories) || 44;
+  // Prefer longest room span; fall back to footprint width
+  const rawSpan = maxRoomSpan > 8 ? maxRoomSpan : fpWidth;
+  const span_ft  = Math.max(16, Math.min(48, Math.round(rawSpan)));
+
+  // Foundation type from layer 0
+  const foundMat = (mats[0]?.material || "Slab").toLowerCase();
+  const foundation_type = foundMat.includes("pier")  ? "pier_and_beam"
+                        : foundMat.includes("crawl") ? "crawl_space"
+                        : "slab_on_grade";
+
+  // Framing and dead load from layer 1 (realistic residential per ASCE 7-22)
+  const framMat      = mats[1]?.material || "Wood SPF";
+  const framLower    = framMat.toLowerCase();
+  const dead_load_psf = framLower.includes("concrete") ? 55
+                      : framLower.includes("steel") || framLower.includes("metal") ? 35
+                      : 25;
+
+  const live_load_psf = 40, snow_load_psf = 5, trib_w = 8, E_ksi = 29000;
+
+  // Auto-select lightest AISC section that passes flex AND deflection
+  const SECTIONS = [
+    { name: "W14x22", Ix: 199, Sx: 29.0, Zx: 33.2 },
+    { name: "W14x30", Ix: 291, Sx: 42.0, Zx: 47.3 },
+    { name: "W16x36", Ix: 448, Sx: 56.5, Zx: 64.0 },
+    { name: "W18x50", Ix: 800, Sx: 88.9, Zx: 101.0 },
+    { name: "W21x62", Ix: 1330, Sx: 127.0, Zx: 144.0 },
+    { name: "W24x84", Ix: 2370, Sx: 196.0, Zx: 224.0 },
+  ];
+  const L_in_sel = span_ft * 12;
+  const lc2_sel  = 1.2 * dead_load_psf + 1.6 * live_load_psf;
+  const M_sel    = (lc2_sel * trib_w / 12) * L_in_sel * L_in_sel / 8;
+  const w_svc_sel = (dead_load_psf + live_load_psf) * trib_w / 12;
+  const d_allow  = L_in_sel / 360;
+  let section = SECTIONS[SECTIONS.length - 1].name;
+  let Ix_in4 = SECTIONS[SECTIONS.length - 1].Ix;
+  let Sx_in3 = SECTIONS[SECTIONS.length - 1].Sx;
+  let Zx_in3 = SECTIONS[SECTIONS.length - 1].Zx;
+  for (const s of SECTIONS) {
+    const fr = M_sel / (0.9 * 50 * s.Zx * 1000);
+    const dr = (5 * w_svc_sel * Math.pow(L_in_sel, 4) / (384 * E_ksi * 1000 * s.Ix)) / d_allow;
+    if (fr <= 1.0 && dr <= 1.0) {
+      section = s.name; Ix_in4 = s.Ix; Sx_in3 = s.Sx; Zx_in3 = s.Zx;
+      break;
+    }
+  }
+
+  // Closed-form calcs: M = wL²/8, V = wL/2, Δ = 5wL⁴/(384EI)
+  const w_klf         = (dead_load_psf + live_load_psf) * trib_w / 1000;
+  const L             = span_ft;
+  const max_moment_kip_ft  = Math.round(w_klf * L * L / 8 * 100) / 100;
+  const max_shear_kips     = Math.round(w_klf * L / 2 * 100) / 100;
+  const L_in               = L * 12;
+  const max_deflection_in  = Math.round(
+    5 * (w_klf / 12) * Math.pow(L_in, 4) / (384 * E_ksi * Ix_in4) * 1000
+  ) / 1000;
+  const footing_area_ft2   = Math.max(3.0, Math.round(
+    (dead_load_psf + live_load_psf) * trib_w * L * stories / 2 / 2000 * 10
+  ) / 10);
+
+  // SCI — matches structural_engine.py formula exactly
+  const norm    = (v, lo, hi) => Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+  const fFactor = foundation_type === "pier_and_beam" ? 0.7
+                : foundation_type === "crawl_space"   ? 0.5 : 0.2;
+  const sci_score = Math.round(
+    (0.35 * norm(span_ft, 12, 40) + 0.25 * norm(stories, 1, 5)
+    + 0.20 * fFactor + 0.20 * norm(dead_load_psf + live_load_psf, 60, 200)) * 100
+  ) / 10;
+
+  return {
+    span_ft: L, stories, total_sf: totalSF, foundation_type,
+    framing_material: framMat, section, Ix_in4, Sx_in3, Zx_in3, Fy_ksi: 50,
+    dead_load_psf, live_load_psf, snow_load_psf,
+    max_moment_kip_ft, max_shear_kips, max_deflection_in,
+    footing_area_ft2, total_reaction_lbs: Math.round(max_shear_kips * 1000),
+    story_drift_ratio: 0.018, sci_score,
+  };
+}
 
 // ─── Badge ───────────────────────────────────────────────────────────────────
 const BADGE_CFG = {
@@ -80,103 +154,6 @@ function MetricBar({ value, max, color: barColor }) {
       }} />
     </div>
   );
-}
-
-// ─── BeamChart (canvas) ──────────────────────────────────────────────────────
-function BeamChart({ type, w = 10, L = 5, E = 200, I = 450 }) {
-  const ref = useRef();
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    const ctx = canvas.getContext("2d");
-    ctx.scale(dpr, dpr);
-    const W = rect.width, H = rect.height;
-    const pad = { l: 40, r: 20, t: 30, b: 30 };
-    const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
-    ctx.clearRect(0, 0, W, H);
-
-    ctx.strokeStyle = colors.panelBorder; ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = pad.t + (i / 4) * ph;
-      ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
-    }
-
-    const N = 120;
-    const pts = [];
-    for (let i = 0; i <= N; i++) {
-      const x = (i / N) * L;
-      let y;
-      if (type === "shear") {
-        y = w * L / 2 - w * x;
-      } else if (type === "moment") {
-        y = (w * x * (L - x)) / 2;
-      } else {
-        const EI = E * 1e9 * I * 1e-12;
-        const wN = w * 1000;
-        y = -(wN * x * (Math.pow(L, 3) - 2 * L * x * x + Math.pow(x, 3))) / (24 * EI) * 1000;
-      }
-      pts.push({ x, y });
-    }
-
-    const ys = pts.map(p => p.y);
-    const yMin = Math.min(...ys), yMax = Math.max(...ys);
-    const yRange = yMax - yMin || 1;
-
-    const toCanvas = (xi, yi) => ({
-      cx: pad.l + (xi / L) * pw,
-      cy: pad.t + (1 - (yi - yMin) / yRange) * ph,
-    });
-
-    const zero = toCanvas(0, 0);
-    ctx.strokeStyle = colors.cardBorder; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
-    ctx.beginPath(); ctx.moveTo(pad.l, zero.cy); ctx.lineTo(W - pad.r, zero.cy); ctx.stroke();
-    ctx.setLineDash([]);
-
-    const lineColor = type === "deflection" ? colors.warn : colors.accent;
-    const fillColor = type === "deflection" ? "rgba(255,159,67,0.12)" : "rgba(0,212,255,0.10)";
-
-    ctx.beginPath();
-    ctx.moveTo(toCanvas(pts[0].x, pts[0].y).cx, zero.cy);
-    pts.forEach(p => { const c = toCanvas(p.x, p.y); ctx.lineTo(c.cx, c.cy); });
-    ctx.lineTo(toCanvas(pts[pts.length - 1].x, pts[pts.length - 1].y).cx, zero.cy);
-    ctx.closePath();
-    ctx.fillStyle = fillColor; ctx.fill();
-
-    ctx.beginPath();
-    pts.forEach((p, i) => { const c = toCanvas(p.x, p.y); i === 0 ? ctx.moveTo(c.cx, c.cy) : ctx.lineTo(c.cx, c.cy); });
-    ctx.strokeStyle = lineColor; ctx.lineWidth = 2.5; ctx.stroke();
-
-    [[pts[0]], [pts[pts.length - 1]]].forEach(([p]) => {
-      const c = toCanvas(p.x, p.y);
-      ctx.beginPath(); ctx.arc(c.cx, c.cy, 4, 0, Math.PI * 2);
-      ctx.fillStyle = colors.warn; ctx.fill();
-    });
-    const mid = pts[Math.floor(N / 2)];
-    const mc = toCanvas(mid.x, mid.y);
-    ctx.beginPath(); ctx.arc(mc.cx, mc.cy, 5, 0, Math.PI * 2);
-    ctx.fillStyle = lineColor; ctx.fill();
-    ctx.strokeStyle = colors.bg; ctx.lineWidth = 1.5; ctx.stroke();
-
-    ctx.setLineDash([4, 4]); ctx.strokeStyle = colors.cardBorder; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(mc.cx, pad.t); ctx.lineTo(mc.cx, H - pad.b); ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.fillStyle = colors.textDim; ctx.font = `10px ${fonts.data}`;
-    ctx.textAlign = "center";
-    ["0", `${(L / 2).toFixed(1)}m`, `${L.toFixed(1)}m`].forEach((lbl, i) => {
-      ctx.fillText(lbl, pad.l + (i / 2) * pw, H - 8);
-    });
-    ctx.textAlign = "right";
-    [yMax, (yMax + yMin) / 2, yMin].forEach((v, i) => {
-      ctx.fillText(v.toFixed(1), pad.l - 6, pad.t + i * (ph / 2) + 4);
-    });
-  }, [type, w, L, E, I]);
-
-  return <canvas ref={ref} style={{ width: "100%", height: 200, display: "block" }} />;
 }
 
 // ─── metricBlock style ───────────────────────────────────────────────────────
@@ -286,7 +263,7 @@ function DiagnosisModal({ diagnoses, open, onClose }) {
 }
 
 // ─── ComplianceScreen ────────────────────────────────────────────────────────
-function ComplianceScreen({ selectedProject, setSelectedProject }) {
+function ComplianceScreen({ selectedProject, setSelectedProject, projects, projectContext }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [checks, setChecks] = useState([]);
@@ -301,24 +278,38 @@ function ComplianceScreen({ selectedProject, setSelectedProject }) {
   // Cache diagnosis results per project so re-opening doesn't re-run
   const diagCacheRef = useRef({});
   const lastProjectRef = useRef(selectedProject);
+  const hasAutoRun = useRef(false);
 
-  // Clear cache when project changes
+  // Clear stale results and auto-run when project changes
   if (lastProjectRef.current !== selectedProject) {
     lastProjectRef.current = selectedProject;
     setDiagnoses(null);
     setModalOpen(false);
+    setChecks([]);
+    setMetrics(null);
+    setLoads(null);
+    setGoverning(null);
+    setLastResult(null);
+    hasAutoRun.current = false;
   }
+
+  useEffect(() => {
+    if (selectedProject && !hasAutoRun.current) {
+      hasAutoRun.current = true;
+      runCheckFn();
+    }
+  }, [selectedProject, projectContext]);
 
   const hasIssues = checks.some(c => c.status === "FAIL" || c.status === "WARNING")
     || [metrics?.max_drift, metrics?.max_deflection, metrics?.base_shear].some(m => m && (m.status === "MARGINAL" || m.status === "FAIL"));
 
-  const runCheck = () => {
+  const runCheckFn = () => {
     setLoading(true);
     setError(null);
     // Clear cached diagnosis on fresh generate
     setDiagnoses(null);
     delete diagCacheRef.current[selectedProject];
-    complianceApi.check(selectedProject)
+    complianceApi.check(selectedProject, projectContext)
       .then(data => {
         setChecks(data.checks || []);
         setMetrics(data.metrics || null);
@@ -329,6 +320,8 @@ function ComplianceScreen({ selectedProject, setSelectedProject }) {
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   };
+
+  const runCheck = runCheckFn;
 
   const handleDiagnosisClick = useCallback(() => {
     // If we have cached results for this project, just open the modal
@@ -341,7 +334,7 @@ function ComplianceScreen({ selectedProject, setSelectedProject }) {
     // Otherwise run the diagnosis
     if (!lastResult || !hasIssues) return;
     setDiagLoading(true);
-    complianceApi.diagnose("compliance", lastResult, selectedProject)
+    complianceApi.diagnose("compliance", lastResult, 1, projectContext)
       .then(data => {
         const diags = data.diagnoses || [];
         setDiagnoses(diags);
@@ -438,7 +431,7 @@ function ComplianceScreen({ selectedProject, setSelectedProject }) {
               <span style={{ fontFamily: fonts.label, fontSize: 15, fontWeight: 700, color: colors.textBright }}>Projects</span>
             </div>
             <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, border: `1px solid ${colors.cardBorder}`, padding: "2px 8px", borderRadius: radii.sm }}>
-              {PROJECTS.length} total
+              {(projects || []).length} total
             </span>
           </div>
           <button
@@ -456,8 +449,13 @@ function ComplianceScreen({ selectedProject, setSelectedProject }) {
             {loading ? "Evaluating..." : "Generate"}
           </button>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", flex: 1, minHeight: 0, paddingRight: 4 }}>
-            {PROJECTS.map(p => {
+            {(projects || []).length === 0 ? (
+              <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim, padding: "20px 0", textAlign: "center" }}>
+                No saved projects — create one in Develop
+              </div>
+            ) : (projects || []).map(p => {
               const active = p.id === selectedProject;
+              const sqft   = p.floor_plan?.totalSF || p.generate_params?.targetSF || 0;
               return (
                 <div
                   key={p.id}
@@ -484,7 +482,7 @@ function ComplianceScreen({ selectedProject, setSelectedProject }) {
                     </span>
                   </div>
                   <span style={{ fontFamily: fonts.data, fontSize: 11, color: active ? colors.accent : colors.textDim, flexShrink: 0 }}>
-                    {p.sqft.toLocaleString()} sf
+                    {sqft ? sqft.toLocaleString() + " sf" : "—"}
                   </span>
                 </div>
               );
@@ -597,263 +595,26 @@ function ComplianceScreen({ selectedProject, setSelectedProject }) {
   );
 }
 
-// ─── ForceScreen ─────────────────────────────────────────────────────────────
-function ForceScreen({ selectedProject, setSelectedProject }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [result, setResult] = useState(null);
-  const [diagLoading, setDiagLoading] = useState(false);
-  const [diagnoses, setDiagnoses] = useState(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const diagCacheRef = useRef({});
-  const lastProjectRef = useRef(selectedProject);
-
-  // Clear cache when project changes
-  if (lastProjectRef.current !== selectedProject) {
-    lastProjectRef.current = selectedProject;
-    setDiagnoses(null);
-    setModalOpen(false);
-  }
-
-  const hasIssues = result && (
-    (result.compliance_checks || []).some(c => !c.passed)
-    || (result.beam_analysis?.status === "WARNING" || result.beam_analysis?.status === "FAIL")
-    || (result.beam_analysis?.utilization > 0.85)
-  );
-
-  const runAnalysis = () => {
-    const p = PROJECT_PARAMS[selectedProject];
-    if (!p) return;
-    setLoading(true);
-    setError(null);
-    // Clear cached diagnosis on fresh analysis
-    setDiagnoses(null);
-    delete diagCacheRef.current[selectedProject];
-    structuralApi.analyze(p)
-      .then(data => setResult(data))
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
-  };
-
-  const handleDiagnosisClick = useCallback(() => {
-    const cached = diagCacheRef.current[selectedProject];
-    if (cached) {
-      setDiagnoses(cached);
-      setModalOpen(true);
-      return;
-    }
-    if (!result || !hasIssues) return;
-    setDiagLoading(true);
-    complianceApi.diagnose("structural", result, selectedProject)
-      .then(data => {
-        const diags = data.diagnoses || [];
-        setDiagnoses(diags);
-        diagCacheRef.current[selectedProject] = diags;
-        setModalOpen(true);
-      })
-      .catch(err => setError(err.message))
-      .finally(() => setDiagLoading(false));
-  }, [result, hasIssues, selectedProject]);
-
-  const beam = result?.beam_analysis;
-  const section = result?.section;
-  const lc = result?.load_combinations;
-  const inputs = result?.inputs;
-
-  // For BeamChart: convert imperial units for canvas rendering
-  // w in lb/ft → kN/m (÷ 14.5939), L in ft → m (× 0.3048), E ksi → GPa (× 0.00689476), I in⁴ → 10⁶mm⁴ (× 416231)
-  // Actually, BeamChart just needs numerical values for shape — we pass raw imperial and display imperial labels
-  const w_plf = beam?.w_plf || 0;
-  const L_ft = inputs?.span_ft || 24;
-  const E_ksi = section?.E || 29000;
-  const I_in4 = section?.Ix || 199;
-
-  const Vmax = beam ? beam.V_max_kip.toFixed(1) : "--";
-  const Mmax = beam ? beam.M_max_ftk.toFixed(2) : "--";
-  const dmax = beam ? beam.delta_max_in.toFixed(3) : "--";
-  const R = beam ? (beam.V_max_kip).toFixed(1) : "--";
-
-  const ChartCard = ({ title, subtitle, type, valueLabel, value }) => (
-    <div style={{ ...card, marginBottom: 16, position: "relative" }}>
-      {loading && (
-        <div style={{ position: "absolute", inset: 0, background: "rgba(13,17,23,0.7)", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: radii.md, zIndex: 2 }}>
-          <span style={{ fontFamily: fonts.data, fontSize: 12, color: colors.accent }}>Analyzing...</span>
-        </div>
-      )}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
-        <div>
-          <div style={{ fontFamily: fonts.label, fontSize: 15, fontWeight: 700, color: colors.textBright }}>{title}</div>
-          <div style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim, marginTop: 2 }}>{subtitle}</div>
-        </div>
-        <span style={{ padding: "4px 12px", borderRadius: radii.sm, background: colors.warnDim, border: `1px solid ${colors.warn}`, color: colors.warn, fontSize: 12, fontFamily: fonts.data, fontWeight: 700 }}>
-          {valueLabel} = {value}
-        </span>
-      </div>
-      {beam && <BeamChart type={type} w={w_plf / 1000} L={L_ft * 0.3048} E={E_ksi * 0.00689476} I={I_in4 * 416231 / 1e6} />}
-      {!beam && !loading && (
-        <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <span style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>Click "Run Analysis" to generate</span>
-        </div>
-      )}
-    </div>
-  );
-
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16, padding: 20 }}>
-      {/* Left column */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {/* Beam Schematic */}
-        <div style={{ ...card, position: "relative" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 14 }}>🏗</span>
-              <span style={{ fontFamily: fonts.data, fontSize: 12, fontWeight: 700, color: colors.text, letterSpacing: "0.08em" }}>BEAM SCHEMATIC</span>
-            </div>
-            <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.accent, border: `1px solid ${colors.accentGlow}`, padding: "2px 7px", borderRadius: radii.sm }}>
-              {section ? section.designation : "W14x22"}
-            </span>
-          </div>
-
-          <div style={{ background: colors.panel, border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, padding: 16 }}>
-            <div style={{ position: "relative", height: 80 }}>
-              <div style={{ display: "flex", justifyContent: "space-around", paddingBottom: 6 }}>
-                {Array(6).fill(0).map((_, i) => (
-                  <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                    <span style={{ color: colors.accent, fontSize: 14, lineHeight: 1 }}>↓</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ height: 10, background: `linear-gradient(90deg,#1e3a5f,${colors.secondary},#1e3a5f)`, borderRadius: 2, position: "relative" }}>
-                <span style={{ position: "absolute", left: 2, bottom: -16, fontSize: 16, color: colors.warn }}>▲</span>
-                <span style={{ position: "absolute", right: 2, bottom: -16, fontSize: 16, color: colors.text }}>○</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20 }}>
-                <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.warn }}>R1: {R} kips</span>
-                <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.text }}>R2: {R} kips</span>
-              </div>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
-              <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.panelBorder, letterSpacing: "0.06em" }}>
-                SPAN: {L_ft} ft
-              </span>
-              <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.panelBorder, letterSpacing: "0.06em" }}>
-                w = {beam ? w_plf.toFixed(0) : "--"} lb/ft
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Projects */}
-        <div style={{ ...card, maxHeight: 260, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexShrink: 0 }}>
-            <span style={{ fontFamily: fonts.data, fontSize: 12, fontWeight: 700, color: colors.text, letterSpacing: "0.1em" }}>PROJECTS</span>
-            <button
-              onClick={runAnalysis}
-              disabled={loading}
-              style={{
-                fontFamily: fonts.data, fontSize: 11, fontWeight: 600,
-                color: loading ? colors.textDim : "#0d1117",
-                background: loading ? colors.panel : colors.accent,
-                border: "none", borderRadius: radii.sm,
-                padding: "6px 16px", cursor: loading ? "not-allowed" : "pointer",
-                transition: "all 0.15s ease",
-              }}
-            >
-              {loading ? "Analyzing..." : "Run Analysis"}
-            </button>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, overflowY: "auto", flex: 1, minHeight: 0, paddingRight: 4 }}>
-            {PROJECTS.map(p => {
-              const active = p.id === selectedProject;
-              return (
-                <div key={p.id} onClick={() => setSelectedProject(p.id)} style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  padding: "7px 10px", borderRadius: radii.sm, cursor: "pointer",
-                  border: `1px solid ${active ? colors.accent : colors.cardBorder}`,
-                  background: active ? colors.accentDim : "transparent",
-                  transition: "all 0.15s ease",
-                }}>
-                  <span style={{ fontFamily: fonts.label, fontSize: 12, fontWeight: active ? 600 : 400, color: active ? colors.textBright : colors.text }}>{p.name}</span>
-                  <span style={{ fontFamily: fonts.data, fontSize: 10, color: active ? colors.accent : colors.textDim }}>{p.sqft.toLocaleString()} sf</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Analysis Summary */}
-        {result && (
-        <div style={{ ...card }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <span style={{ fontFamily: fonts.data, fontSize: 12, fontWeight: 700, color: colors.text, letterSpacing: "0.1em" }}>
-              ANALYSIS SUMMARY
-            </span>
-            <AIDiagnosisBtn hasIssues={!!hasIssues} loading={diagLoading} onClick={handleDiagnosisClick} hasCached={!!diagCacheRef.current[selectedProject]} />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {[
-              { label: "SECTION", value: section?.designation },
-              { label: "UTILIZATION", value: beam ? `${(beam.utilization * 100).toFixed(1)}%` : "--" },
-              { label: "STATUS", value: beam?.status },
-              { label: "SCI", value: result.sci ? `${result.sci.value.toFixed(1)} (${result.sci.rating})` : "--" },
-              { label: "GOVERNING", value: lc?.governing_combo?.replace(/^LC\d: /, "") },
-              { label: "FACTORED LOAD", value: lc ? `${lc.governing_load_psf} psf` : "--" },
-            ].map(m => (
-              <div key={m.label}>
-                <div style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, letterSpacing: "0.08em", marginBottom: 2 }}>{m.label}</div>
-                <div style={{ fontFamily: fonts.data, fontSize: 13, fontWeight: 600, color: m.label === "STATUS" && m.value === "FAIL" ? colors.danger : colors.textBright }}>{m.value || "--"}</div>
-              </div>
-            ))}
-          </div>
-          {result.diagnostics && (
-            <div style={{ marginTop: 12, padding: "8px 10px", background: colors.panel, borderRadius: radii.sm, border: `1px solid ${colors.cardBorder}` }}>
-              <div style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, letterSpacing: "0.08em", marginBottom: 4 }}>SOLVER DIAGNOSTICS</div>
-              <div style={{ fontFamily: fonts.data, fontSize: 11, color: colors.text }}>
-                Method: {result.diagnostics.method} · Convergence: {result.diagnostics.convergence} · Residual: {result.diagnostics.residual_pct}% · {result.diagnostics.solve_time_ms}ms
-              </div>
-            </div>
-          )}
-
-          {/* AI Diagnosis Modal */}
-          <DiagnosisModal diagnoses={diagnoses} open={modalOpen} onClose={() => setModalOpen(false)} />
-        </div>
-        )}
-      </div>
-      <div>
-        {error && (
-          <div style={{ ...card, marginBottom: 16, borderColor: colors.danger }}>
-            <span style={{ fontFamily: fonts.data, fontSize: 12, color: colors.danger }}>{error}</span>
-          </div>
-        )}
-        <ChartCard title="Shear Force Diagram (V)"    subtitle="V = wL/2 — Linear variation, simply supported beam"  type="shear"      valueLabel="V_max" value={`${Vmax} kips`} />
-        <ChartCard title="Bending Moment Diagram (M)" subtitle="M = wL²/8 — Parabolic curve, peak at mid-span"      type="moment"     valueLabel="M_max" value={`${Mmax} ft·kips`} />
-        <ChartCard title="Deflection Curve (Δ)"       subtitle="Δ = 5wL⁴/(384EI) — Exaggerated scale"              type="deflection" valueLabel="Δ_max" value={`${dmax} in`} />
-      </div>
-    </div>
-  );
-}
-
-// ─── Tab button ───────────────────────────────────────────────────────────────
-function TabBtn({ label, active, onClick }) {
-  return (
-    <button onClick={onClick} style={{
-      padding: "7px 16px", fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
-      border: `1px solid ${active ? colors.accent : colors.cardBorder}`,
-      borderRadius: radii.md,
-      background: active ? colors.accentDim : "transparent",
-      color: active ? colors.accent : colors.textDim,
-      cursor: "pointer", transition: "all 0.15s ease", letterSpacing: "0.02em",
-    }}>
-      {label}
-    </button>
-  );
-}
-
-
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function StructuralIntelligence() {
-  const [screen, setScreen] = useState(SCREENS.COMPLIANCE);
-  const [selectedProject, setSelectedProject] = useState(PROJECTS[0].id);
+  const project = useProject();
+  const bc = project.buildingContext || {};
+  const [mongoProjects, setMongoProjects] = useState([]);
+  const [selectedProject, setSelectedProject] = useState(null);
+
+  // Load real projects from MongoDB on mount
+  useEffect(() => {
+    projectsApi.list()
+      .then(ps => {
+        setMongoProjects(ps);
+        if (ps.length > 0) setSelectedProject(ps[0].id);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Derive building context from the selected project's real data; fall back to store context
+  const selectedProjectData    = mongoProjects.find(p => p.id === selectedProject) || null;
+  const selectedProjectContext = deriveContextFromProject(selectedProjectData) || bc;
 
   return (
     <div style={{ height: "100%", background: colors.bgGradient, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -868,18 +629,15 @@ export default function StructuralIntelligence() {
             Structural <span style={{ color: colors.accent }}>Intelligence</span> Visualization
           </h1>
           <p style={{ fontFamily: fonts.label, fontSize: 12, color: colors.textDim, margin: "4px 0 0" }}>
-            Structural calculations do not constitute licensed engineering analysis.
+            {selectedProjectContext.section || "W14x22"} · {selectedProjectContext.span_ft || 24}ft span · {selectedProjectContext.stories || 2} stories · {(selectedProjectContext.total_sf || 2200).toLocaleString()} SF · {selectedProjectContext.framing_material || "Wood SPF"} — Advisory only
           </p>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <TabBtn label="Code Compliance" active={screen === SCREENS.COMPLIANCE} onClick={() => setScreen(SCREENS.COMPLIANCE)} />
-          <TabBtn label="Force Diagrams"  active={screen === SCREENS.FORCE}      onClick={() => setScreen(SCREENS.FORCE)} />
-        </div>
+
       </div>
 
-      {/* ── Code Compliance tab ── */}
-      <div style={{ flex: 1, overflow: "auto", display: screen === SCREENS.COMPLIANCE ? "block" : "none" }}>
-        <ComplianceScreen selectedProject={selectedProject} setSelectedProject={setSelectedProject} />
+      {/* ── Code Compliance ── */}
+      <div style={{ flex: 1, overflow: "auto" }}>
+        <ComplianceScreen selectedProject={selectedProject} setSelectedProject={setSelectedProject} projects={mongoProjects} projectContext={selectedProjectContext} />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", borderTop: `1px solid ${colors.cardBorder}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: colors.success, display: "inline-block" }} />
@@ -893,10 +651,7 @@ export default function StructuralIntelligence() {
         </div>
       </div>
 
-      {/* ── Force Diagrams tab ── */}
-      <div style={{ flex: 1, overflow: "auto", display: screen === SCREENS.FORCE ? "block" : "none" }}>
-        <ForceScreen selectedProject={selectedProject} setSelectedProject={setSelectedProject} />
-      </div>
+
     </div>
   );
 }

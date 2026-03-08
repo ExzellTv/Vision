@@ -8,6 +8,7 @@ import DisclaimerBanner from "../../components/shared/DisclaimerBanner";
 import LeafletMap from "./LeafletMap";
 import { computeNearbyComps, runValuation, getZone, fmtK, fmtUSD } from "./valuationEngine";
 import { DALLAS_COMPS, ZONING_DISTRICTS } from "./mapData";
+import { projectsApi } from "../../services/api";
 
 /* ── Hardcoded Dallas fixture data (shown when no location is selected) ── */
 const DEMO = {
@@ -91,6 +92,34 @@ function MonteCarloHistogram({ bars }) {
 export default function FeasibilityDashboard() {
   const project = useProject();
   const [mode, setMode] = useState("developer");
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null); // "ok" | "err"
+
+  const handleSave = async () => {
+    setSaving(true); setSaveStatus(null);
+    try {
+      const payload = {
+        name: project.projectName || "New Project",
+        generate_params: project.generateParams,
+        floor_plan: project.floorPlan || null,
+        feasibility: { loc, valuation, displayScore, displayCost, displayARV, displayMargin },
+      };
+      let saved;
+      if (project.projectId) {
+        saved = await projectsApi.update(project.projectId, payload);
+      } else {
+        saved = await projectsApi.create(payload);
+      }
+      if (saved?.id) project.setProjectId(saved.id);
+      setSaveStatus("ok");
+      setTimeout(() => setSaveStatus(null), 2500);
+    } catch (_) {
+      setSaveStatus("err");
+      setTimeout(() => setSaveStatus(null), 2500);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // ── Map / analysis state ──────────────────────────────────────────────
   const [loc,     setLoc]     = useState(null);  // pinned map location
@@ -206,11 +235,26 @@ export default function FeasibilityDashboard() {
           </button>
         </div>
 
-        {/* ── Radius filter chip ── */}
+        {/* ── Radius filter chip + project name ── */}
         <div style={{
           position: "absolute", top: 62, left: 16,
           display: "flex", gap: 6, zIndex: 800,
         }}>
+          <span style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "3px 10px",
+            background: "rgba(26,34,51,0.88)",
+            border: `1px solid ${colors.cardBorder}`,
+            borderRadius: 999,
+            fontFamily: fonts.label, fontSize: 11,
+            color: colors.textBright, fontWeight: 600,
+            backdropFilter: "blur(8px)",
+          }}>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill={colors.accent}>
+              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
+            </svg>
+            {projectName}
+          </span>
           <span style={{
             display: "inline-flex", alignItems: "center", gap: 4,
             padding: "3px 10px",
@@ -582,6 +626,23 @@ export default function FeasibilityDashboard() {
             cursor:       "pointer",
           }}>
             <span style={{ fontSize: 14 }}>+</span> Add to Comparison
+          </button>
+
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              padding:      "10px 0",
+              background:   saving ? "rgba(0,212,255,0.12)" : "rgba(0,212,255,0.08)",
+              border:       `1px solid ${saveStatus === "ok" ? colors.success : saveStatus === "err" ? colors.danger : colors.accent}`,
+              borderRadius: radii.md,
+              color:        saveStatus === "ok" ? colors.success : saveStatus === "err" ? colors.danger : colors.accent,
+              fontFamily:   fonts.label, fontSize: 13, fontWeight: 700,
+              cursor:       saving ? "default" : "pointer", textAlign: "center",
+              letterSpacing: "0.3px", transition: "all 0.2s",
+            }}
+          >
+            {saving ? "Saving…" : saveStatus === "ok" ? "✓ Saved" : saveStatus === "err" ? "Save Failed" : "Save Project"}
           </button>
 
           <button style={{
