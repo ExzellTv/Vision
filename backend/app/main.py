@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import Base, engine
 from app.models import *  # noqa: F401,F403 — register all models
-from app.routers import floorplan, structural, cost, market, risk, zoning, schedule
+from app.routers import floorplan, structural, cost, market, risk, zoning, schedule, compliance
 
 
 @asynccontextmanager
@@ -38,6 +38,7 @@ app.include_router(market.router, prefix="/api/market", tags=["Market"])
 app.include_router(risk.router, prefix="/api/risk", tags=["Risk"])
 app.include_router(zoning.router, prefix="/api/zoning", tags=["Zoning"])
 app.include_router(schedule.router, prefix="/api/schedule", tags=["Schedule"])
+app.include_router(compliance.router, prefix="/api/compliance", tags=["Compliance"])
 
 
 @app.get("/api/health")
