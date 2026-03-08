@@ -7,7 +7,7 @@
  */
 
 // ── Valuation constants ───────────────────────────────────────────────────
-const BUILD_COST_PSF  = 165;   // $/SF new construction
+export const BUILD_COST_PSF  = 185;   // $/SF new construction (Dallas mid-range, 2026)
 const RENT_PSF        = 1.15;  // $/SF/month rental estimate
 const GRM             = 15;    // Gross Rent Multiplier
 const ADJ_SIZE_PSF    = 125;   // $/SF size adjustment
