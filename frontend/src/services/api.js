@@ -84,12 +84,15 @@ export const mapApi = {
 };
 
 // Compliance
+// NOTE: project_id is always 1 (int) because the backend schema expects int and falls
+// back to the default context when building_context is provided — per-project
+// differentiation comes entirely from building_context (derived from real project data).
 export const complianceApi = {
-  check: (projectId, buildingContext) => request("/compliance/check", {
+  check: (_projectId, buildingContext) => request("/compliance/check", {
     method: "POST",
     body: JSON.stringify({ project_id: 1, ...(buildingContext && { building_context: buildingContext }) }),
   }),
-  diagnose: (analysisType, results, projectId, buildingContext) => request("/compliance/ai-diagnosis", {
+  diagnose: (analysisType, results, _projectId, buildingContext) => request("/compliance/ai-diagnosis", {
     method: "POST",
     body: JSON.stringify({ analysis_type: analysisType, results, project_id: 1, ...(buildingContext && { building_context: buildingContext }) }),
   }),
