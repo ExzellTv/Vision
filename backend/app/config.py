@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     aps_client_secret: str = ""
     materials_api_key: str = ""
     cesium_ion_token: str = ""
+    google_api_key: str = ""
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
