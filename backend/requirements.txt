@@ -19,3 +19,7 @@ pymongo==4.9.0
 certifi>=2024.0.0
 # Clerk JWT verification
 python-jose[cryptography]==3.3.0
+# Google Gemini AI (compliance RAG)
+google-generativeai>=0.8.0
+# Model serialisation (explicit pin; ships with scikit-learn)
+joblib>=1.4.0
