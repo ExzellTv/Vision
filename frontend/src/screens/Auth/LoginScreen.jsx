@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useSignIn, useSignUp } from "@clerk/clerk-react";
 
 // ── Icons ───────────────────────────────────────────────────────────────────
@@ -60,6 +61,7 @@ export default function LoginScreen() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [focusField, setFocusField] = useState(null);
+  const navigate = useNavigate();
 
   const { signIn, setActive: setSignInActive, isLoaded: signInLoaded } = useSignIn();
   const { signUp, setActive: setSignUpActive, isLoaded: signUpLoaded } = useSignUp();
@@ -71,10 +73,16 @@ export default function LoginScreen() {
       await signIn.authenticateWithRedirect({
         strategy: "oauth_google",
         redirectUrl: `${window.location.origin}/sso-callback`,
-        redirectUrlComplete: "/",
+        redirectUrlComplete: "/dashboard",
       });
     } catch (err) {
-      setError(err.errors?.[0]?.message || "Google sign-in failed");
+      const msg = err.errors?.[0]?.message || "";
+      // Already signed in — just go to the app
+      if (msg.toLowerCase().includes("session") && msg.toLowerCase().includes("exists")) {
+        navigate("/dashboard");
+        return;
+      }
+      setError(msg || "Google sign-in failed");
     }
   }
 
@@ -87,6 +95,7 @@ export default function LoginScreen() {
       const result = await signIn.create({ identifier: email, password });
       if (result.status === "complete") {
         await setSignInActive({ session: result.createdSessionId });
+        navigate("/dashboard");
       }
     } catch (err) {
       setError(err.errors?.[0]?.message || "Invalid email or password");
@@ -120,6 +129,7 @@ export default function LoginScreen() {
       const result = await signUp.attemptEmailAddressVerification({ code });
       if (result.status === "complete") {
         await setSignUpActive({ session: result.createdSessionId });
+        navigate("/dashboard");
       }
     } catch (err) {
       setError(err.errors?.[0]?.message || "Invalid verification code");

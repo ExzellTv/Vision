@@ -623,17 +623,6 @@ export default function StructuralIntelligence() {
       {/* ── Compliance Panel ── */}
       <div style={{ flex: 1, overflow: "auto" }}>
         <ComplianceScreen selectedProject={selectedProject} setSelectedProject={setSelectedProject} projects={mongoProjects} projectContext={selectedProjectContext} />
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", borderTop: `1px solid ${colors.cardBorder}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: colors.success, display: "inline-block" }} />
-            <span style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim }}>System Online</span>
-          </div>
-          <div style={{ display: "flex", gap: 20 }}>
-            {["Vision Platform v2.4.0", "IBC 2021", "ASCE 7-22"].map(t => (
-              <span key={t} style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim, cursor: "pointer" }}>{t}</span>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );

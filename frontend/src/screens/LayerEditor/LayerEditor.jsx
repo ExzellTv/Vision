@@ -48,7 +48,6 @@ export const MATERIALS_DATA = [
     options: [
       { name: "Slab", cost: 38000 },
       { name: "Pier & Beam", cost: 45000 },
-      { name: "Crawlspace", cost: 42000 },
     ],
   },
   {
@@ -101,34 +100,21 @@ export const MATERIALS_DATA = [
       { name: "Fiber Cement", cost: 24000 },
       { name: "Brick Veneer", cost: 38000 },
       { name: "Stone Veneer", cost: 52000 },
-      { name: "Metal Panel", cost: 32000 },
     ],
   },
   {
     layerIndex: 6,
-    name: "Paint",
-    color: "#b8c8d8",
-    options: [
-      { name: "Basic Latex", cost: 4000 },
-      { name: "Ceramic Coat", cost: 9000 },
-    ],
-  },
-  {
-    layerIndex: 7,
     name: "Roof",
     color: "#7a5c3a",
     options: [
       { name: "Gable — Asphalt",   cost: 14000 },
       { name: "Gable — Metal",     cost: 22000 },
       { name: "Hip — Asphalt",     cost: 16000 },
-      { name: "Hip — Clay Tile",   cost: 34000 },
       { name: "Flat — TPO",        cost: 11000 },
-      { name: "Shed — Metal",      cost: 18000 },
-      { name: "Mansard — Slate",   cost: 48000 },
     ],
   },
   {
-    layerIndex: 8,
+    layerIndex: 7,
     name: "Color Palette",
     color: "#e87070",
     options: [
@@ -267,10 +253,9 @@ export const MATERIAL_KEY_MAP = {
   2: ["sheathing_osb", "sheathing_zip", "sheathing_sip"],
   3: ["insulation_fiberglass", "insulation_foam_open", "insulation_foam_closed"],
   4: ["drywall", "drywall_moisture", "drywall_acoustic"],
-  5: ["cladding_vinyl", "cladding_fiber", "cladding_brick", "cladding_stone", "cladding_metal"],
-  6: ["paint_budget", "paint_ceramic"],
-  7: ["roof_asphalt", "roof_metal", "roof_asphalt", "roof_clay", "roof_tpo", "roof_metal", "roof_slate"],
-  8: [],
+  5: ["cladding_vinyl", "cladding_fiber", "cladding_brick", "cladding_stone"],
+  6: ["roof_asphalt", "roof_metal", "roof_asphalt", "roof_tpo"],
+  7: [],
 };
 
 // ── House dimensions (mutable — updated from project floor plan before each build) ──
@@ -1135,10 +1120,10 @@ function buildMansardRoof(mat, bounds) {
 }
 
 function buildRoofLayer(mats, roofType = 0) {
-  const matKey = (MATERIAL_KEY_MAP[7] || [])[roofType] || "roof_asphalt";
+  const matKey = (MATERIAL_KEY_MAP[6] || [])[roofType] || "roof_asphalt";
   const mat = mats[matKey] || mats.roof_asphalt;
 
-  const overhangMap = [1.5, 1.5, 1.5, 1.5, 0.4, 1.5, 1.0];
+  const overhangMap = [1.5, 1.5, 1.5, 0.4];
   const overhang = ftToUnits(overhangMap[roofType] ?? 1.5);
   const footprints = getRoofFootprints(overhang);
 
@@ -1146,10 +1131,7 @@ function buildRoofLayer(mats, roofType = 0) {
     buildGableRoof,   // 0  Gable — Asphalt
     buildGableRoof,   // 1  Gable — Metal
     buildHipRoof,     // 2  Hip — Asphalt
-    buildHipRoof,     // 3  Hip — Clay Tile
-    buildFlatRoof,    // 4  Flat — TPO
-    buildShedRoof,    // 5  Shed — Metal
-    buildMansardRoof, // 6  Mansard — Slate
+    buildFlatRoof,    // 3  Flat — TPO
   ];
   const fn = builders[roofType] || buildGableRoof;
 
@@ -1185,7 +1167,6 @@ export function rebuildLayerGroups(scene, mats, foundationType = 0, roofType = 0
     buildInsulationLayer,
     buildDrywallLayer,
     buildCladdingLayer,
-    buildPaintLayer,
     (m) => buildRoofLayer(m, roofType),
     buildColorPaletteLayer,
   ];
@@ -1456,12 +1437,8 @@ export default function LayerEditor() {
     updateDims(project.footprintWidth, project.footprintDepth);
     updateRooms(project.floorPlan?.rooms, project.storyPlans);
 
-    // Build layer groups (use saved foundation/roof type if available)
-    const initFoundation = project.materials?.[0]?.materialIndex ?? 0;
-    const initRoof = project.materials?.[7]?.materialIndex ?? 0;
-    foundationTypeRef.current = initFoundation;
-    roofTypeRef.current = initRoof;
-    const layerGroups = rebuildLayerGroups(scene, mats, initFoundation, initRoof);
+    // Build layer groups
+    const layerGroups = rebuildLayerGroups(scene, mats, 0, 0);
     layerGroupsRef.current = layerGroups;
 
     // Clipping plane for section mode
@@ -1512,64 +1489,6 @@ export default function LayerEditor() {
     };
   }, []);
 
-  // ── Restore saved materials & paint colors on mount ──
-  const materialsRestoredRef = useRef(false);
-  useEffect(() => {
-    if (materialsRestoredRef.current) return;
-    const saved = project.materials;
-    if (!saved || !saved.length) return;
-    materialsRestoredRef.current = true;
-
-    // Restore layer selections (materialIndex, material name, cost)
-    setLayers((prev) =>
-      prev.map((l, i) => {
-        const s = saved[i];
-        if (!s) return l;
-        const optIdx = s.materialIndex ?? 0;
-        const opt = MATERIALS_DATA[i]?.options[optIdx];
-        if (!opt) return l;
-        return { ...l, materialIndex: optIdx, material: opt.name, cost: opt.cost };
-      })
-    );
-
-    // Restore foundation / roof type refs for rebuild consistency
-    foundationTypeRef.current = saved[0]?.materialIndex ?? 0;
-    roofTypeRef.current = saved[7]?.materialIndex ?? 0;
-
-    // Restore paint colors
-    const savedWall = saved[6]?.wallColor;
-    const savedRoof = saved[7]?.roofColor;
-    if (savedWall) { wallColorRef.current = savedWall; setWallColor(savedWall); }
-    if (savedRoof) { roofColorRef.current = savedRoof; setRoofColor(savedRoof); }
-
-    // Apply to 3D scene
-    const groups = layerGroupsRef.current;
-    const mats = matsRef.current;
-    if (groups.length && mats) {
-      saved.forEach((s, i) => {
-        if (i >= 8 || !s) return;
-        const matKey = MATERIAL_KEY_MAP[i]?.[s.materialIndex ?? 0];
-        if (matKey && mats[matKey] && groups[i]) {
-          groups[i].traverse((child) => { if (child.isMesh) child.material = mats[matKey]; });
-        }
-      });
-      // Apply wall paint color
-      if (savedWall && groups[6]) {
-        const wc = new THREE.Color(savedWall);
-        groups[6].traverse((child) => {
-          if (child.isMesh) { child.material = child.material.clone(); child.material.color = wc; child.material.needsUpdate = true; }
-        });
-      }
-      // Apply roof paint color
-      if (savedRoof && groups[7]) {
-        const rc = new THREE.Color(savedRoof);
-        groups[7].traverse((child) => {
-          if (child.isMesh) { child.material = child.material.clone(); child.material.color = rc; child.material.needsUpdate = true; }
-        });
-      }
-    }
-  }, [project.materials]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Rebuild 3D model when floor plan dimensions change ──
   const dimInitRef = useRef(false);
   useEffect(() => {
@@ -1607,7 +1526,7 @@ export default function LayerEditor() {
 
   // ── Sync material changes ──
   const updateLayerMaterial = useCallback((layerIdx, matIdx) => {
-    if (layerIdx === 8) return; // Color palette is UI-only — no material to swap
+    if (layerIdx === 7) return; // Color palette is UI-only — no material to swap
     const groups = layerGroupsRef.current;
     const mats = matsRef.current;
     if (!groups[layerIdx] || !mats) return;
@@ -1749,15 +1668,9 @@ export default function LayerEditor() {
   const handleSave = useCallback(async () => {
     setSaving(true); setSaveStatus(null);
     try {
-      const materialsPayload = layers.map((l, i) => {
-        const entry = { name: l.name, material: l.material, cost: l.cost, materialIndex: l.materialIndex };
-        if (i === 6) entry.wallColor = wallColorRef.current;
-        if (i === 7) entry.roofColor = roofColorRef.current;
-        return entry;
-      });
       const payload = {
         name: project.projectName || "New Project",
-        materials: materialsPayload,
+        materials: layers.map((l) => ({ name: l.name, material: l.material, cost: l.cost, materialIndex: l.materialIndex })),
       };
       let saved;
       if (project.projectId) {
@@ -1766,7 +1679,7 @@ export default function LayerEditor() {
         saved = await projectsApi.create(payload);
       }
       if (saved?.id) project.setProjectId(saved.id);
-      project.setMaterials(materialsPayload);
+      project.setMaterials(layers.map((l) => ({ name: l.name, material: l.material, cost: l.cost })));
 
       // Sync building context from material selections
       const foundationMap = { "Slab": "slab_on_grade", "Pier & Beam": "pier", "Crawlspace": "crawlspace" };
@@ -1792,9 +1705,9 @@ export default function LayerEditor() {
     wallColorRef.current = hex;
     setWallColor(hex);
     const groups = layerGroupsRef.current;
-    if (!groups[6]) return; // paint layer is index 6
+    if (!groups[5]) return; // cladding layer is index 5
     const color = new THREE.Color(hex);
-    groups[6].traverse((child) => {
+    groups[5].traverse((child) => {
       if (child.isMesh) {
         child.material = child.material.clone();
         child.material.color = color;
@@ -1807,9 +1720,9 @@ export default function LayerEditor() {
     roofColorRef.current = hex;
     setRoofColor(hex);
     const groups = layerGroupsRef.current;
-    if (!groups[7]) return; // roof layer is index 7
+    if (!groups[6]) return; // roof layer is index 6
     const color = new THREE.Color(hex);
-    groups[7].traverse((child) => {
+    groups[6].traverse((child) => {
       if (child.isMesh) {
         child.material = child.material.clone();
         child.material.color = color;
@@ -1837,7 +1750,7 @@ export default function LayerEditor() {
         : l
     ));
 
-    if (layerIdx === 8) return; // Color palette — no geometry to update
+    if (layerIdx === 7) return; // Color palette — no geometry to update
 
     if (layerIdx === 0) {
       // Foundation type changed — rebuild geometry
@@ -1855,7 +1768,7 @@ export default function LayerEditor() {
       newGroup.visible = wasVisible;
       sceneData.scene.add(newGroup);
       layerGroupsRef.current = [newGroup, ...layerGroupsRef.current.slice(1)];
-    } else if (layerIdx === 7) {
+    } else if (layerIdx === 6) {
       // Roof style changed — rebuild roof geometry
       roofTypeRef.current = optionIdx;
       const sceneData = sceneRef.current;
@@ -1878,9 +1791,9 @@ export default function LayerEditor() {
       }
       sceneData.scene.add(newGroup);
       layerGroupsRef.current = [
-        ...layerGroupsRef.current.slice(0, 7),
+        ...layerGroupsRef.current.slice(0, 6),
         newGroup,
-        ...layerGroupsRef.current.slice(8),
+        ...layerGroupsRef.current.slice(7),
       ];
     } else {
       updateLayerMaterial(layerIdx, optionIdx);
@@ -1901,24 +1814,6 @@ export default function LayerEditor() {
     { key: "schedule",   label: "Schedule", route: "/schedule" },
   ];
   const currentStageIdx = 1; // 3D Edit
-
-  /* ── Guard: only show "no project" if user navigated here directly ── */
-  const hasActiveWorkflow = project.projectId || project.generateParams || project.floorPlan;
-  if (!hasActiveWorkflow) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", background: "#0d1117", fontFamily: "'Inter', sans-serif" }}>
-        <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 24 }}>
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M6 6h8l6 6v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z" stroke="#3b82f6" strokeWidth="1.5" fill="none" /><path d="M14 6v6h6" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" /><path d="M9 17h10M9 20h6" stroke="#3b82f6" strokeWidth="1.2" strokeLinecap="round" opacity="0.6" /></svg>
-        </div>
-        <h2 style={{ margin: "0 0 10px", fontSize: 22, fontWeight: 700, color: "#f1f5f9" }}>No project selected</h2>
-        <p style={{ margin: "0 0 32px", fontSize: 14, color: "#64748b", textAlign: "center", maxWidth: 340, lineHeight: 1.6 }}>Please select or create a project first before accessing this section.</p>
-        <div style={{ display: "flex", gap: 12 }}>
-          <button onClick={() => navigate("/projects")} style={{ padding: "11px 24px", background: "linear-gradient(135deg, #2563eb, #1d4ed8)", border: "none", borderRadius: 8, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", boxShadow: "0 2px 14px rgba(37,99,235,0.4)" }}>Go to Projects</button>
-          <button onClick={() => navigate("/")} style={{ padding: "11px 24px", background: "transparent", border: "1px solid #2a3548", borderRadius: 8, color: "#94a3b8", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Back to Dashboard</button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div style={{
@@ -2026,18 +1921,13 @@ export default function LayerEditor() {
             borderBottom: "1px solid #1a2236",
             display: "flex", alignItems: "center", gap: 10,
           }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <rect x="3" y="3" width="8" height="8" rx="1.5" stroke={colors.accent} strokeWidth="1.8"/>
-              <rect x="13" y="3" width="8" height="8" rx="1.5" stroke={colors.textDim} strokeWidth="1.8"/>
-              <rect x="3" y="13" width="8" height="8" rx="1.5" stroke={colors.textDim} strokeWidth="1.8"/>
-              <rect x="13" y="13" width="8" height="8" rx="1.5" stroke={colors.textDim} strokeWidth="1.8"/>
-            </svg>
+            <img src="/VisionLogo.png" alt="Vision" style={{ height: 20, width: "auto", objectFit: "contain", display: "block" }} />
             <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, flex: 1 }}>LAYER EDITOR</span>
             <span style={{
               fontSize: 10, fontFamily: fonts.data, color: colors.accent,
               background: `${colors.accent}15`, border: `1px solid ${colors.accent}30`,
               padding: "2px 8px", borderRadius: 10, letterSpacing: "0.06em",
-            }}>9 LAYERS</span>
+            }}>8 LAYERS</span>
           </div>
 
           {/* Scrollable section */}
@@ -2118,7 +2008,7 @@ export default function LayerEditor() {
                 color: colors.accent, marginBottom: 10,
               }}>Layer {activeLayer + 1}: {layerData.name}</div>
 
-              {activeLayer === 8 ? (
+              {activeLayer === 7 ? (
                 /* ── Color Palette (Layer 9) ── */
                 <div>
                   {/* Drop targets */}
@@ -2394,8 +2284,8 @@ export default function LayerEditor() {
                     fontSize: 9, fontFamily: fonts.data, color: colors.textDim,
                     textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8,
                   }}>Selected vs ML Estimate</div>
-                  {layers.slice(0, 8).map((l, i) => {
-                    const layerKey = ["foundation", "framing", "sheathing", "insulation", "drywall", "cladding", "paint", "roof"][i];
+                  {layers.slice(0, 7).map((l, i) => {
+                    const layerKey = ["foundation", "framing", "sheathing", "insulation", "drywall", "cladding", "roof"][i];
                     const mlLayer = mlData.construction_cost_breakdown[layerKey];
                     if (!mlLayer) return null;
                     const diff = l.cost - mlLayer.estimated_cost;

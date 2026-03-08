@@ -40,6 +40,8 @@ class ProjectCreate(BaseModel):
     story_plans: list[dict[str, Any]] | None = None
     materials: list[dict[str, Any]] = []
     notes: str = ""
+    schedule: dict[str, Any] | None = None
+    building_context: dict[str, Any] | None = None
 
 
 class ProjectUpdate(BaseModel):
@@ -49,6 +51,8 @@ class ProjectUpdate(BaseModel):
     story_plans: list[dict[str, Any]] | None = None
     materials: list[dict[str, Any]] | None = None
     notes: str | None = None
+    schedule: dict[str, Any] | None = None
+    building_context: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +88,8 @@ async def create_project(
         "story_plans": body.story_plans,
         "materials": body.materials,
         "notes": body.notes,
+        "schedule": body.schedule,
+        "building_context": body.building_context,
         "created_at": now,
         "updated_at": now,
     }

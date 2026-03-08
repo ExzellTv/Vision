@@ -4,9 +4,9 @@ import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { projectsApi } from "../../services/api";
 import StatusBadge from "../../components/shared/StatusBadge";
-import DisclaimerBanner from "../../components/shared/DisclaimerBanner";
+
 import {
-  createLayerMaterials, MATERIAL_KEY_MAP,
+  createLayerMaterials, MATERIAL_KEY_MAP, MATERIALS_DATA,
   updateDims, updateRooms, rebuildLayerGroups,
   buildScene, setupLighting, createOrbitControls,
 } from "../LayerEditor/LayerEditor";
@@ -39,20 +39,48 @@ class ScheduleErrorBoundary extends Component {
   }
 }
 
-/* ─── Construction phase config: 8 material layers → build sequence ─── */
+/* ─── Construction phase config — 13 phases, ~34 weeks total ───────────────
+ *  layerIdx: index into project.materials + layerGroups for 3D reveal.
+ *            null = no direct material layer (permits, MEP rough-in, etc.)
+ *  category: industry CPM category label (shown in Gantt)
+ * ─────────────────────────────────────────────────────────────────────── */
 const LAYER_PHASE_CONFIG = [
-  { layerIdx: 0, name: "Foundation",        durationWeeks: 3,  threeIdx: 0 },
-  { layerIdx: 1, name: "Structural Frame",  durationWeeks: 4,  threeIdx: 1 },
-  { layerIdx: 2, name: "Sheathing",         durationWeeks: 2,  threeIdx: 2 },
-  { layerIdx: 7, name: "Roof",              durationWeeks: 2,  threeIdx: 2 },
-  { layerIdx: 3, name: "Insulation",        durationWeeks: 2,  threeIdx: 3 },
-  { layerIdx: 4, name: "Drywall",           durationWeeks: 2,  threeIdx: 3 },
-  { layerIdx: 5, name: "Exterior Cladding", durationWeeks: 3,  threeIdx: 4 },
-  { layerIdx: 6, name: "Paint & Finish",    durationWeeks: 1,  threeIdx: 4 },
+  // ── SITEWORK ──────────────────────────────────────────────────────────
+  { layerIdx: null, name: "Permitting & Site Prep",       durationWeeks: 2,  category: "SITEWORK" },
+  { layerIdx: null, name: "Excavation & Grading",         durationWeeks: 2,  category: "SITEWORK" },
+  // ── FOUNDATION ────────────────────────────────────────────────────────
+  { layerIdx: 0,    name: "Foundation (Form, Pour, Cure)",durationWeeks: 4,  category: "FOUNDATION" },
+  // ── STRUCTURE ─────────────────────────────────────────────────────────
+  { layerIdx: 1,    name: "Structural Framing",           durationWeeks: 5,  category: "STRUCTURE" },
+  { layerIdx: 7,    name: "Roofing & Sheathing",          durationWeeks: 3,  category: "STRUCTURE" },
+  { layerIdx: 2,    name: "Exterior Sheathing & Wrap",    durationWeeks: 2,  category: "STRUCTURE" },
+  // ── MEP ROUGH-IN ──────────────────────────────────────────────────────
+  { layerIdx: null, name: "Rough MEP (Plumbing, Elec, HVAC)", durationWeeks: 4, category: "MEP" },
+  // ── ENCLOSURE ─────────────────────────────────────────────────────────
+  { layerIdx: 3,    name: "Insulation",                  durationWeeks: 2,  category: "ENCLOSURE" },
+  { layerIdx: 4,    name: "Drywall (Hang, Tape, Finish)", durationWeeks: 3,  category: "ENCLOSURE" },
+  // ── FINISHES ──────────────────────────────────────────────────────────
+  { layerIdx: 5,    name: "Exterior Cladding & Siding",  durationWeeks: 3,  category: "FINISHES" },
+  { layerIdx: null, name: "Interior Finish Carpentry",   durationWeeks: 3,  category: "FINISHES" },
+  { layerIdx: 6,    name: "Paint & Interior Finish",     durationWeeks: 2,  category: "FINISHES" },
+  // ── CLOSEOUT ──────────────────────────────────────────────────────────
+  { layerIdx: null, name: "Fixtures, Trim & Final MEP",  durationWeeks: 2,  category: "CLOSEOUT" },
+  { layerIdx: null, name: "Final Inspection & Punch List",durationWeeks: 1,  category: "CLOSEOUT" },
 ];
 
 // Pinned to today in the app
 const TODAY = new Date("2026-03-07");
+
+/* ─── CPM category colours — mirrors industry schedule swim-lane colours ─── */
+const CATEGORY_COLOR = {
+  SITEWORK:   "#a78bfa",   // violet
+  FOUNDATION: "#f59e0b",   // amber
+  STRUCTURE:  "#3b82f6",   // blue
+  MEP:        "#ec4899",   // pink/magenta
+  ENCLOSURE:  "#14b8a6",   // teal
+  FINISHES:   "#2ed573",   // green
+  CLOSEOUT:   "#00d4ff",   // accent cyan
+};
 
 /* ─── Date utilities ─── */
 function addWeeks(date, weeks) {
@@ -79,7 +107,8 @@ const fmtCost = (v) => {
 function buildSchedule(startDate, materials) {
   let cursor = new Date(startDate);
   return LAYER_PHASE_CONFIG.map((cfg, i) => {
-    const mat = materials?.[cfg.layerIdx];
+    // null layerIdx = no material layer (permits, MEP, carpentry, etc.)
+    const mat = cfg.layerIdx != null ? materials?.[cfg.layerIdx] : null;
     const start = new Date(cursor);
     const end = addWeeks(cursor, cfg.durationWeeks);
     cursor = new Date(end);
@@ -90,12 +119,13 @@ function buildSchedule(startDate, materials) {
     return {
       id: i + 1,
       name: cfg.name,
+      category: cfg.category,
+      layerColor: cfg.layerIdx != null ? MATERIALS_DATA[cfg.layerIdx]?.color ?? null : null,
       material: mat?.material || "—",
       cost: mat?.cost ?? 0,
       durationWeeks: cfg.durationWeeks,
       startDate: start,
       endDate: end,
-      threeIdx: cfg.threeIdx,
       status,
     };
   });
@@ -131,6 +161,225 @@ function ProgressGauge({ score = 0, size = 100 }) {
   );
 }
 
+/* ─── Export PDF: opens a print-ready HTML window — use browser Print → Save as PDF ─── */
+function exportGanttPDF({ schedule, projectStart, totalWeeks, projectName, startDateStr, totalSF, stories, totalCost, completionDate, overallPct, bc }) {
+  const CATEGORY_COLORS_HEX = {
+    SITEWORK: "#7c3aed", FOUNDATION: "#d97706", STRUCTURE: "#2563eb",
+    MEP: "#db2777", ENCLOSURE: "#0d9488", FINISHES: "#16a34a", CLOSEOUT: "#0891b2",
+  };
+  const fmtD = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const fmtShort = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const fmtC = (v) => v >= 1e6 ? `$${(v/1e6).toFixed(2)}M` : v >= 1000 ? `$${(v/1000).toFixed(0)}K` : `$${Math.round(v)}`;
+  const doneCount = schedule.filter(p => p.status === "complete").length;
+  const activePhase = schedule.find(p => p.status === "active");
+  const costPerSF = totalSF > 0 ? Math.round(totalCost / totalSF) : 0;
+
+  // ── Gantt SVG ──
+  const BAR_LEFT = 260;
+  const BAR_W    = 500;
+  const ROW_H    = 22;
+  const COL_H    = 18;
+  const LEG_H    = 22;
+  const ganttH   = COL_H + LEG_H + schedule.length * ROW_H + 20;
+  const todayX   = totalWeeks > 0 ? BAR_LEFT + Math.min(1, weeksBetween(projectStart, TODAY) / totalWeeks) * BAR_W : -999;
+
+  const rows = schedule.map((ph, i) => {
+    const sw  = weeksBetween(projectStart, ph.startDate);
+    const lx  = BAR_LEFT + (totalWeeks > 0 ? (sw / totalWeeks) * BAR_W : 0);
+    const bw  = Math.max(4, totalWeeks > 0 ? (ph.durationWeeks / totalWeeks) * BAR_W : 0);
+    const col = CATEGORY_COLORS_HEX[ph.category] ?? "#64748b";
+    const y   = COL_H + LEG_H + i * ROW_H;
+    const op  = ph.status === "planned" ? 0.4 : ph.status === "complete" ? 0.65 : 1;
+    const fg  = ph.status === "complete" ? "#64748b" : ph.status === "active" ? "#0369a1" : "#1e293b";
+    const mark = ph.status === "complete" ? "\u2713" : ph.status === "active" ? "\u25b6" : "\u00b7";
+    const markColor = ph.status === "complete" ? "#16a34a" : ph.status === "active" ? "#0891b2" : "#94a3b8";
+    const rowBg = i % 2 === 0 ? "#f8fafc" : "#f1f5f9";
+    const fontWeight = ph.status === "active" ? "700" : "400";
+    return `
+      <rect x="0" y="${y}" width="820" height="${ROW_H}" fill="${rowBg}" />
+      <text x="10" y="${y+14}" font-size="8" fill="#94a3b8" font-family="monospace">A${String(ph.id).padStart(2,"0")}</text>
+      <text x="26" y="${y+14}" font-size="9" fill="${markColor}" font-family="monospace">${mark}</text>
+      <text x="40" y="${y+14}" font-size="9" fill="${fg}" font-family="Arial,sans-serif" font-weight="${fontWeight}">${ph.name}</text>
+      <text x="${BAR_LEFT-6}" y="${y+14}" font-size="8" fill="#64748b" text-anchor="end" font-family="monospace">${ph.durationWeeks}w</text>
+      <rect x="${lx}" y="${y+4}" width="${bw}" height="${ROW_H-8}" rx="2" fill="${col}" opacity="${op}" />
+      ${ph.status==="active" ? `<rect x="${lx}" y="${y+4}" width="${Math.max(2,bw*0.35)}" height="${ROW_H-8}" rx="2" fill="${col}" opacity="1" />` : ""}
+      <text x="${BAR_LEFT+BAR_W+8}" y="${y+14}" font-size="7.5" fill="#64748b" font-family="monospace">${fmtShort(ph.startDate)}–${fmtShort(ph.endDate)}</text>
+      ${ph.cost > 0 ? `<text x="820" y="${y+14}" font-size="8" fill="#475569" text-anchor="end" font-family="monospace">${fmtC(ph.cost)}</text>` : ""}
+    `;
+  }).join("");
+
+  const legendItems = Object.entries(CATEGORY_COLORS_HEX).map(([cat, col], i) =>
+    `<rect x="${BAR_LEFT + i*72}" y="5" width="8" height="8" rx="1" fill="${col}" />
+     <text x="${BAR_LEFT + i*72 + 11}" y="13" font-size="7.5" fill="#475569" font-family="Arial,sans-serif">${cat}</text>`
+  ).join("");
+
+  const ganttSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="820" height="${ganttH}" font-family="Arial,sans-serif">
+  <rect width="820" height="${ganttH}" fill="#f8fafc" rx="4"/>
+  <!-- Column headers -->
+  <rect x="0" y="0" width="820" height="${COL_H}" fill="#e2e8f0"/>
+  <text x="10" y="13" font-size="7.5" fill="#64748b" font-family="monospace">ID</text>
+  <text x="40" y="13" font-size="7.5" fill="#475569" font-family="Arial,sans-serif" font-weight="600">ACTIVITY</text>
+  <text x="${BAR_LEFT-6}" y="13" font-size="7.5" fill="#64748b" text-anchor="end" font-family="monospace">DUR</text>
+  <text x="${BAR_LEFT+BAR_W/2}" y="13" font-size="7.5" fill="#475569" text-anchor="middle" font-family="monospace">${fmtShort(projectStart)} ──── GANTT TIMELINE ──── ${completionDate ? fmtShort(completionDate) : ""}</text>
+  <text x="${BAR_LEFT+BAR_W+8}" y="13" font-size="7.5" fill="#64748b" font-family="monospace">DATES</text>
+  <text x="820" y="13" font-size="7.5" fill="#64748b" text-anchor="end" font-family="monospace">COST</text>
+  <!-- Legend -->
+  <rect x="0" y="${COL_H}" width="820" height="${LEG_H}" fill="#f1f5f9"/>
+  ${legendItems}
+  <!-- Rows -->
+  ${rows}
+  <!-- Today line -->
+  <line x1="${todayX}" y1="${COL_H}" x2="${todayX}" y2="${COL_H+LEG_H+schedule.length*ROW_H}" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="${todayX}" y="${COL_H+LEG_H+schedule.length*ROW_H+12}" font-size="7" fill="#b45309" text-anchor="middle" font-family="monospace">TODAY</text>
+</svg>`;
+
+  // ── Phase table rows ──
+  const tableRows = schedule.map((ph, i) => {
+    const statusLabel = ph.status === "complete" ? "Complete" : ph.status === "active" ? "In Progress" : "Planned";
+    const statusBg = ph.status === "complete" ? "#dcfce7" : ph.status === "active" ? "#dbeafe" : "#f1f5f9";
+    const statusFg = ph.status === "complete" ? "#15803d" : ph.status === "active" ? "#1d4ed8" : "#64748b";
+    const trBg = i % 2 === 0 ? "#fff" : "#f8fafc";
+    const nameFw = ph.status === "active" ? "600" : "400";
+    return `<tr style="background:${trBg}">
+      <td style="padding:5px 8px;font-family:monospace;font-size:9pt;color:#94a3b8">A${String(ph.id).padStart(2,"0")}</td>
+      <td style="padding:5px 8px;font-size:9pt;color:#1e293b;font-weight:${nameFw}">${ph.name}</td>
+      <td style="padding:5px 8px;font-size:9pt;color:#475569">
+        <span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${CATEGORY_COLORS_HEX[ph.category]}22;color:${CATEGORY_COLORS_HEX[ph.category]};font-size:8pt;font-weight:600">${ph.category}</span>
+      </td>
+      <td style="padding:5px 8px;font-family:monospace;font-size:9pt;color:#475569;text-align:center">${ph.durationWeeks}w</td>
+      <td style="padding:5px 8px;font-family:monospace;font-size:9pt;color:#0f172a;text-align:right">${ph.cost > 0 ? fmtC(ph.cost) : "—"}</td>
+      <td style="padding:5px 8px;font-family:monospace;font-size:9pt;color:#475569">${fmtD(ph.startDate)}</td>
+      <td style="padding:5px 8px;font-family:monospace;font-size:9pt;color:#475569">${fmtD(ph.endDate)}</td>
+      <td style="padding:5px 8px;font-size:9pt;text-align:center">
+        <span style="display:inline-block;padding:1px 7px;border-radius:10px;background:${statusBg};color:${statusFg};font-size:8pt;font-weight:600">${statusLabel}</span>
+      </td>
+    </tr>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>${projectName} — Construction Schedule</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 10pt; color: #1e293b; background: #fff; }
+    @page { size: landscape; margin: 14mm 12mm; }
+    @media print { .no-print { display: none; } }
+    h1 { font-size: 18pt; font-weight: 700; color: #0f172a; }
+    h2 { font-size: 11pt; font-weight: 600; color: #334155; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #0f172a; }
+    .header-left h1 { margin-bottom: 4px; }
+    .header-left p { font-size: 9pt; color: #64748b; margin-top: 2px; }
+    .header-right { text-align: right; font-size: 8.5pt; color: #64748b; }
+    .metrics { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 14px; }
+    .metric { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px; }
+    .metric .label { font-size: 7.5pt; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
+    .metric .value { font-size: 13pt; font-weight: 700; color: #0f172a; font-family: monospace; }
+    .metric .sub { font-size: 7.5pt; color: #64748b; margin-top: 2px; }
+    .building { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+    .building-item { font-size: 8.5pt; color: #475569; }
+    .building-item strong { color: #1e293b; }
+    .gantt-wrap { margin-bottom: 14px; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+    thead tr { background: #0f172a; }
+    thead th { padding: 6px 8px; text-align: left; font-size: 8pt; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+    thead th:last-child, thead th:nth-child(5) { text-align: center; }
+    tbody tr:hover { background: #eff6ff !important; }
+    .footer { margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 7.5pt; color: #94a3b8; }
+    .print-btn { position: fixed; top: 16px; right: 16px; padding: 8px 18px; background: #0f172a; color: #fff; border: none; border-radius: 6px; font-size: 11pt; font-weight: 600; cursor: pointer; z-index: 999; }
+  </style>
+</head>
+<body>
+  <button class="no-print print-btn" onclick="window.print()">⬇ Save as PDF</button>
+
+  <div class="header">
+    <div class="header-left">
+      <h1>${projectName}</h1>
+      <p>Construction Schedule &amp; Project Summary &nbsp;·&nbsp; Dallas, TX</p>
+      <p>${stories} ${stories === 1 ? "Story" : "Stories"} &nbsp;·&nbsp; ${totalSF.toLocaleString()} SF &nbsp;·&nbsp; ${bc.foundation_type ? bc.foundation_type.replace(/_/g, " ") : "—"} foundation &nbsp;·&nbsp; ${bc.framing_material || "—"} framing</p>
+    </div>
+    <div class="header-right">
+      <div style="font-size:9pt;font-weight:700;color:#0f172a;margin-bottom:4px">VISION AI PLATFORM</div>
+      <div>Generated: ${fmtD(new Date())}</div>
+      <div>Report Type: CPM Construction Schedule</div>
+      <div>Market: Dallas–Fort Worth, TX</div>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="label">Start Date</div>
+      <div class="value" style="font-size:10pt">${fmtD(new Date(startDateStr))}</div>
+    </div>
+    <div class="metric">
+      <div class="label">Completion</div>
+      <div class="value" style="font-size:10pt">${completionDate ? fmtD(completionDate) : "—"}</div>
+    </div>
+    <div class="metric">
+      <div class="label">Duration</div>
+      <div class="value">${Math.round(totalWeeks)}<span style="font-size:9pt;font-weight:400"> wks</span></div>
+    </div>
+    <div class="metric">
+      <div class="label">Total Cost</div>
+      <div class="value" style="color:#0369a1">${fmtC(totalCost)}</div>
+      <div class="sub">${fmtC(costPerSF)}/SF</div>
+    </div>
+    <div class="metric">
+      <div class="label">Progress</div>
+      <div class="value" style="color:${overallPct >= 80 ? "#15803d" : overallPct >= 40 ? "#0369a1" : "#b45309"}">${overallPct}%</div>
+      <div class="sub">${doneCount} of ${schedule.length} phases done</div>
+    </div>
+    <div class="metric">
+      <div class="label">Active Phase</div>
+      <div class="value" style="font-size:8.5pt;font-weight:600;color:#1d4ed8">${activePhase ? activePhase.name : doneCount === schedule.length ? "Complete" : "Not Started"}</div>
+      <div class="sub">${activePhase ? `Week ${Math.round(weeksBetween(projectStart, activePhase.startDate))} of ${Math.round(totalWeeks)}` : ""}</div>
+    </div>
+  </div>
+
+  <h2>Gantt Chart</h2>
+  <div class="gantt-wrap">${ganttSVG}</div>
+
+  <h2>Phase Schedule</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Activity</th>
+        <th>Category</th>
+        <th style="text-align:center">Dur</th>
+        <th style="text-align:right">Cost</th>
+        <th>Start</th>
+        <th>Finish</th>
+        <th style="text-align:center">Status</th>
+      </tr>
+    </thead>
+    <tbody>${tableRows}</tbody>
+    <tfoot>
+      <tr style="background:#0f172a">
+        <td colspan="3" style="padding:6px 8px;font-size:8.5pt;font-weight:600;color:#94a3b8">TOTALS</td>
+        <td style="padding:6px 8px;font-family:monospace;font-size:8.5pt;color:#94a3b8;text-align:center">${schedule.reduce((s,p)=>s+p.durationWeeks,0)}w</td>
+        <td style="padding:6px 8px;font-family:monospace;font-size:9pt;font-weight:700;color:#38bdf8;text-align:right">${fmtC(totalCost)}</td>
+        <td colspan="3" style="padding:6px 8px;font-size:8pt;color:#64748b">${doneCount} complete · ${schedule.filter(p=>p.status==="active").length} active · ${schedule.filter(p=>p.status==="planned").length} planned</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="footer">
+    <span>ADVISORY ONLY — Not a licensed engineering or construction management document. All schedules are estimates. Verify all timelines with a qualified general contractor and construction manager before proceeding.</span>
+    <span>© Vision AI Platform · Dallas, TX · Page 1 of 1</span>
+  </div>
+
+  <script>window.onload = () => window.print();<\/script>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=1100,height=800");
+  if (!win) { alert("Please allow pop-ups for this site to export the PDF."); return; }
+  win.document.write(html);
+  win.document.close();
+}
+
 /* ─── Main Component ─── */
 function ScheduleTimelineInner() {
   const project        = useProject();
@@ -142,10 +391,19 @@ function ScheduleTimelineInner() {
   const animFrameRef   = useRef(null);
   const disposedRef    = useRef(false);
 
-  const [startDateStr, setStartDateStr] = useState(() => TODAY.toISOString().slice(0, 10));
+  // Restore from saved schedule if available
+  const saved = project.savedSchedule;
+
+  const [startDateStr, setStartDateStr] = useState(
+    () => saved?.startDate || TODAY.toISOString().slice(0, 10)
+  );
   const [timeSlider,   setTimeSlider]   = useState(1);
   const [saving,       setSaving]       = useState(false);
   const [saveStatus,   setSaveStatus]   = useState(null);
+  // manualDone: Set of phase IDs manually marked complete by the user
+  const [manualDone,   setManualDone]   = useState(
+    () => new Set(saved?.manualDone || [])
+  );
 
   const projectName = project.projectName || "New Project";
   const stories     = project.stories     || 1;
@@ -153,10 +411,26 @@ function ScheduleTimelineInner() {
 
   const bc = project.buildingContext || {};
 
-  const schedule = useMemo(
+  const scheduleBase = useMemo(
     () => buildSchedule(new Date(startDateStr), project.materials),
     [startDateStr, project.materials],
   );
+  // Apply manual overrides on top of date-derived status
+  const schedule = useMemo(() =>
+    scheduleBase.map(ph => manualDone.has(ph.id)
+      ? { ...ph, status: "complete" }
+      : ph
+    ),
+    [scheduleBase, manualDone],
+  );
+
+  const toggleManualDone = useCallback((phId) => {
+    setManualDone(prev => {
+      const next = new Set(prev);
+      if (next.has(phId)) next.delete(phId); else next.add(phId);
+      return next;
+    });
+  }, []);
   const projectStart   = useMemo(() => schedule[0]?.startDate ?? TODAY, [schedule]);
   const completionDate = useMemo(() => schedule[schedule.length - 1]?.endDate, [schedule]);
   const totalWeeks     = useMemo(
@@ -305,7 +579,8 @@ function ScheduleTimelineInner() {
 
     LAYER_PHASE_CONFIG.forEach((cfg, phaseIdx) => {
       const phase = schedule[phaseIdx];
-      if (!phase || !groups[cfg.layerIdx]) return;
+      // Skip phases with no direct 3D layer (permits, MEP, carpentry, etc.)
+      if (!phase || cfg.layerIdx == null || !groups[cfg.layerIdx]) return;
 
       const phaseStartWeek = weeksBetween(projectStart, phase.startDate);
       const phaseEndWeek = weeksBetween(projectStart, phase.endDate);
@@ -339,21 +614,45 @@ function ScheduleTimelineInner() {
   const handleSave = useCallback(async () => {
     setSaving(true); setSaveStatus(null);
     try {
+      const schedulePayload = {
+        startDate: startDateStr,
+        totalWeeks,
+        manualDone: [...manualDone],
+        phases: schedule.map((p) => ({
+          id: p.id,
+          name: p.name,
+          category: p.category,
+          material: p.material,
+          cost: p.cost,
+          durationWeeks: p.durationWeeks,
+          startDate: p.startDate.toISOString(),
+          endDate: p.endDate.toISOString(),
+          status: p.status,
+        })),
+      };
+
       const payload = {
         name: projectName,
-        schedule: {
-          startDate: startDateStr, totalWeeks,
-          phases: schedule.map((p) => ({ ...p, startDate: p.startDate.toISOString(), endDate: p.endDate.toISOString() })),
-        },
+        schedule: schedulePayload,
+        ...(project.materials?.length > 0 && { materials: project.materials }),
+        ...(project.buildingContext && { building_context: project.buildingContext }),
       };
+
       let saved;
-      if (project.projectId) saved = await projectsApi.update(project.projectId, payload);
-      else                    saved = await projectsApi.create(payload);
+      if (project.projectId) {
+        saved = await projectsApi.update(project.projectId, payload);
+      } else {
+        saved = await projectsApi.create({ ...payload, notes: "" });
+      }
       if (saved?.id) project.setProjectId(saved.id);
+
+      // Persist in store so navigating away and back restores state
+      project.setSavedSchedule(schedulePayload);
+
       setSaveStatus("ok"); setTimeout(() => setSaveStatus(null), 2500);
     } catch (_) { setSaveStatus("err"); setTimeout(() => setSaveStatus(null), 2500); }
     finally { setSaving(false); }
-  }, [projectName, project, schedule, startDateStr, totalWeeks]);
+  }, [projectName, project, schedule, startDateStr, totalWeeks, manualDone]);
 
   // Slider track styles
   useEffect(() => {
@@ -380,6 +679,7 @@ function ScheduleTimelineInner() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <img src="/VisionLogo.png" alt="Vision" style={{ height: 22, width: "auto", objectFit: "contain", display: "block" }} />
               <h1 style={{ fontFamily: fonts.label, fontSize: 20, fontWeight: 700, color: colors.textBright, margin: 0 }}>
                 Construction Schedule
               </h1>
@@ -393,7 +693,7 @@ function ScheduleTimelineInner() {
             </p>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
             {/* Project start date picker */}
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.6px" }}>
@@ -415,6 +715,22 @@ function ScheduleTimelineInner() {
                 {completionDate ? fmtDateFull(completionDate) : "—"}
               </span>
             </div>
+            <button
+              onClick={() => exportGanttPDF({ schedule, projectStart, totalWeeks, projectName, startDateStr, totalSF, stories, totalCost, completionDate, overallPct, bc })}
+              style={{
+                padding: "5px 14px", borderRadius: 6, fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
+                cursor: "pointer", transition: "all 0.2s ease", flexShrink: 0,
+                background: "linear-gradient(135deg,#7c3aed,#5b21b6)",
+                border: "1px solid rgba(139,92,246,0.5)",
+                color: "#fff", display: "flex", alignItems: "center", gap: 5,
+              }}
+              title="Export construction schedule as PDF"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M6 1v7M3 5l3 3 3-3M1 10h10" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Export PDF
+            </button>
             <button
               onClick={handleSave} disabled={saving}
               style={{
@@ -480,8 +796,6 @@ function ScheduleTimelineInner() {
 
         {/* Right — Intelligence Panel */}
         <div style={{ flex: "0 0 45%", display: "flex", flexDirection: "column", gap: 10, overflow: "auto", paddingBottom: 8 }}>
-          <DisclaimerBanner compact />
-
           {/* Cost summary */}
           <div style={{ ...card }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -509,26 +823,65 @@ function ScheduleTimelineInner() {
             <ProgressGauge score={overallPct} size={100} />
           </div>
 
-          {/* Phase × material list */}
+          {/* Phase × material list with mark-as-done checkboxes */}
           <div style={{ ...card }}>
-            <span style={{ fontFamily: fonts.label, fontSize: 10, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: 10 }}>
-              Phase Materials
-            </span>
-            {schedule.map((ph) => (
-              <div key={ph.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: phaseColor(ph.status), boxShadow: ph.status === "active" ? `0 0 6px ${colors.accent}` : "none" }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ fontFamily: fonts.label, fontSize: 11, fontWeight: ph.status === "active" ? 600 : 400, color: ph.status === "active" ? colors.textBright : colors.text, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {ph.name}
-                  </span>
-                  {ph.material !== "—" && (
-                    <span style={{ fontFamily: fonts.label, fontSize: 10, color: colors.textDim }}>{ph.material}</span>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontFamily: fonts.label, fontSize: 10, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px" }}>
+                Phase Schedule
+              </span>
+              <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim }}>
+                {schedule.filter(p => p.status === "complete").length}/{schedule.length} complete
+              </span>
+            </div>
+            {schedule.map((ph) => {
+              const catCol = ph.layerColor ?? CATEGORY_COLOR[ph.category] ?? colors.textDim;
+              const isDone = ph.status === "complete";
+              const isManual = manualDone.has(ph.id);
+              return (
+                <div key={ph.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7, padding: "4px 6px", borderRadius: 6, background: isDone ? "rgba(46,213,115,0.04)" : "transparent", border: isDone ? "1px solid rgba(46,213,115,0.12)" : "1px solid transparent", transition: "all 0.2s" }}>
+                  {/* Mark-done checkbox */}
+                  <button
+                    onClick={() => toggleManualDone(ph.id)}
+                    title={isDone ? "Mark as not done" : "Mark as done"}
+                    style={{
+                      width: 18, height: 18, borderRadius: 4, flexShrink: 0, cursor: "pointer",
+                      border: `2px solid ${isDone ? colors.success : colors.cardBorder}`,
+                      background: isDone ? colors.successDim : "transparent",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      transition: "all 0.15s", padding: 0,
+                    }}
+                  >
+                    {isDone && (
+                      <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                        <path d="M1 4L3.5 6.5L9 1" stroke={colors.success} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                  </button>
+                  {/* Category colour stripe */}
+                  <div style={{ width: 3, height: 26, borderRadius: 2, flexShrink: 0, background: catCol, opacity: ph.status === "planned" ? 0.4 : 1 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ fontFamily: fonts.label, fontSize: 10, fontWeight: ph.status === "active" ? 600 : 400, color: isDone ? colors.textDim : ph.status === "active" ? colors.textBright : colors.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isDone ? "line-through" : "none", textDecorationColor: colors.success }}>
+                        {ph.name}
+                      </span>
+                      {isManual && (
+                        <span style={{ fontFamily: fonts.data, fontSize: 7, color: colors.success, background: colors.successDim, padding: "1px 4px", borderRadius: 3, flexShrink: 0 }}>MANUAL</span>
+                      )}
+                      <span style={{ fontFamily: fonts.data, fontSize: 8, color: catCol, letterSpacing: "0.4px", flexShrink: 0, opacity: 0.8 }}>
+                        {ph.category}
+                      </span>
+                    </div>
+                    <span style={{ fontFamily: fonts.label, fontSize: 9, color: colors.textDim }}>
+                      {ph.material !== "—" ? ph.material : `${ph.durationWeeks} wk${ph.durationWeeks !== 1 ? "s" : ""} · ${fmtDate(ph.startDate)}–${fmtDate(ph.endDate)}`}
+                    </span>
+                  </div>
+                  {ph.cost > 0 && (
+                    <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, flexShrink: 0 }}>{fmtCost(ph.cost)}</span>
                   )}
+                  <StatusBadge status={ph.status} />
                 </div>
-                <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, flexShrink: 0 }}>{fmtCost(ph.cost)}</span>
-                <StatusBadge status={ph.status} />
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Building Context Summary — handoff to Structural Intelligence */}
@@ -568,26 +921,67 @@ function ScheduleTimelineInner() {
           </span>
         </div>
 
+        {/* Gantt header — category swim-lane labels */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+          {Object.entries(CATEGORY_COLOR).map(([cat, col]) => (
+            <div key={cat} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2, background: col, opacity: 0.85 }} />
+              <span style={{ fontFamily: fonts.label, fontSize: 9, color: colors.textDim, letterSpacing: "0.5px" }}>{cat}</span>
+            </div>
+          ))}
+        </div>
+
         {/* Gantt rows */}
         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
           {schedule.map((ph) => {
-            const sw       = weeksBetween(projectStart, ph.startDate);
-            const leftPct  = totalWeeks > 0 ? (sw / totalWeeks) * 100 : 0;
-            const widthPct = totalWeeks > 0 ? (ph.durationWeeks / totalWeeks) * 100 : 0;
-            const todayPct = totalWeeks > 0 ? Math.min(100, (todayWeek / totalWeeks) * 100) : 0;
+            const sw        = weeksBetween(projectStart, ph.startDate);
+            const leftPct   = totalWeeks > 0 ? (sw / totalWeeks) * 100 : 0;
+            const widthPct  = totalWeeks > 0 ? (ph.durationWeeks / totalWeeks) * 100 : 0;
+            const todayPct  = totalWeeks > 0 ? Math.min(100, (todayWeek / totalWeeks) * 100) : 0;
+            const barColor  = ph.layerColor ?? CATEGORY_COLOR[ph.category] ?? phaseColor(ph.status);
+            const isDone    = ph.status === "complete";
             return (
-              <div key={ph.id} style={{ display: "flex", alignItems: "center", gap: 8, height: 24 }}>
-                <span style={{ fontFamily: fonts.label, fontSize: 11, width: 130, flexShrink: 0, color: ph.status === "active" ? colors.accent : colors.text, fontWeight: ph.status === "active" ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <div key={ph.id} style={{ display: "flex", alignItems: "center", gap: 6, height: 22 }}>
+                {/* Checkbox */}
+                <button
+                  onClick={() => toggleManualDone(ph.id)}
+                  style={{ width: 14, height: 14, flexShrink: 0, borderRadius: 3, border: `1.5px solid ${isDone ? colors.success : colors.cardBorder}`, background: isDone ? colors.successDim : "transparent", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}
+                  title={isDone ? "Mark undone" : "Mark done"}
+                >
+                  {isDone && <svg width="8" height="6" viewBox="0 0 8 6" fill="none"><path d="M1 3L3 5L7 1" stroke={colors.success} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                </button>
+                {/* Activity ID */}
+                <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, width: 20, flexShrink: 0, textAlign: "right" }}>
+                  A{String(ph.id).padStart(2, "0")}
+                </span>
+                {/* Phase name */}
+                <span style={{ fontFamily: fonts.label, fontSize: 10, width: 152, flexShrink: 0, color: isDone ? colors.textDim : ph.status === "active" ? colors.accent : colors.text, fontWeight: ph.status === "active" ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isDone ? "line-through" : "none", textDecorationColor: colors.success }}>
                   {ph.name}
                 </span>
-                <div style={{ flex: 1, position: "relative", height: 13, background: colors.cardBorder, borderRadius: 4 }}>
-                  <div style={{ position: "absolute", left: `${leftPct}%`, width: `${widthPct}%`, height: "100%", background: phaseColor(ph.status), borderRadius: 4, opacity: ph.status === "planned" ? 0.38 : 0.88, transition: "all 0.3s ease" }} />
+                {/* Bar track */}
+                <div style={{ flex: 1, position: "relative", height: 12, background: colors.cardBorder, borderRadius: 3 }}>
+                  <div style={{
+                    position: "absolute", left: `${leftPct}%`, width: `${widthPct}%`, height: "100%",
+                    background: ph.status === "complete"
+                      ? `linear-gradient(90deg,${barColor}88,${barColor}cc)`
+                      : ph.status === "active"
+                        ? `linear-gradient(90deg,${barColor},${barColor}dd)`
+                        : barColor,
+                    borderRadius: 3,
+                    opacity: ph.status === "planned" ? 0.35 : ph.status === "complete" ? 0.65 : 1,
+                    transition: "all 0.3s ease",
+                  }} />
                   {/* TODAY marker */}
                   {todayWeek >= 0 && todayWeek <= totalWeeks && (
                     <div style={{ position: "absolute", left: `${todayPct}%`, top: -4, bottom: -4, width: 2, background: colors.warn, borderRadius: 1, opacity: 0.9, pointerEvents: "none" }} />
                   )}
                 </div>
-                <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, width: 86, flexShrink: 0, textAlign: "right", whiteSpace: "nowrap" }}>
+                {/* Duration badge */}
+                <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, width: 22, flexShrink: 0, textAlign: "right" }}>
+                  {ph.durationWeeks}w
+                </span>
+                {/* Date range */}
+                <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, width: 90, flexShrink: 0, textAlign: "right", whiteSpace: "nowrap" }}>
                   {fmtDate(ph.startDate)}–{fmtDate(ph.endDate)}
                 </span>
               </div>

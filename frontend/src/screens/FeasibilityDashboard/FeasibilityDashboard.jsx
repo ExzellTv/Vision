@@ -3,7 +3,7 @@ import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import FeasibilityGauge from "../../components/shared/FeasibilityGauge";
 import StatusBadge from "../../components/shared/StatusBadge";
-import DisclaimerBanner from "../../components/shared/DisclaimerBanner";
+
 import LeafletMap from "./LeafletMap";
 import { computeNearbyComps, runValuation, fmtK, fmtUSD } from "./valuationEngine";
 import { mapApi } from "../../services/api";
@@ -487,9 +487,6 @@ export default function FeasibilityDashboard() {
             </div>
           )}
         </div>
-
-        {/* ── Mandatory legal disclaimer ── */}
-        <DisclaimerBanner compact />
 
         {/* ── Action Buttons ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: "auto" }}>
