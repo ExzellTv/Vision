@@ -1,7 +1,23 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { colors, fonts, card, radii } from "../../theme/tokens";
+import { complianceApi, structuralApi } from "../../services/api";
 
 const SCREENS = { COMPLIANCE: "compliance", FORCE: "force" };
+
+// ─── Project → structural params mapping (shared mock data) ─────────────────
+// TODO [SWAP]: Replace with real project data. Options:
+//   1. Fetch from API: const PROJECT_PARAMS = await projectsApi.getParams(projectId)
+//   2. Or pass per-project params from a parent store / context
+//   Remove _DEFAULT_PARAMS and PROJECT_PARAMS once real data is wired in.
+const _DEFAULT_PARAMS = {
+  span_ft: 24, stories: 2, foundation_type: "slab",
+  dead_load_psf: 85, live_load_psf: 100, section_designation: "W14x22",
+  wind_load_psf: 0, snow_load_psf: 5, seismic_factor: 0.15,
+  tributary_width_ft: 8, footing_area_sf: 4, story_height_ft: 9,
+};
+const PROJECT_PARAMS = Object.fromEntries(
+  Array.from({ length: 10 }, (_, i) => [i + 1, { ..._DEFAULT_PARAMS }])
+);
 
 const MATERIALS = [
   { name: "Lumber & Framing",    color: colors.wood },
@@ -10,6 +26,9 @@ const MATERIALS = [
   { name: "Labor & Overhead",    color: colors.accent },
 ];
 
+// TODO [SWAP]: Replace with real project list from API.
+//   e.g. const [PROJECTS, setProjects] = useState([]); + useEffect fetching from projectsApi.list()
+//   Each item needs: { id: number, name: string, sqft: number }
 const PROJECTS = [
   { id: 1, name: "Highland Park Residence",  sqft: 4200  },
   { id: 2, name: "Oak Lawn Mixed-Use",        sqft: 12800 },
@@ -69,8 +88,13 @@ function BeamChart({ type, w = 10, L = 5, E = 200, I = 450 }) {
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
     const ctx = canvas.getContext("2d");
-    const W = canvas.width, H = canvas.height;
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
     const pad = { l: 40, r: 20, t: 30, b: 30 };
     const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
     ctx.clearRect(0, 0, W, H);
@@ -152,7 +176,7 @@ function BeamChart({ type, w = 10, L = 5, E = 200, I = 450 }) {
     });
   }, [type, w, L, E, I]);
 
-  return <canvas ref={ref} width={640} height={200} style={{ width: "100%", height: 200 }} />;
+  return <canvas ref={ref} style={{ width: "100%", height: 200, display: "block" }} />;
 }
 
 // ─── metricBlock style ───────────────────────────────────────────────────────
@@ -164,38 +188,227 @@ const metricBlock = {
   marginBottom: 12,
 };
 
+// ─── AI Diagnosis Button ─────────────────────────────────────────────────────
+function AIDiagnosisBtn({ hasIssues, loading, onClick, hasCached }) {
+  const disabled = (!hasIssues && !hasCached) || loading;
+  const label = loading ? "Analyzing..." : hasCached ? "Open AI Analysis" : "AI Analysis";
+  return (
+    <button
+      onClick={disabled ? undefined : onClick}
+      title={!hasIssues && !hasCached ? "Nothing to analyze — all checks passed" : hasCached ? "View cached AI diagnosis" : "Run AI diagnosis on failed/marginal items"}
+      style={{
+        fontFamily: fonts.data, fontSize: 11, fontWeight: 600, letterSpacing: "0.04em",
+        display: "inline-flex", alignItems: "center", gap: 5,
+        padding: "4px 12px", borderRadius: radii.sm, border: "none",
+        color: disabled ? colors.textDim : "#0d1117",
+        background: disabled ? colors.panel : hasCached ? colors.accent : colors.warn,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.6 : 1,
+        transition: "all 0.15s ease",
+      }}
+    >
+      <span style={{ fontSize: 13 }}>⚡</span>
+      {label}
+    </button>
+  );
+}
+
+// ─── DiagnosisModal (centered overlay) ───────────────────────────────────────
+function DiagnosisModal({ diagnoses, open, onClose }) {
+  if (!open || !diagnoses || diagnoses.length === 0) return null;
+  const sevColor = (s) => s === "critical" ? colors.danger : colors.warn;
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 1000,
+        background: "rgba(0,0,0,0.65)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        backdropFilter: "blur(4px)",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 600, maxHeight: "80vh", overflowY: "auto",
+          background: colors.card, border: `1px solid ${colors.warn}`,
+          borderRadius: radii.md, padding: 24,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
+          <span style={{ fontSize: 16 }}>🔍</span>
+          <span style={{ fontFamily: fonts.label, fontSize: 16, fontWeight: 700, color: colors.textBright }}>AI Diagnosis Report</span>
+          <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, marginLeft: "auto", marginRight: 12 }}>Gemini 2.5 Flash</span>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.sm,
+              color: colors.textDim, cursor: "pointer", fontSize: 16, lineHeight: 1,
+              padding: "2px 8px", fontFamily: fonts.data,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Diagnosis items */}
+        {diagnoses.map((d, i) => (
+          <div key={i} style={{ background: colors.panel, border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, padding: 14, marginBottom: i < diagnoses.length - 1 ? 12 : 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontFamily: fonts.label, fontSize: 13, fontWeight: 600, color: sevColor(d.severity) }}>{d.item_name}</span>
+              <span style={{
+                fontFamily: fonts.data, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+                padding: "2px 8px", borderRadius: radii.sm,
+                background: d.severity === "critical" ? colors.dangerDim : colors.warnDim,
+                color: sevColor(d.severity),
+                border: `1px solid ${sevColor(d.severity)}`,
+              }}>
+                {d.severity?.toUpperCase()}
+              </span>
+            </div>
+            <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.text, lineHeight: 1.5, marginBottom: 10 }}>
+              {d.root_cause}
+            </div>
+            <div style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, letterSpacing: "0.08em", marginBottom: 6 }}>RECOMMENDATIONS</div>
+            {(d.recommendations || []).map((rec, j) => (
+              <div key={j} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 4 }}>
+                <span style={{ fontFamily: fonts.data, fontSize: 11, color: colors.accent, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>{j + 1}.</span>
+                <span style={{ fontFamily: fonts.data, fontSize: 12, color: colors.text, lineHeight: 1.4 }}>{rec}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── ComplianceScreen ────────────────────────────────────────────────────────
-function ComplianceScreen() {
-  const [selectedProject, setSelectedProject] = useState(PROJECTS[0].id);
-  const checks = [
-    { name: "International Building Code", standard: "IBC 2021",     factor: "1.00", status: "PASS" },
-    { name: "Load Combinations",           standard: "ASCE 7-22",    factor: "1.00", status: "PASS" },
-    { name: "Deflection Limit",            standard: "L/360",        factor: "0.98", status: "WARNING" },
-    { name: "Seismic Drift Ratio",         standard: "ASCE 7-16",    factor: "0.90", status: "PASS" },
-    { name: "Wind Uplift Check",           standard: "ASCE 7-16",    factor: "0.85", status: "PASS" },
-    { name: "Foundation Bearing Pressure", standard: "Geotech 2023", factor: "1.15", status: "FAIL" },
-    { name: "Snow Load Calculation",       standard: "ASCE 7-22",    factor: "0.65", status: "PASS" },
-  ];
+function ComplianceScreen({ selectedProject, setSelectedProject }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [checks, setChecks] = useState([]);
+  const [metrics, setMetrics] = useState(null);
+  const [loads, setLoads] = useState(null);
+  const [governing, setGoverning] = useState(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagnoses, setDiagnoses] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  // Track the full result for passing to diagnosis
+  const [lastResult, setLastResult] = useState(null);
+  // Cache diagnosis results per project so re-opening doesn't re-run
+  const diagCacheRef = useRef({});
+  const lastProjectRef = useRef(selectedProject);
+
+  // Clear cache when project changes
+  if (lastProjectRef.current !== selectedProject) {
+    lastProjectRef.current = selectedProject;
+    setDiagnoses(null);
+    setModalOpen(false);
+  }
+
+  const hasIssues = checks.some(c => c.status === "FAIL" || c.status === "WARNING")
+    || [metrics?.max_drift, metrics?.max_deflection, metrics?.base_shear].some(m => m && (m.status === "MARGINAL" || m.status === "FAIL"));
+
+  const runCheck = () => {
+    setLoading(true);
+    setError(null);
+    // Clear cached diagnosis on fresh generate
+    setDiagnoses(null);
+    delete diagCacheRef.current[selectedProject];
+    complianceApi.check(selectedProject)
+      .then(data => {
+        setChecks(data.checks || []);
+        setMetrics(data.metrics || null);
+        setLoads(data.loads || null);
+        setGoverning(data.governing_combination || null);
+        setLastResult(data);
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  };
+
+  const handleDiagnosisClick = useCallback(() => {
+    // If we have cached results for this project, just open the modal
+    const cached = diagCacheRef.current[selectedProject];
+    if (cached) {
+      setDiagnoses(cached);
+      setModalOpen(true);
+      return;
+    }
+    // Otherwise run the diagnosis
+    if (!lastResult || !hasIssues) return;
+    setDiagLoading(true);
+    complianceApi.diagnose("compliance", lastResult, selectedProject)
+      .then(data => {
+        const diags = data.diagnoses || [];
+        setDiagnoses(diags);
+        diagCacheRef.current[selectedProject] = diags;
+        setModalOpen(true);
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setDiagLoading(false));
+  }, [lastResult, hasIssues, selectedProject]);
+
+  const drift = metrics?.max_drift;
+  const deflection = metrics?.max_deflection;
+  const shear = metrics?.base_shear;
+
+  const metricColor = (status) => {
+    if (status === "NOMINAL") return `linear-gradient(90deg,${colors.success},#4ade80)`;
+    if (status === "MARGINAL") return `linear-gradient(90deg,${colors.warn},#fbbf24)`;
+    if (status === "FAIL") return `linear-gradient(90deg,${colors.danger},#f87171)`;
+    return `linear-gradient(90deg,${colors.secondary},#60a5fa)`;
+  };
+
+  // Parse governing formula into styled spans
+  const renderFormula = (formula) => {
+    if (!formula) return null;
+    const parts = formula.split(/(\d+\.?\d*)/);
+    return parts.map((p, i) => {
+      if (/^\d+\.?\d*$/.test(p)) {
+        return <span key={i} style={{ color: colors.secondary }}>{p}</span>;
+      }
+      return <span key={i} style={{ color: colors.textBright }}>{p}</span>;
+    });
+  };
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, padding: 20, alignItems: "stretch", minHeight: "calc(100% - 40px)" }}>
       {/* Left column */}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ ...card }}>
+      <div style={{ ...card, position: "relative" }}>
+        {loading && (
+          <div style={{ position: "absolute", inset: 0, background: "rgba(13,17,23,0.7)", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: radii.md, zIndex: 2 }}>
+            <span style={{ fontFamily: fonts.data, fontSize: 12, color: colors.accent }}>Evaluating compliance...</span>
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontFamily: fonts.label, fontSize: 15, fontWeight: 700, color: colors.textBright }}>Validation Protocol</span>
+            <AIDiagnosisBtn hasIssues={hasIssues} loading={diagLoading} onClick={handleDiagnosisClick} hasCached={!!diagCacheRef.current[selectedProject]} />
           </div>
           <span style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim, border: `1px solid ${colors.cardBorder}`, padding: "2px 8px", borderRadius: radii.sm }}>
             IBC 2021 // ASCE 7-22
           </span>
         </div>
 
+        {error && (
+          <div style={{ padding: "8px 12px", marginBottom: 12, borderRadius: radii.sm, background: colors.dangerDim, border: `1px solid ${colors.danger}` }}>
+            <span style={{ fontFamily: fonts.data, fontSize: 11, color: colors.danger }}>{error}</span>
+          </div>
+        )}
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 70px 90px", gap: 8, padding: "0 0 8px", borderBottom: `1px solid ${colors.cardBorder}`, marginBottom: 4 }}>
           {["COMPLIANCE CHECK", "STANDARD", "FACTOR", "STATUS"].map(h => (
             <span key={h} style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, fontWeight: 700, letterSpacing: "0.08em" }}>{h}</span>
           ))}
         </div>
+        {!metrics && !loading && (
+            <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim, padding: "20px 0", textAlign: "center" }}>Select a project to view metrics</div>
+          )}
 
         {checks.map((c, i) => (
           <div key={i} style={{
@@ -213,6 +426,9 @@ function ComplianceScreen() {
             <Badge status={c.status} />
           </div>
         ))}
+
+        {/* AI Diagnosis Modal */}
+        <DiagnosisModal diagnoses={diagnoses} open={modalOpen} onClose={() => setModalOpen(false)} />
       </div>
 
         {/* Projects */}
@@ -225,6 +441,20 @@ function ComplianceScreen() {
               {PROJECTS.length} total
             </span>
           </div>
+          <button
+            onClick={runCheck}
+            disabled={loading}
+            style={{
+              fontFamily: fonts.data, fontSize: 12, fontWeight: 600,
+              color: loading ? colors.textDim : "#0d1117",
+              background: loading ? colors.panel : colors.accent,
+              border: "none", borderRadius: radii.sm,
+              padding: "8px 20px", cursor: loading ? "not-allowed" : "pointer",
+              transition: "all 0.15s ease", letterSpacing: "0.04em",
+            }}
+          >
+            {loading ? "Evaluating..." : "Generate"}
+          </button>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", flex: 1, minHeight: 0, paddingRight: 4 }}>
             {PROJECTS.map(p => {
               const active = p.id === selectedProject;
@@ -271,50 +501,60 @@ function ComplianceScreen() {
             <span style={{ fontFamily: fonts.label, fontSize: 15, fontWeight: 700, color: colors.textBright }}>Critical Metrics</span>
           </div>
 
+          {drift && (
           <div style={metricBlock}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, letterSpacing: "0.1em" }}>MAX DRIFT RATIO</span>
-              <Badge status="NOMINAL" />
+              <Badge status={drift.status} />
             </div>
             <div style={{ fontFamily: fonts.data, fontSize: 38, fontWeight: 800, color: colors.textBright, lineHeight: 1.1, marginTop: 6 }}>
-              0.018<span style={{ fontSize: 15, color: colors.textDim }}>h</span>
+              {drift.value}<span style={{ fontSize: 15, color: colors.textDim }}>{drift.unit}</span>
             </div>
-            <MetricBar value={0.018} max={0.02} color={`linear-gradient(90deg,${colors.success},#4ade80)`} />
+            <MetricBar value={drift.value} max={drift.limit} color={metricColor(drift.status)} />
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>ACTUAL</span>
-              <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>LIMIT: 0.02H</span>
+              <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>LIMIT: {drift.limit}{drift.unit.toUpperCase()}</span>
             </div>
           </div>
+          )}
 
+          {deflection && (
           <div style={metricBlock}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, letterSpacing: "0.1em" }}>MAX DEFLECTION</span>
-              <Badge status="MARGINAL" />
+              <Badge status={deflection.status} />
             </div>
             <div style={{ fontFamily: fonts.data, fontSize: 38, fontWeight: 800, color: colors.textBright, lineHeight: 1.1, marginTop: 6 }}>
-              0.78<span style={{ fontSize: 15, color: colors.textDim }}>in</span>
+              {deflection.value}<span style={{ fontSize: 15, color: colors.textDim }}>{deflection.unit}</span>
             </div>
-            <MetricBar value={0.78} max={0.80} color={`linear-gradient(90deg,${colors.warn},#fbbf24)`} />
+            <MetricBar value={deflection.value} max={deflection.limit} color={metricColor(deflection.status)} />
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>ACTUAL</span>
-              <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>ALLOWABLE: 0.80 IN</span>
+              <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>ALLOWABLE: {deflection.limit} {deflection.unit.toUpperCase()}</span>
             </div>
           </div>
+          )}
 
+          {shear && (
           <div style={{ ...metricBlock, marginBottom: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, letterSpacing: "0.1em" }}>TOTAL BASE SHEAR</span>
-              <Badge status="CALC" />
+              <Badge status={shear.status} />
             </div>
             <div style={{ fontFamily: fonts.data, fontSize: 38, fontWeight: 800, color: colors.textBright, lineHeight: 1.1, marginTop: 6 }}>
-              450<span style={{ fontSize: 15, color: colors.textDim }}> kips</span>
+              {shear.value}<span style={{ fontSize: 15, color: colors.textDim }}> {shear.unit}</span>
             </div>
-            <MetricBar value={450} max={690} color={`linear-gradient(90deg,${colors.secondary},#60a5fa)`} />
+            <MetricBar value={shear.value} max={shear.limit} color={metricColor(shear.status)} />
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>APPLIED</span>
-              <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>CAPACITY: 690 KIPS</span>
+              <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>CAPACITY: {shear.limit} {shear.unit.toUpperCase()}</span>
             </div>
           </div>
+          )}
+
+          {!metrics && !loading && (
+            <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim, padding: "20px 0", textAlign: "center" }}>Select a project to view metrics</div>
+          )}
         </div>
 
         {/* Load Sequence Analysis */}
@@ -327,21 +567,21 @@ function ComplianceScreen() {
 
           <div style={{ background: colors.panel, border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, padding: 16, marginBottom: 16 }}>
             <div style={{ fontFamily: fonts.data, fontSize: 10, color: colors.accent, letterSpacing: "0.1em", marginBottom: 10 }}>
-              PRIMARY COMBINATION MATRIX LC-04
+              {governing ? governing.label : "PRIMARY COMBINATION MATRIX"}
             </div>
             <div style={{ fontFamily: fonts.data, fontSize: 20, lineHeight: 1.6 }}>
-              <span style={{ color: colors.secondary }}>1.2</span><span style={{ color: colors.textBright }}>D + </span>
-              <span style={{ color: colors.secondary }}>1.6</span><span style={{ color: colors.textBright }}>L + </span>
-              <span style={{ color: colors.secondary }}>0.5</span><span style={{ color: colors.text }}>(Lr || S || R)</span>
+              {governing ? renderFormula(governing.formula) : (
+                <span style={{ color: colors.textDim }}>Awaiting evaluation...</span>
+              )}
             </div>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             {[
-              { label: "DEAD LOAD (D)",  value: "85.00",  unit: "psf" },
-              { label: "LIVE LOAD (L)",  value: "100.00", unit: "psf" },
-              { label: "SNOW LOAD (S)",  value: "30.00",  unit: "psf" },
-              { label: "ROOF LIVE (LR)", value: "20.00",  unit: "psf" },
+              { label: "DEAD LOAD (D)",  value: loads ? loads.D.toFixed(2) : "--",  unit: "psf" },
+              { label: "LIVE LOAD (L)",  value: loads ? loads.L.toFixed(2) : "--", unit: "psf" },
+              { label: "SNOW LOAD (S)",  value: loads ? loads.S.toFixed(2) : "--",  unit: "psf" },
+              { label: "ROOF LIVE (LR)", value: loads ? loads.Lr.toFixed(2) : "--",  unit: "psf" },
             ].map(m => (
               <div key={m.label}>
                 <div style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, letterSpacing: "0.08em", marginBottom: 2 }}>{m.label}</div>
@@ -358,36 +598,88 @@ function ComplianceScreen() {
 }
 
 // ─── ForceScreen ─────────────────────────────────────────────────────────────
-function ForceScreen() {
-  const [params, setParams] = useState({ w: 10, L: 5, E: 200, I: 450 });
-  const { w, L, E, I } = params;
+function ForceScreen({ selectedProject, setSelectedProject }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagnoses, setDiagnoses] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const diagCacheRef = useRef({});
+  const lastProjectRef = useRef(selectedProject);
 
-  const Vmax = (w * L / 2).toFixed(1);
-  const Mmax = (w * L * L / 8).toFixed(2);
-  const EI = E * 1e9 * I * 1e-12;
-  const dmax = -(5 * w * 1000 * Math.pow(L, 4)) / (384 * EI) * 1000;
+  // Clear cache when project changes
+  if (lastProjectRef.current !== selectedProject) {
+    lastProjectRef.current = selectedProject;
+    setDiagnoses(null);
+    setModalOpen(false);
+  }
 
-  const inp = (key, label, unit) => (
-    <div>
-      <div style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, letterSpacing: "0.08em", marginBottom: 4 }}>{label}</div>
-      <div style={{ display: "flex", alignItems: "center", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, overflow: "hidden" }}>
-        <input
-          type="number"
-          value={params[key]}
-          onChange={e => setParams(p => ({ ...p, [key]: parseFloat(e.target.value) || 0 }))}
-          style={{
-            flex: 1, background: colors.panel, border: "none", outline: "none",
-            color: colors.textBright, fontSize: 15, fontFamily: fonts.data,
-            padding: "8px 10px", width: 0,
-          }}
-        />
-        <span style={{ padding: "8px 10px", background: colors.cardSurface, color: colors.textDim, fontSize: 11, fontFamily: fonts.data, whiteSpace: "nowrap" }}>{unit}</span>
-      </div>
-    </div>
+  const hasIssues = result && (
+    (result.compliance_checks || []).some(c => !c.passed)
+    || (result.beam_analysis?.status === "WARNING" || result.beam_analysis?.status === "FAIL")
+    || (result.beam_analysis?.utilization > 0.85)
   );
 
+  const runAnalysis = () => {
+    const p = PROJECT_PARAMS[selectedProject];
+    if (!p) return;
+    setLoading(true);
+    setError(null);
+    // Clear cached diagnosis on fresh analysis
+    setDiagnoses(null);
+    delete diagCacheRef.current[selectedProject];
+    structuralApi.analyze(p)
+      .then(data => setResult(data))
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  };
+
+  const handleDiagnosisClick = useCallback(() => {
+    const cached = diagCacheRef.current[selectedProject];
+    if (cached) {
+      setDiagnoses(cached);
+      setModalOpen(true);
+      return;
+    }
+    if (!result || !hasIssues) return;
+    setDiagLoading(true);
+    complianceApi.diagnose("structural", result, selectedProject)
+      .then(data => {
+        const diags = data.diagnoses || [];
+        setDiagnoses(diags);
+        diagCacheRef.current[selectedProject] = diags;
+        setModalOpen(true);
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setDiagLoading(false));
+  }, [result, hasIssues, selectedProject]);
+
+  const beam = result?.beam_analysis;
+  const section = result?.section;
+  const lc = result?.load_combinations;
+  const inputs = result?.inputs;
+
+  // For BeamChart: convert imperial units for canvas rendering
+  // w in lb/ft → kN/m (÷ 14.5939), L in ft → m (× 0.3048), E ksi → GPa (× 0.00689476), I in⁴ → 10⁶mm⁴ (× 416231)
+  // Actually, BeamChart just needs numerical values for shape — we pass raw imperial and display imperial labels
+  const w_plf = beam?.w_plf || 0;
+  const L_ft = inputs?.span_ft || 24;
+  const E_ksi = section?.E || 29000;
+  const I_in4 = section?.Ix || 199;
+
+  const Vmax = beam ? beam.V_max_kip.toFixed(1) : "--";
+  const Mmax = beam ? beam.M_max_ftk.toFixed(2) : "--";
+  const dmax = beam ? beam.delta_max_in.toFixed(3) : "--";
+  const R = beam ? (beam.V_max_kip).toFixed(1) : "--";
+
   const ChartCard = ({ title, subtitle, type, valueLabel, value }) => (
-    <div style={{ ...card, marginBottom: 16 }}>
+    <div style={{ ...card, marginBottom: 16, position: "relative" }}>
+      {loading && (
+        <div style={{ position: "absolute", inset: 0, background: "rgba(13,17,23,0.7)", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: radii.md, zIndex: 2 }}>
+          <span style={{ fontFamily: fonts.data, fontSize: 12, color: colors.accent }}>Analyzing...</span>
+        </div>
+      )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div>
           <div style={{ fontFamily: fonts.label, fontSize: 15, fontWeight: 700, color: colors.textBright }}>{title}</div>
@@ -397,7 +689,12 @@ function ForceScreen() {
           {valueLabel} = {value}
         </span>
       </div>
-      <BeamChart type={type} w={w} L={L} E={E} I={I} />
+      {beam && <BeamChart type={type} w={w_plf / 1000} L={L_ft * 0.3048} E={E_ksi * 0.00689476} I={I_in4 * 416231 / 1e6} />}
+      {!beam && !loading && (
+        <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>Click "Run Analysis" to generate</span>
+        </div>
+      )}
     </div>
   );
 
@@ -406,14 +703,14 @@ function ForceScreen() {
       {/* Left column */}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {/* Beam Schematic */}
-        <div style={{ ...card }}>
+        <div style={{ ...card, position: "relative" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 14 }}>🏗</span>
               <span style={{ fontFamily: fonts.data, fontSize: 12, fontWeight: 700, color: colors.text, letterSpacing: "0.08em" }}>BEAM SCHEMATIC</span>
             </div>
             <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.accent, border: `1px solid ${colors.accentGlow}`, padding: "2px 7px", borderRadius: radii.sm }}>
-              ID: BM-204
+              {section ? section.designation : "W14x22"}
             </span>
           </div>
 
@@ -431,35 +728,106 @@ function ForceScreen() {
                 <span style={{ position: "absolute", right: 2, bottom: -16, fontSize: 16, color: colors.text }}>○</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20 }}>
-                <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.warn }}>R1: {(w * L / 2).toFixed(1)}kN</span>
-                <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.text }}>R2: {(w * L / 2).toFixed(1)}kN</span>
+                <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.warn }}>R1: {R} kips</span>
+                <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.text }}>R2: {R} kips</span>
               </div>
             </div>
-            <div style={{ marginTop: 8, fontFamily: fonts.data, fontSize: 10, color: colors.panelBorder, letterSpacing: "0.06em" }}>
-              ANALYSIS_GRID_V2.0
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+              <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.panelBorder, letterSpacing: "0.06em" }}>
+                SPAN: {L_ft} ft
+              </span>
+              <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.panelBorder, letterSpacing: "0.06em" }}>
+                w = {beam ? w_plf.toFixed(0) : "--"} lb/ft
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Input Parameters */}
-        <div style={{ ...card }}>
-          <div style={{ fontFamily: fonts.data, fontSize: 12, fontWeight: 700, color: colors.text, letterSpacing: "0.1em", marginBottom: 14 }}>
-            INPUT PARAMETERS
+        {/* Projects */}
+        <div style={{ ...card, maxHeight: 260, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexShrink: 0 }}>
+            <span style={{ fontFamily: fonts.data, fontSize: 12, fontWeight: 700, color: colors.text, letterSpacing: "0.1em" }}>PROJECTS</span>
+            <button
+              onClick={runAnalysis}
+              disabled={loading}
+              style={{
+                fontFamily: fonts.data, fontSize: 11, fontWeight: 600,
+                color: loading ? colors.textDim : "#0d1117",
+                background: loading ? colors.panel : colors.accent,
+                border: "none", borderRadius: radii.sm,
+                padding: "6px 16px", cursor: loading ? "not-allowed" : "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {loading ? "Analyzing..." : "Run Analysis"}
+            </button>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {inp("w", "LOAD (W)", "kN/m")}
-            {inp("L", "SPAN (L)", "METER")}
-            {inp("E", "YOUNG'S MOD.", "GPA")}
-            {inp("I", "INERTIA (I)", "10⁶mm⁴")}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, overflowY: "auto", flex: 1, minHeight: 0, paddingRight: 4 }}>
+            {PROJECTS.map(p => {
+              const active = p.id === selectedProject;
+              return (
+                <div key={p.id} onClick={() => setSelectedProject(p.id)} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "7px 10px", borderRadius: radii.sm, cursor: "pointer",
+                  border: `1px solid ${active ? colors.accent : colors.cardBorder}`,
+                  background: active ? colors.accentDim : "transparent",
+                  transition: "all 0.15s ease",
+                }}>
+                  <span style={{ fontFamily: fonts.label, fontSize: 12, fontWeight: active ? 600 : 400, color: active ? colors.textBright : colors.text }}>{p.name}</span>
+                  <span style={{ fontFamily: fonts.data, fontSize: 10, color: active ? colors.accent : colors.textDim }}>{p.sqft.toLocaleString()} sf</span>
+                </div>
+              );
+            })}
           </div>
         </div>
-      </div>
 
-      {/* Right — Charts */}
+        {/* Analysis Summary */}
+        {result && (
+        <div style={{ ...card }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <span style={{ fontFamily: fonts.data, fontSize: 12, fontWeight: 700, color: colors.text, letterSpacing: "0.1em" }}>
+              ANALYSIS SUMMARY
+            </span>
+            <AIDiagnosisBtn hasIssues={!!hasIssues} loading={diagLoading} onClick={handleDiagnosisClick} hasCached={!!diagCacheRef.current[selectedProject]} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {[
+              { label: "SECTION", value: section?.designation },
+              { label: "UTILIZATION", value: beam ? `${(beam.utilization * 100).toFixed(1)}%` : "--" },
+              { label: "STATUS", value: beam?.status },
+              { label: "SCI", value: result.sci ? `${result.sci.value.toFixed(1)} (${result.sci.rating})` : "--" },
+              { label: "GOVERNING", value: lc?.governing_combo?.replace(/^LC\d: /, "") },
+              { label: "FACTORED LOAD", value: lc ? `${lc.governing_load_psf} psf` : "--" },
+            ].map(m => (
+              <div key={m.label}>
+                <div style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, letterSpacing: "0.08em", marginBottom: 2 }}>{m.label}</div>
+                <div style={{ fontFamily: fonts.data, fontSize: 13, fontWeight: 600, color: m.label === "STATUS" && m.value === "FAIL" ? colors.danger : colors.textBright }}>{m.value || "--"}</div>
+              </div>
+            ))}
+          </div>
+          {result.diagnostics && (
+            <div style={{ marginTop: 12, padding: "8px 10px", background: colors.panel, borderRadius: radii.sm, border: `1px solid ${colors.cardBorder}` }}>
+              <div style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, letterSpacing: "0.08em", marginBottom: 4 }}>SOLVER DIAGNOSTICS</div>
+              <div style={{ fontFamily: fonts.data, fontSize: 11, color: colors.text }}>
+                Method: {result.diagnostics.method} · Convergence: {result.diagnostics.convergence} · Residual: {result.diagnostics.residual_pct}% · {result.diagnostics.solve_time_ms}ms
+              </div>
+            </div>
+          )}
+
+          {/* AI Diagnosis Modal */}
+          <DiagnosisModal diagnoses={diagnoses} open={modalOpen} onClose={() => setModalOpen(false)} />
+        </div>
+        )}
+      </div>
       <div>
-        <ChartCard title="Shear Force Diagram (V)"    subtitle="Linear variation due to UDL"         type="shear"      valueLabel="V_max" value={`${Vmax} kN`} />
-        <ChartCard title="Bending Moment Diagram (M)" subtitle="Parabolic curve, peak at mid-span"    type="moment"     valueLabel="M_max" value={`${Mmax} kNm`} />
-        <ChartCard title="Deflection Curve (Δ)"       subtitle="Exaggerated scale ×100"               type="deflection" valueLabel="Δ_max" value={`${dmax.toFixed(1)} mm`} />
+        {error && (
+          <div style={{ ...card, marginBottom: 16, borderColor: colors.danger }}>
+            <span style={{ fontFamily: fonts.data, fontSize: 12, color: colors.danger }}>{error}</span>
+          </div>
+        )}
+        <ChartCard title="Shear Force Diagram (V)"    subtitle="V = wL/2 — Linear variation, simply supported beam"  type="shear"      valueLabel="V_max" value={`${Vmax} kips`} />
+        <ChartCard title="Bending Moment Diagram (M)" subtitle="M = wL²/8 — Parabolic curve, peak at mid-span"      type="moment"     valueLabel="M_max" value={`${Mmax} ft·kips`} />
+        <ChartCard title="Deflection Curve (Δ)"       subtitle="Δ = 5wL⁴/(384EI) — Exaggerated scale"              type="deflection" valueLabel="Δ_max" value={`${dmax} in`} />
       </div>
     </div>
   );
@@ -485,6 +853,7 @@ function TabBtn({ label, active, onClick }) {
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function StructuralIntelligence() {
   const [screen, setScreen] = useState(SCREENS.COMPLIANCE);
+  const [selectedProject, setSelectedProject] = useState(PROJECTS[0].id);
 
   return (
     <div style={{ height: "100%", background: colors.bgGradient, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -509,29 +878,25 @@ export default function StructuralIntelligence() {
       </div>
 
       {/* ── Code Compliance tab ── */}
-      {screen === SCREENS.COMPLIANCE && (
-        <div style={{ flex: 1, overflow: "auto" }}>
-          <ComplianceScreen />
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", borderTop: `1px solid ${colors.cardBorder}` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: colors.success, display: "inline-block" }} />
-              <span style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim }}>System Online</span>
-            </div>
-            <div style={{ display: "flex", gap: 20 }}>
-              {["Vision Platform v2.4.0", "IBC 2021", "ASCE 7-22"].map(t => (
-                <span key={t} style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim, cursor: "pointer" }}>{t}</span>
-              ))}
-            </div>
+      <div style={{ flex: 1, overflow: "auto", display: screen === SCREENS.COMPLIANCE ? "block" : "none" }}>
+        <ComplianceScreen selectedProject={selectedProject} setSelectedProject={setSelectedProject} />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", borderTop: `1px solid ${colors.cardBorder}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: colors.success, display: "inline-block" }} />
+            <span style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim }}>System Online</span>
+          </div>
+          <div style={{ display: "flex", gap: 20 }}>
+            {["Vision Platform v2.4.0", "IBC 2021", "ASCE 7-22"].map(t => (
+              <span key={t} style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim, cursor: "pointer" }}>{t}</span>
+            ))}
           </div>
         </div>
-      )}
+      </div>
 
       {/* ── Force Diagrams tab ── */}
-      {screen === SCREENS.FORCE && (
-        <div style={{ flex: 1, overflow: "auto" }}>
-          <ForceScreen />
-        </div>
-      )}
+      <div style={{ flex: 1, overflow: "auto", display: screen === SCREENS.FORCE ? "block" : "none" }}>
+        <ForceScreen selectedProject={selectedProject} setSelectedProject={setSelectedProject} />
+      </div>
     </div>
   );
 }

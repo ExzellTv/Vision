@@ -1,0 +1,470 @@
+{
+  "metadata": {
+    "project": "Vision",
+    "version": "1.0.0",
+    "source": "Vision PRD v3.0 - Final Comprehensive Edition, March 2026",
+    "purpose": "RAG knowledge base for Structural Intelligence validation protocol",
+    "model_target": "gemini-pro",
+    "last_updated": "2026-03-07"
+  },
+
+  "compliance_checks": [
+    {
+      "id": "CC-01",
+      "name": "International Building Code",
+      "standard": "IBC 2021",
+      "category": "general_structural",
+      "factor_default": 1.00,
+      "description": "General residential structural compliance per IBC 2021. Governs minimum structural requirements for residential buildings.",
+      "rules": [
+        "Bedrooms must be >= 70 SF with >= 7ft minimum dimension (IRC R304)",
+        "Hallways >= 36 inches wide",
+        "Stairs >= 36 inches wide with <= 7.75 inch risers and >= 10 inch treads",
+        "Egress windows required in all bedrooms",
+        "Maximum 3 stories for Dallas residential (Vision hard cap)"
+      ],
+      "pass_threshold": 1.00,
+      "warning_threshold": null,
+      "fail_condition": "Any hard constraint violated (stories > 3, missing egress, undersized rooms)",
+      "status_logic": {
+        "PASS": "All IBC minimum dimensional and egress requirements met",
+        "FAIL": "One or more IBC minimums violated"
+      },
+      "dallas_notes": "Dallas residential cap is 3 stories. Mid-rise requires different structural system."
+    },
+    {
+      "id": "CC-02",
+      "name": "Load Combinations",
+      "standard": "ASCE 7-22",
+      "category": "load_analysis",
+      "factor_default": 1.00,
+      "description": "LRFD load combinations per ASCE 7-22 / IBC 2021. Six combinations evaluated; governing (highest demand) controls design.",
+      "load_combinations": [
+        {
+          "id": "LC1",
+          "formula": "1.4D",
+          "description": "Dead load only",
+          "governing_case": "Light structures with heavy dead load (concrete, masonry)"
+        },
+        {
+          "id": "LC2",
+          "formula": "1.2D + 1.6L",
+          "description": "Dead + live gravity max",
+          "governing_case": "MOST COMMON GOVERNING CASE for residential floors"
+        },
+        {
+          "id": "LC3",
+          "formula": "1.2D + 1.0W + 0.5L",
+          "description": "Wind dominant",
+          "governing_case": "Tall structures, large wall areas, hurricane zones"
+        },
+        {
+          "id": "LC4",
+          "formula": "0.9D + 1.0E",
+          "description": "Seismic uplift check",
+          "governing_case": "Lightweight roofs in seismic zones (Dallas = low seismic)"
+        },
+        {
+          "id": "LC5",
+          "formula": "1.2D + 1.6S + 0.5W",
+          "description": "Snow dominant",
+          "governing_case": "Regions with significant snow (minimal in Dallas)"
+        },
+        {
+          "id": "LC6",
+          "formula": "1.2D + 1.0L + 0.2S",
+          "description": "Mixed service loading",
+          "governing_case": "General case with light snow"
+        }
+      ],
+      "typical_loads_dallas": {
+        "dead_load_psf": 85,
+        "live_load_psf": 100,
+        "snow_load_psf": 30,
+        "roof_live_psf": 20
+      },
+      "status_logic": {
+        "PASS": "All six load combinations evaluated; factored demand <= factored resistance",
+        "FAIL": "Any combination produces demand exceeding resistance"
+      }
+    },
+    {
+      "id": "CC-03",
+      "name": "Deflection Limit",
+      "standard": "L/360",
+      "category": "serviceability",
+      "factor_default": 0.98,
+      "description": "Serviceability deflection limit per ASCE 7-22. Maximum allowable deflection = span / 360 for live load.",
+      "formula": "delta_max = 5wL^4 / (384 * E * I)",
+      "limit": "L / 360",
+      "variables": {
+        "w": "uniformly distributed load (lb/in)",
+        "L": "span length (inches)",
+        "E": "modulus of elasticity (psi) — steel = 29,000,000 psi",
+        "I": "moment of inertia (in^4) — from AISC section database"
+      },
+      "example_calculation": {
+        "span_ft": 24,
+        "span_in": 288,
+        "limit_in": 0.8,
+        "formula_note": "delta_actual must be <= L/360 = 288/360 = 0.80 in"
+      },
+      "status_logic": {
+        "PASS": "delta_actual <= L/360 (utilization ratio <= 0.85)",
+        "WARNING": "0.85 < utilization ratio <= 1.0",
+        "FAIL": "utilization ratio > 1.0 (delta_actual > L/360)"
+      },
+      "mitigation": "Increase section depth or reduce span if deflection > L/360"
+    },
+    {
+      "id": "CC-04",
+      "name": "Seismic Drift Ratio",
+      "standard": "ASCE 7-16",
+      "category": "seismic",
+      "factor_default": 0.90,
+      "description": "Story drift ratio limit per ASCE 7-22 Section 12.12. Dallas is low seismic zone.",
+      "formula": "drift_ratio = delta / h <= 0.020",
+      "variables": {
+        "delta": "story drift (inches)",
+        "h": "story height (inches, default 108in for 9ft ceiling)"
+      },
+      "limit": 0.020,
+      "dallas_seismic_context": "Dallas = low seismic risk. LC4 (0.9D + 1.0E) rarely governs. Seismic drift check typically passes easily for residential.",
+      "status_logic": {
+        "PASS": "delta/h <= 0.020",
+        "WARNING": "delta/h approaching 0.020",
+        "FAIL": "delta/h > 0.020"
+      }
+    },
+    {
+      "id": "CC-05",
+      "name": "Wind Uplift Check",
+      "standard": "ASCE 7-16",
+      "category": "wind",
+      "factor_default": 0.85,
+      "description": "Wind uplift resistance check per ASCE 7-22 Chapters 28-30. Dead load must resist uplift demand.",
+      "formula": "0.9D >= W_uplift",
+      "load_combination": "LC4: 0.9D + 1.0W for uplift scenario",
+      "status_logic": {
+        "PASS": "0.9 * dead_load_resistance >= wind_uplift_demand",
+        "WARNING": "Resistance approaching uplift demand",
+        "FAIL": "Wind uplift demand exceeds dead load resistance"
+      },
+      "dallas_notes": "Dallas is not a hurricane zone. Wind uplift typically passes for standard residential roof construction."
+    },
+    {
+      "id": "CC-06",
+      "name": "Foundation Bearing Pressure",
+      "standard": "Geotech Report",
+      "category": "foundation",
+      "factor_default": 1.15,
+      "description": "Soil bearing pressure check. Actual bearing pressure must not exceed allowable soil capacity.",
+      "formula": "q = R / footing_area <= q_allowable",
+      "variables": {
+        "q": "actual soil bearing pressure (psf)",
+        "R": "total column/wall reaction (lbs)",
+        "footing_area": "plan area of footing (ft^2)",
+        "q_allowable": "allowable soil bearing capacity (psf), typical Dallas = 2500 psf"
+      },
+      "typical_allowable_dallas_psf": 2500,
+      "foundation_factors": {
+        "slab_on_grade": 0.2,
+        "crawlspace": 0.5,
+        "pier_beam": 0.7,
+        "basement": 1.0
+      },
+      "status_logic": {
+        "PASS": "q <= q_allowable (utilization <= 0.85)",
+        "WARNING": "0.85 < utilization <= 1.0",
+        "FAIL": "q > q_allowable (utilization > 1.0)"
+      },
+      "mitigation": "Increase footing area or switch foundation type if bearing pressure exceeds allowable"
+    },
+    {
+      "id": "CC-07",
+      "name": "Snow Load Calculation",
+      "standard": "ASCE 7-22",
+      "category": "snow",
+      "factor_default": 0.65,
+      "description": "Ground and roof snow load per ASCE 7-22 Chapter 7.",
+      "dallas_context": "Dallas has minimal snow load. Snow load rarely governs design. LC5 (1.2D + 1.6S + 0.5W) almost never controls.",
+      "typical_snow_load_dallas_psf": 5,
+      "status_logic": {
+        "PASS": "Roof snow load within design capacity (almost always for Dallas)",
+        "FAIL": "Snow load exceeds roof capacity (extremely rare in Dallas)"
+      }
+    }
+  ],
+
+  "beam_analysis": {
+    "method": "Analytical closed-form (NOT FEA)",
+    "assumption": "Simply supported beam, uniformly distributed load",
+    "important_note": "Vision uses closed-form analytical solutions only. Do NOT report FEA metrics like mesh density, iteration counts, or convergence plots. This is honest and more appropriate for residential pre-feasibility.",
+    "equations": {
+      "max_bending_moment": {
+        "formula": "M_max = wL^2 / 8",
+        "units": "in-lb when w = lb/in and L = inches",
+        "description": "Maximum bending moment at mid-span for simply supported UDL beam"
+      },
+      "max_shear_force": {
+        "formula": "V_max = wL / 2",
+        "units": "lb",
+        "description": "Maximum shear force at supports"
+      },
+      "max_deflection": {
+        "formula": "delta_max = 5wL^4 / (384 * E * I)",
+        "units": "inches",
+        "description": "Maximum mid-span deflection"
+      },
+      "bending_stress": {
+        "formula": "sigma = M / Sx",
+        "units": "psi (divide by 1000 for ksi)",
+        "description": "Bending stress from section modulus"
+      },
+      "utilization_ratio": {
+        "formula": "sigma_actual / (Fy * 1000)",
+        "thresholds": {
+          "PASS": "<= 0.85",
+          "WARNING": "> 0.85 and <= 1.0",
+          "FAIL": "> 1.0"
+        }
+      }
+    },
+    "solver_diagnostics": {
+      "method": "Analytical (closed-form)",
+      "solve_time": "< 1ms",
+      "iterations": "N/A - direct solution",
+      "convergence": "Exact",
+      "residual_error": "0.000%"
+    }
+  },
+
+  "aisc_sections": [
+    {
+      "designation": "W14x22",
+      "depth_in": 13.7,
+      "flange_width_in": 5.00,
+      "area_in2": 6.49,
+      "Ix_in4": 199,
+      "Sx_in3": 29.0,
+      "Zx_in3": 33.2,
+      "weight_plf": 22,
+      "Fy_ksi": 50,
+      "E_ksi": 29000
+    },
+    {
+      "designation": "W14x30",
+      "depth_in": 13.8,
+      "flange_width_in": 6.73,
+      "area_in2": 8.85,
+      "Ix_in4": 291,
+      "Sx_in3": 42.0,
+      "Zx_in3": 47.3,
+      "weight_plf": 30,
+      "Fy_ksi": 50,
+      "E_ksi": 29000
+    },
+    {
+      "designation": "W14x90",
+      "depth_in": 14.0,
+      "flange_width_in": 14.52,
+      "area_in2": 26.5,
+      "Ix_in4": 999,
+      "Sx_in3": 143,
+      "Zx_in3": 157,
+      "weight_plf": 90,
+      "Fy_ksi": 50,
+      "E_ksi": 29000
+    },
+    {
+      "designation": "W16x36",
+      "depth_in": 15.9,
+      "flange_width_in": 6.99,
+      "area_in2": 10.6,
+      "Ix_in4": 448,
+      "Sx_in3": 56.5,
+      "Zx_in3": 64.0,
+      "weight_plf": 36,
+      "Fy_ksi": 50,
+      "E_ksi": 29000
+    },
+    {
+      "designation": "W18x50",
+      "depth_in": 18.0,
+      "flange_width_in": 7.50,
+      "area_in2": 14.7,
+      "Ix_in4": 800,
+      "Sx_in3": 88.9,
+      "Zx_in3": 101,
+      "weight_plf": 50,
+      "Fy_ksi": 50,
+      "E_ksi": 29000
+    },
+    {
+      "designation": "W21x62",
+      "depth_in": 21.0,
+      "flange_width_in": 8.24,
+      "area_in2": 18.3,
+      "Ix_in4": 1330,
+      "Sx_in3": 127,
+      "Zx_in3": 144,
+      "weight_plf": 62,
+      "Fy_ksi": 50,
+      "E_ksi": 29000
+    },
+    {
+      "designation": "W24x84",
+      "depth_in": 24.1,
+      "flange_width_in": 9.02,
+      "area_in2": 24.7,
+      "Ix_in4": 2370,
+      "Sx_in3": 196,
+      "Zx_in3": 224,
+      "weight_plf": 84,
+      "Fy_ksi": 50,
+      "E_ksi": 29000
+    }
+  ],
+
+  "code_compliance_checks": [
+    {
+      "id": "CK-01",
+      "name": "Flexural Strength",
+      "standard": "AISC 360-16 Chapter F",
+      "formula": "phi_Mn = 0.9 * Fy * Zx >= Mu",
+      "variables": {
+        "phi": 0.9,
+        "Fy": "yield strength (ksi), typically 50 ksi",
+        "Zx": "plastic section modulus (in^3) from AISC table",
+        "Mu": "factored bending moment demand (kip-in)"
+      },
+      "status_logic": {
+        "PASS": "utilization <= 0.85",
+        "WARNING": "0.85 < utilization <= 1.0",
+        "FAIL": "utilization > 1.0"
+      },
+      "mitigation": "Suggest next heavier section from AISC database if flexural utilization > 1.0"
+    },
+    {
+      "id": "CK-02",
+      "name": "Shear Strength",
+      "standard": "AISC 360-16 Chapter G",
+      "formula": "phi_Vn = 0.9 * 0.6 * Fy * d * tw >= Vu",
+      "variables": {
+        "phi": 0.9,
+        "Fy": "yield strength (ksi)",
+        "d": "section depth (in)",
+        "tw": "web thickness (in)",
+        "Vu": "factored shear demand (kips)"
+      },
+      "status_logic": {
+        "PASS": "utilization <= 0.85",
+        "WARNING": "0.85 < utilization <= 1.0",
+        "FAIL": "utilization > 1.0"
+      },
+      "mitigation": "Suggest thicker web or higher grade steel if shear utilization > 1.0"
+    },
+    {
+      "id": "CK-03",
+      "name": "Deflection Serviceability",
+      "standard": "L/360",
+      "formula": "delta_actual <= L / 360",
+      "status_logic": {
+        "PASS": "utilization <= 0.85",
+        "WARNING": "0.85 < utilization <= 1.0",
+        "FAIL": "utilization > 1.0"
+      },
+      "mitigation": "Increase section depth or reduce span if deflection > L/360"
+    },
+    {
+      "id": "CK-04",
+      "name": "Soil Bearing",
+      "standard": "Geotech Report",
+      "formula": "q = R / footing_area <= q_allowable (typically 2500 psf for Dallas)",
+      "status_logic": {
+        "PASS": "utilization <= 0.85",
+        "WARNING": "0.85 < utilization <= 1.0",
+        "FAIL": "utilization > 1.0"
+      },
+      "mitigation": "Increase footing area or switch foundation type"
+    },
+    {
+      "id": "CK-05",
+      "name": "Seismic Drift",
+      "standard": "ASCE 7-22 Section 12.12",
+      "formula": "delta / h <= 0.020 for residential",
+      "status_logic": {
+        "PASS": "utilization <= 0.85",
+        "WARNING": "0.85 < utilization <= 1.0",
+        "FAIL": "utilization > 1.0"
+      }
+    },
+    {
+      "id": "CK-06",
+      "name": "Wind Uplift",
+      "standard": "ASCE 7-22 Chapters 28-30",
+      "formula": "Dead load resistance >= uplift demand (0.9D >= W_uplift)",
+      "status_logic": {
+        "PASS": "utilization <= 0.85",
+        "WARNING": "0.85 < utilization <= 1.0",
+        "FAIL": "utilization > 1.0"
+      }
+    }
+  ],
+
+  "structural_complexity_index": {
+    "name": "Structural Complexity Index (SCI)",
+    "range": "0 to 10",
+    "formula": "SCI = 0.35 * norm(span, 12, 40) + 0.25 * norm(stories, 1, 5) + 0.20 * foundation_factor + 0.20 * norm(total_load, 60, 200)",
+    "normalize_function": "norm(x, min, max) = clamp((x - min) / (max - min), 0, 1)",
+    "foundation_factors": {
+      "slab_on_grade": 0.2,
+      "crawlspace": 0.5,
+      "pier_beam": 0.7,
+      "basement": 1.0
+    },
+    "thresholds": {
+      "low": "SCI <= 5.0 — standard residential",
+      "moderate": "5.0 < SCI <= 8.0 — complex residential",
+      "high": "SCI > 8.0 — recommend licensed PE review",
+      "critical": "SCI > 8.5 — flag as high structural complexity"
+    }
+  },
+
+  "input_constraints": {
+    "hard_blocks": [
+      { "condition": "stories > 3", "reason": "Dallas residential cap", "action": "BLOCK" },
+      { "condition": "span > 40ft", "reason": "Exceeds maximum structural span", "action": "BLOCK" },
+      { "condition": "wood_frame AND span > 20ft AND NOT LVL", "reason": "Wood framing limited to 20ft without LVL", "action": "BLOCK" },
+      { "condition": "lot_coverage > zoning_limit", "reason": "Exceeds zoning maximum", "action": "FAIL" },
+      { "condition": "foundation_type != soil_classification_match", "reason": "Foundation must match soil", "action": "BLOCK" }
+    ],
+    "soft_warnings": [
+      { "condition": "span > 35ft", "reason": "High structural complexity", "action": "WARNING" },
+      { "condition": "SCI > 8", "reason": "Recommend professional engineering review", "action": "WARNING" },
+      { "condition": "steel_frame AND SF < 800", "reason": "Cost efficiency concern", "action": "WARNING" }
+    ],
+    "max_spans_by_material": {
+      "wood_SPF": 20,
+      "LVL": 28,
+      "steel": 35
+    }
+  },
+
+  "material_framing_options": {
+    "layer": 2,
+    "layer_name": "Structural Frame",
+    "options": [
+      { "type": "Wood SPF", "max_span_ft": 20, "stud_sizes": ["2x4","2x6","2x8"], "spacing_options_in": [12, 16, 24] },
+      { "type": "Steel studs", "max_span_ft": 35, "note": "Cold-formed steel" },
+      { "type": "LVL/Glulam beams", "max_span_ft": 28, "note": "Laminated veneer lumber" },
+      { "type": "Hybrid", "max_span_ft": 35, "note": "Wood studs + steel beams" }
+    ]
+  },
+
+  "disclaimer": {
+    "required": true,
+    "text": "Vision provides pre-feasibility estimates for early-stage planning purposes only. Structural calculations, cost projections, and financial forecasts are advisory and do not constitute licensed engineering analysis, professional design services, or investment advice. All structural design must be reviewed and stamped by a licensed Professional Engineer (PE) before construction.",
+    "placement": ["every_api_response", "every_screen_footer", "every_pdf_export"]
+  }
+}
