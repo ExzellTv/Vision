@@ -1,10 +1,26 @@
 const BASE = "/api";
 
+// Clerk token getter — injected by main.jsx after auth is ready.
+// Call setTokenGetter(getToken) once inside the app.
+let _getToken = null;
+export function setTokenGetter(fn) {
+  _getToken = fn;
+}
+
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options.headers },
-    ...options,
-  });
+  const headers = { "Content-Type": "application/json", ...options.headers };
+
+  // Attach Clerk JWT if available
+  if (_getToken) {
+    try {
+      const token = await _getToken();
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+    } catch (_) {
+      // Not authenticated — continue without token
+    }
+  }
+
+  const res = await fetch(`${BASE}${path}`, { ...options, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || res.statusText);
@@ -31,6 +47,9 @@ export const structuralApi = {
 export const costApi = {
   calculateLayers: (data) => request("/cost/calculate-layers", { method: "POST", body: JSON.stringify(data) }),
   predict: (features) => request("/cost/predict", { method: "POST", body: JSON.stringify(features) }),
+  trainModel: () => request("/cost/train", { method: "POST" }),
+  modelStatus: () => request("/cost/model-status"),
+  clusterAnalysis: (lat, lng) => request("/cost/cluster-analysis", { method: "POST", body: JSON.stringify({ lat, lng }) }),
 };
 
 // Market
@@ -62,4 +81,25 @@ export const mapApi = {
   getComparables:  () => request("/map/comparables"),
   getLandListings: () => request("/map/land-listings"),
   getMarketStats:  () => request("/map/market-stats"),
+};
+
+// Compliance
+export const complianceApi = {
+  check: (projectId, buildingContext) => request("/compliance/check", {
+    method: "POST",
+    body: JSON.stringify({ project_id: 1, ...(buildingContext && { building_context: buildingContext }) }),
+  }),
+  diagnose: (analysisType, results, projectId, buildingContext) => request("/compliance/ai-diagnosis", {
+    method: "POST",
+    body: JSON.stringify({ analysis_type: analysisType, results, project_id: 1, ...(buildingContext && { building_context: buildingContext }) }),
+  }),
+};
+
+// Projects (MongoDB-backed, requires auth)
+export const projectsApi = {
+  list: () => request("/projects"),
+  create: (data) => request("/projects", { method: "POST", body: JSON.stringify(data) }),
+  get: (id) => request(`/projects/${id}`),
+  update: (id, data) => request(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  delete: (id) => request(`/projects/${id}`, { method: "DELETE" }),
 };

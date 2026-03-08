@@ -78,6 +78,30 @@ function inferBearing(room, dims) {
   ];
 }
 
+/* ── Default building context for structural intelligence ── */
+const DEFAULT_BUILDING_CONTEXT = {
+  span_ft: 24,
+  stories: 2,
+  total_sf: 2200,
+  foundation_type: "slab_on_grade",
+  framing_material: "Wood SPF",
+  section: "W14x22",
+  Ix_in4: 199,
+  Sx_in3: 29.0,
+  Zx_in3: 33.2,
+  Fy_ksi: 50,
+  dead_load_psf: 25,
+  live_load_psf: 40,
+  snow_load_psf: 5,
+  max_moment_kip_ft: 18.4,
+  max_shear_kips: 12.2,
+  max_deflection_in: 0.78,
+  footing_area_ft2: 4.0,
+  total_reaction_lbs: 8500,
+  story_drift_ratio: 0.018,
+  sci_score: 6.2,
+};
+
 export function ProjectProvider({ children }) {
   // Core shared state
   const [projectName, setProjectName] = useState("New Project");
@@ -89,6 +113,27 @@ export function ProjectProvider({ children }) {
   const [materialType, setMaterialType] = useState("wood");
   const [materials, setMaterials] = useState([]);             // 7-layer material selections
   const [maxStep, setMaxStep] = useState(0);                  // furthest step reached (0-5)
+  const [projectId, setProjectId] = useState(null);           // MongoDB _id after first save
+  const [buildingContext, setBuildingContextRaw] = useState(DEFAULT_BUILDING_CONTEXT);
+
+  const setBuildingContext = useCallback((updates) => {
+    setBuildingContextRaw((prev) => ({ ...prev, ...updates }));
+  }, []);
+
+  /* Reset entire project state for a clean "new project" flow */
+  const resetProject = useCallback(() => {
+    setProjectName("New Project");
+    setFloorPlanRaw(null);
+    setAllVariantsRaw([]);
+    setGenerateParams(null);
+    setStoryPlansRaw([]);
+    setFoundationType("slab");
+    setMaterialType("wood");
+    setMaterials([]);
+    setMaxStep(0);
+    setProjectId(null);
+    setBuildingContextRaw(DEFAULT_BUILDING_CONTEXT);
+  }, []);
 
   /* Wrap setters to normalize API data */
   const setFloorPlan = useCallback((plan) => {
@@ -135,6 +180,9 @@ export function ProjectProvider({ children }) {
     materialType, setMaterialType,
     materials, setMaterials,
     maxStep, setMaxStep,
+    projectId, setProjectId,
+    buildingContext, setBuildingContext,
+    resetProject,
     // Derived
     totalSF, stories, footprintWidth, footprintDepth,
     normalizeVariant,
