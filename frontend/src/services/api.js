@@ -56,3 +56,12 @@ export const scheduleApi = {
   updatePhase: (id, phase, data) =>
     request(`/schedule/${id}/phase/${phase}`, { method: "PATCH", body: JSON.stringify(data) }),
 };
+
+// Compliance
+export const complianceApi = {
+  check: (projectId) => request("/compliance/check", { method: "POST", body: JSON.stringify({ project_id: projectId }) }),
+  diagnose: (analysisType, results, projectId) => request("/compliance/ai-diagnosis", {
+    method: "POST",
+    body: JSON.stringify({ analysis_type: analysisType, results, project_id: projectId }),
+  }),
+};
