@@ -1779,7 +1779,7 @@ export default function LayerEditor() {
       const sceneData = sceneRef.current;
       const mats = matsRef.current;
       if (!sceneData || !mats) return;
-      const oldGroup = layerGroupsRef.current[7];
+      const oldGroup = layerGroupsRef.current[6];
       const wasVisible = oldGroup?.visible ?? true;
       if (oldGroup) {
         sceneData.scene.remove(oldGroup);
