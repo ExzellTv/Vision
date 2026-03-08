@@ -17,6 +17,7 @@ const ROOM_COLORS = {
   closet:   { fill: "rgba(42, 53, 72, 0.2)",    stroke: "#2a3548" },
   laundry:  { fill: "rgba(138, 155, 176, 0.15)", stroke: "#6b7a90" },
   entry:    { fill: "rgba(0, 212, 255, 0.08)",  stroke: "#1a5c6a" },
+  stair:    { fill: "rgba(90, 101, 128, 0.22)",  stroke: "#5a6580" },
 };
 
 const STYLE_OPTIONS = ["Ranch", "Colonial", "Modern", "Craftsman", "Mediterranean"];
@@ -177,8 +178,6 @@ function _applyConstraint(item, allItems, planW, planH) {
   const c = ITEM_ROOM_CONSTRAINT[item.type];
   if (!c) return item;
   if (c === "__edge__") {
-    if ((item.type === "window" || item.type === "glazing") && planW && planH)
-      return _constrainToExteriorEdge(item, allItems, planW, planH);
     return _constrainToDoorEdge(item, allItems);
   }
   return _constrainToRoom(item, allItems);
@@ -578,37 +577,6 @@ function generateUpperFloorPlan(params, refPlan) {
   // No secondary bedrooms — right side left blank for user customization
   // (remaining vertical space intentionally left empty — no closet auto-generated)
 
-  // Auto-place stairs aligned with ground floor stair position
-  const refStair = refPlan?.rooms?.find(r => r.isStair);
-  if (refStair) {
-    const stairRect = { x: refStair.x, y: refStair.y, w: refStair.w, h: refStair.h };
-    // Shrink any overlapping room to make space for the stair landing
-    for (let i = 0; i < rooms.length; i++) {
-      if (_overlapsAny(stairRect, [rooms[i]])) {
-        const r = rooms[i];
-        // Try shrinking from the side closest to stair
-        if (stairRect.x >= r.x && stairRect.x < r.x + r.w) {
-          // Stair overlaps horizontally — shrink room width
-          const newW = stairRect.x - r.x;
-          if (newW >= 4) { rooms[i] = { ...r, w: newW }; continue; }
-        }
-        if (stairRect.y >= r.y && stairRect.y < r.y + r.h) {
-          // Stair overlaps vertically — shrink room height
-          const newH = stairRect.y - r.y;
-          if (newH >= 4) { rooms[i] = { ...r, h: newH }; continue; }
-        }
-      }
-    }
-    if (!_overlapsAny(stairRect, rooms)) {
-      rooms.push({ type: "stair", label: "Stairs", ...stairRect, bearing: [false, false, false, false], isStair: true });
-    } else {
-      // Fallback: find any non-overlapping position
-      placeStairs(rooms, width, depth);
-    }
-  } else {
-    placeStairs(rooms, width, depth);
-  }
-
   return {
     id: `upper-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     width, depth, rooms, doors: [],
@@ -709,6 +677,32 @@ function drawRoomFurniture(ctx, type, rx, ry, rw, rh, strokeColor) {
       ctx.ellipse(cx, cy + rh * 0.05, tw * 0.42, tw * 0.52, 0, 0, Math.PI * 2);
       ctx.stroke();
       ctx.strokeRect(cx - tw * 0.32, cy - rh * 0.05 - tw * 0.55, tw * 0.64, tw * 0.28);
+      break;
+    }
+    case "stair": {
+      // Draw stair treads (horizontal lines ascending)
+      const pad = Math.min(rw, rh) * 0.1;
+      const sx = rx + pad, sy = ry + pad;
+      const sw = rw - pad * 2, sh = rh - pad * 2;
+      const steps = Math.max(3, Math.min(8, Math.round(sh / 6)));
+      const stepH = sh / steps;
+      for (let i = 0; i <= steps; i++) {
+        ctx.beginPath();
+        ctx.moveTo(sx, sy + i * stepH);
+        ctx.lineTo(sx + sw, sy + i * stepH);
+        ctx.stroke();
+      }
+      // Arrow indicating up direction
+      const arrX = sx + sw / 2;
+      ctx.beginPath();
+      ctx.moveTo(arrX, sy + sh * 0.85);
+      ctx.lineTo(arrX, sy + sh * 0.2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(arrX - sw * 0.12, sy + sh * 0.32);
+      ctx.lineTo(arrX, sy + sh * 0.2);
+      ctx.lineTo(arrX + sw * 0.12, sy + sh * 0.32);
+      ctx.stroke();
       break;
     }
     default: break;
@@ -1487,7 +1481,7 @@ export default function FloorPlanEditor() {
     } else {
       const stamp = Date.now();
       setPlacedItems(
-        activePlan.rooms.map((r, i) => ({ id: `room-${stamp}-${i}`, isRoom: !r.isStair, ...r }))
+        activePlan.rooms.map((r, i) => ({ id: `room-${stamp}-${i}`, isRoom: true, ...r }))
       );
     }
     setSelectedItemIdx(-1);
@@ -1740,10 +1734,14 @@ export default function FloorPlanEditor() {
           const next = [...prev];
           const raw = { ...ds.startItem, x: snap(ds.startItem.x + dft_x), y: snap(ds.startItem.y + dft_y) };
           const others = prev.filter((_, i) => i !== ds.itemIdx);
-          if (raw.isRoom || raw.isCustom) {
+          if (raw.isStair) {
+            // Stairs: clamp to plan, no overlap rejection (other items can sit inside)
+            const bounded = activePlan ? _clampToPlan(raw, activePlan.width, activePlan.depth) : raw;
+            next[ds.itemIdx] = bounded;
+          } else if (raw.isRoom || raw.isCustom) {
             // Rooms/custom: clamp to plan, reject if overlapping another room/custom block
             const bounded = activePlan ? _clampToPlan(raw, activePlan.width, activePlan.depth) : raw;
-            const otherRooms = others.filter(o => o.isRoom || o.isCustom);
+            const otherRooms = others.filter(o => (o.isRoom || o.isCustom) && !o.isStair);
             if (otherRooms.some((o) => _doRectsOverlap(bounded, o))) {
               showToast("Can't overlap another block");
               return prev;
@@ -1751,9 +1749,9 @@ export default function FloorPlanEditor() {
             next[ds.itemIdx] = bounded;
           } else {
             // Furniture/doors/windows: apply constraint first (snaps door to edge / furniture inside room),
-            // then only reject if it collides with another non-room item
+            // then only reject if it collides with another non-room item (stairs excluded)
             const placed = _applyConstraint(raw, others, activePlan?.width, activePlan?.depth);
-            const otherNonRooms = others.filter(o => !o.isRoom && !o.isCustom);
+            const otherNonRooms = others.filter(o => !o.isRoom && !o.isCustom && !o.isStair);
             if (otherNonRooms.some((o) => _doRectsOverlap(placed, o))) {
               showToast("Can't place here — overlaps another item");
               return prev;
@@ -1768,12 +1766,12 @@ export default function FloorPlanEditor() {
           const si = ds.startItem;
           let { x, y, w, h } = si;
           const hn = ds.handle;
-          const isFurniture = !si.isRoom && !si.isCustom;
+          const isFurniture = !si.isRoom && !si.isCustom && !si.isStair;
           if (hn.includes("e")) w = Math.max(0.5, snap(si.w + dft_x));
           if (hn.includes("s")) h = Math.max(0.5, snap(si.h + dft_y));
           if (hn.includes("w")) { x = snap(si.x + dft_x); w = Math.max(0.5, snap(si.w - dft_x)); }
           if (hn.includes("n")) { y = snap(si.y + dft_y); h = Math.max(0.5, snap(si.h - dft_y)); }
-          // Cap furniture/door/window resize at FURNITURE_MAX
+          // Cap furniture/door/window resize at FURNITURE_MAX (stairs excluded)
           if (isFurniture) {
             w = Math.min(w, FURNITURE_MAX);
             h = Math.min(h, FURNITURE_MAX);
@@ -1783,10 +1781,14 @@ export default function FloorPlanEditor() {
           }
           let candidate = { ...si, x, y, w, h };
           const others = prev.filter((_, i) => i !== ds.itemIdx);
-          if (candidate.isRoom || candidate.isCustom) {
-            // Clamp resize to plan boundaries; reject only if overlapping another room/custom
+          if (candidate.isStair) {
+            // Stairs: clamp to plan, no overlap rejection
             if (activePlan) candidate = _clampToPlan(candidate, activePlan.width, activePlan.depth);
-            const otherRooms = others.filter(o => o.isRoom || o.isCustom);
+            next[ds.itemIdx] = candidate;
+          } else if (candidate.isRoom || candidate.isCustom) {
+            // Clamp resize to plan boundaries; reject only if overlapping another room/custom (stairs excluded)
+            if (activePlan) candidate = _clampToPlan(candidate, activePlan.width, activePlan.depth);
+            const otherRooms = others.filter(o => (o.isRoom || o.isCustom) && !o.isStair);
             if (otherRooms.some((o) => _doRectsOverlap(candidate, o))) {
               showToast("Can't stretch over another block");
               next[ds.itemIdx] = prev[ds.itemIdx];
@@ -1794,8 +1796,8 @@ export default function FloorPlanEditor() {
               next[ds.itemIdx] = candidate;
             }
           } else {
-            // Non-room resize: only block if it would overlap another non-room item
-            const otherNonRooms = others.filter(o => !o.isRoom && !o.isCustom);
+            // Non-room resize: only block if it would overlap another non-room item (stairs excluded)
+            const otherNonRooms = others.filter(o => !o.isRoom && !o.isCustom && !o.isStair);
             next[ds.itemIdx] = otherNonRooms.some((o) => _doRectsOverlap(candidate, o)) ? prev[ds.itemIdx] : candidate;
           }
           return next;
@@ -2075,16 +2077,25 @@ export default function FloorPlanEditor() {
           return prev;
         }
         return [...prev, raw];
+      } else if (type === "stair") {
+        // Stairs: clamp to plan, no overlap rejection, treated as room block with walls
+        const raw = _clampToPlan({
+          id: Date.now(), type, isStair: true, isRoom: true,
+          label: "Stairs",
+          x: Math.round(ftX - sz.w / 2), y: Math.round(ftY - sz.h / 2),
+          w: sz.w, h: sz.h,
+        }, activePlan.width, activePlan.depth);
+        return [...prev, raw];
       } else {
         // Non-room (furniture, door, window, etc.): constrain to room edge/interior,
-        // then only reject if it overlaps another non-room item
+        // then only reject if it overlaps another non-room item (stairs excluded)
         const raw = {
           id: Date.now(), type,
           x: Math.round(ftX - sz.w / 2), y: Math.round(ftY - sz.h / 2),
           w: sz.w, h: sz.h,
         };
         const placed = _applyConstraint(raw, prev, activePlan?.width, activePlan?.depth);
-        const nonRooms = prev.filter(o => !o.isRoom);
+        const nonRooms = prev.filter(o => !o.isRoom && !o.isStair);
         if (nonRooms.some((o) => _doRectsOverlap(placed, o))) {
           showToast("Can't place here — overlaps another item");
           return prev;
@@ -2234,7 +2245,7 @@ export default function FloorPlanEditor() {
         <p style={{ margin: "0 0 32px", fontSize: 14, color: "#64748b", textAlign: "center", maxWidth: 340, lineHeight: 1.6 }}>Please select or create a project first before accessing this section.</p>
         <div style={{ display: "flex", gap: 12 }}>
           <button onClick={() => navigate("/projects")} style={{ padding: "11px 24px", background: "linear-gradient(135deg, #2563eb, #1d4ed8)", border: "none", borderRadius: 8, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", boxShadow: "0 2px 14px rgba(37,99,235,0.4)" }}>Go to Projects</button>
-          <button onClick={() => navigate("/")} style={{ padding: "11px 24px", background: "transparent", border: "1px solid #2a3548", borderRadius: 8, color: "#94a3b8", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Back to Dashboard</button>
+          <button onClick={() => navigate("/dashboard")} style={{ padding: "11px 24px", background: "transparent", border: "1px solid #2a3548", borderRadius: 8, color: "#94a3b8", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Back to Dashboard</button>
         </div>
       </div>
     );

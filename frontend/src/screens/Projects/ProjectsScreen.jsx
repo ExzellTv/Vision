@@ -5,6 +5,7 @@ import { useUser } from "@clerk/clerk-react";
 import { colors, fonts, radii } from "../../theme/tokens";
 import { projectsApi } from "../../services/api";
 import { useProject } from "../../hooks/useProjectStore";
+import NewProjectModal from "../../components/shared/NewProjectModal";
 
 /* ── helpers ── */
 function timeAgo(dateStr) {
@@ -373,7 +374,7 @@ function CardGraphic({ project, index }) {
 }
 
 /* ── Individual project card ── */
-function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRename }) {
+function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRename, onOpenSchedule }) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
@@ -580,6 +581,32 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
             <path d="M3 4h6M3 6h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.7" />
           </svg>
           Edit Floor Plan
+        </button>
+        <button
+          onClick={() => { setMenuOpen(false); onOpenSchedule(project); }}
+          style={{
+            width: "100%",
+            padding: "9px 14px",
+            background: "none",
+            border: "none",
+            color: colors.text,
+            fontFamily: fonts.label,
+            fontSize: 12,
+            textAlign: "left",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = colors.surfaceHover)}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <rect x="1" y="2" width="10" height="9" rx="1" stroke="currentColor" strokeWidth="1.1" fill="none" />
+            <path d="M4 1v2M8 1v2M1 5h10" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+            <path d="M3 7h2M7 7h2M3 9h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.7" />
+          </svg>
+          Open Schedule
         </button>
         <button
           onClick={() => { setMenuOpen(false); onRename(project); }}
@@ -897,176 +924,18 @@ function DeleteModal({ project, onClose, onConfirm }) {
   );
 }
 
-/* ── New Project Modal ── */
-function NewProjectModal({ onClose, onCreate }) {
-  const [name, setName] = useState("");
-  const [notes, setNotes] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleCreate = async () => {
-    if (!name.trim()) { setError("Project name is required."); return; }
-    setLoading(true);
-    setError("");
-    try {
-      const project = await projectsApi.create({ name: name.trim(), notes: notes.trim() });
-      onCreate(project);
-      onClose();
-    } catch (e) {
-      setError(e.message || "Failed to create project.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(7,11,18,0.85)",
-        backdropFilter: "blur(4px)",
-        zIndex: 1000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: "#111827",
-          border: `1px solid ${colors.cardBorder}`,
-          borderRadius: 16,
-          padding: "40px 44px",
-          width: 460,
-          maxWidth: "92vw",
-          position: "relative",
-        }}
-      >
-        <button
-          onClick={onClose}
-          style={{
-            position: "absolute",
-            top: 14,
-            right: 14,
-            background: "none",
-            border: `1px solid ${colors.cardBorder}`,
-            borderRadius: radii.md,
-            color: colors.textDim,
-            cursor: "pointer",
-            width: 28,
-            height: 28,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 14,
-          }}
-        >
-          ✕
-        </button>
-
-        <h2 style={{ margin: "0 0 28px", fontSize: 24, fontWeight: 700, color: colors.textBright, letterSpacing: "-0.3px" }}>
-          New Project
-        </h2>
-
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: colors.textDim, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8, fontFamily: fonts.label }}>
-            Project Name
-          </div>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-            placeholder="e.g. Oak Lawn Residential"
-            style={{
-              width: "100%",
-              padding: "11px 14px",
-              background: colors.bg,
-              border: `1px solid ${colors.cardBorder}`,
-              borderRadius: radii.lg,
-              color: colors.text,
-              fontFamily: fonts.label,
-              fontSize: 14,
-              outline: "none",
-              boxSizing: "border-box",
-            }}
-            onFocus={(e) => (e.target.style.borderColor = colors.secondary)}
-            onBlur={(e) => (e.target.style.borderColor = colors.cardBorder)}
-            autoFocus
-          />
-        </div>
-
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: colors.textDim, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8, fontFamily: fonts.label }}>
-            Description (optional)
-          </div>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. Lobby, Level 1-12 structural core analysis"
-            rows={3}
-            style={{
-              width: "100%",
-              padding: "11px 14px",
-              background: colors.bg,
-              border: `1px solid ${colors.cardBorder}`,
-              borderRadius: radii.lg,
-              color: colors.text,
-              fontFamily: fonts.label,
-              fontSize: 14,
-              outline: "none",
-              boxSizing: "border-box",
-              resize: "vertical",
-            }}
-            onFocus={(e) => (e.target.style.borderColor = colors.secondary)}
-            onBlur={(e) => (e.target.style.borderColor = colors.cardBorder)}
-          />
-        </div>
-
-        {error && (
-          <div style={{ color: colors.danger, fontSize: 12, marginBottom: 16, fontFamily: fonts.label }}>
-            {error}
-          </div>
-        )}
-
-        <button
-          onClick={handleCreate}
-          disabled={loading}
-          style={{
-            width: "100%",
-            padding: 13,
-            background: loading ? colors.cardBorder : "linear-gradient(135deg, #2563eb, #1d4ed8)",
-            border: "none",
-            borderRadius: radii.lg,
-            color: "white",
-            fontFamily: fonts.label,
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: loading ? "not-allowed" : "pointer",
-            boxShadow: loading ? "none" : "0 4px 20px rgba(37,99,235,0.4)",
-            transition: "all 0.15s ease",
-          }}
-        >
-          {loading ? "Creating…" : "Create Project"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /* ── Main screen ── */
 export default function ProjectsScreen() {
   const navigate = useNavigate();
   const { user } = useUser();
-  const { setProjectName, setProjectId, setStoryPlans, setFloorPlan, setGenerateParams, resetProject } = useProject();
+  const { setProjectName, setProjectId, setStoryPlans, setFloorPlan, setGenerateParams, resetProject, setBuildingContext, setMaterials, setSavedSchedule } = useProject();
 
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [renameTarget, setRenameTarget] = useState(null);
+  const [showNewModal, setShowNewModal] = useState(false);
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -1101,8 +970,22 @@ export default function ProjectsScreen() {
     }
   };
 
-  const handleNewProject = () => {
+  const handleNewProject = () => setShowNewModal(true);
+
+  const handleGenerate = (params) => {
     resetProject();
+    setProjectName(params.projectName || "New Project");
+    setGenerateParams({
+      targetSF: params.targetSF,
+      bedrooms: params.bedrooms,
+      bathrooms: params.bathrooms,
+      stories: params.stories,
+      lotWidth: 60,
+      lotDepth: 120,
+      style: "Ranch",
+      garage: "2-car",
+      openFloorPlan: true,
+    });
     navigate("/develop");
   };
 
@@ -1121,6 +1004,19 @@ export default function ProjectsScreen() {
     if (project.generate_params) setGenerateParams(project.generate_params);
     if (project.floor_plan) setFloorPlan(project.floor_plan);
     navigate("/develop");
+  };
+
+  const handleOpenSchedule = (project) => {
+    setProjectName(project.name);
+    setProjectId(project.id);
+    if (project.generate_params) setGenerateParams(project.generate_params);
+    if (project.floor_plan) setFloorPlan(project.floor_plan);
+    if (project.story_plans?.length > 0) setStoryPlans(project.story_plans);
+    if (project.materials?.length > 0) setMaterials(project.materials);
+    if (project.building_context) setBuildingContext(project.building_context);
+    // Restore saved schedule state (startDate + manual overrides)
+    if (project.schedule) setSavedSchedule(project.schedule);
+    navigate("/schedule");
   };
 
   const handleRenameConfirm = async (project, newName) => {
@@ -1265,36 +1161,12 @@ export default function ProjectsScreen() {
                 onDelete={setDeleteTarget}
                 onEditFloorPlan={handleEditFloorPlan}
                 onRename={setRenameTarget}
+                onOpenSchedule={handleOpenSchedule}
               />
             ))}
             <ImportCard />
           </div>
         )}
-      </div>
-
-      {/* Footer */}
-      <div
-        style={{
-          borderTop: `1px solid ${colors.panelBorder}`,
-          padding: "10px 40px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#2ed573", display: "inline-block" }} />
-          <span style={{ fontSize: 11, fontFamily: fonts.data, color: colors.textDim, letterSpacing: "0.08em" }}>
-            SYSTEM OPERATIONAL
-          </span>
-          <span style={{ fontSize: 11, fontFamily: fonts.data, color: "#2a3548", letterSpacing: "0.04em" }}>
-            V4.8.2-CORE
-          </span>
-        </div>
-        <div style={{ fontSize: 11, fontFamily: fonts.data, color: colors.textDim, letterSpacing: "0.05em" }}>
-          © 2024 VISION STRUCTURAL INTELLIGENCE LABS
-        </div>
       </div>
 
       {/* Modals */}
@@ -1310,6 +1182,12 @@ export default function ProjectsScreen() {
           project={renameTarget}
           onClose={() => setRenameTarget(null)}
           onConfirm={handleRenameConfirm}
+        />
+      )}
+      {showNewModal && (
+        <NewProjectModal
+          onClose={() => setShowNewModal(false)}
+          onGenerate={handleGenerate}
         />
       )}
     </div>

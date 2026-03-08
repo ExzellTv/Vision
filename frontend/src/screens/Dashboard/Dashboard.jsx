@@ -1,7 +1,163 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useUser } from "@clerk/clerk-react";
 import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
+import { projectsApi } from "../../services/api";
+import NewProjectModal from "../../components/shared/NewProjectModal";
+
+/* ── Detect project type from name for thumbnail silhouette ── */
+function detectProjectType(name = "") {
+  const src = name.toLowerCase();
+  if (/bridge|pier|cable|span|truss/.test(src)) return "bridge";
+  if (/tower|high.?rise|skyscraper/.test(src)) return "tower";
+  if (/mixed.?use|commercial|retail|office/.test(src)) return "mixed";
+  if (/residential|house|home|single.?family|duplex/.test(src)) return "residential";
+  return "generic";
+}
+
+/* ── Silhouette SVGs (compact) ── */
+function ResidentialSil() {
+  return (
+    <g opacity="0.13" fill="#3b82f6" stroke="#3b82f6" strokeWidth="0.5">
+      <rect x="68" y="78" width="104" height="52" fill="#3b82f6" opacity="0.08" stroke="#3b82f6" strokeWidth="0.8" strokeOpacity="0.3" />
+      <polygon points="58,78 120,38 182,78" fill="#3b82f6" opacity="0.1" stroke="#3b82f6" strokeWidth="0.8" strokeOpacity="0.4" />
+      <rect x="32" y="95" width="42" height="35" fill="#3b82f6" opacity="0.06" stroke="#3b82f6" strokeWidth="0.7" strokeOpacity="0.25" />
+      <polygon points="25,95 53,72 81,95" fill="#3b82f6" opacity="0.08" stroke="#3b82f6" strokeWidth="0.7" strokeOpacity="0.3" />
+      <rect x="82" y="88" width="18" height="14" rx="1" fill="none" stroke="#3b82f6" strokeWidth="0.7" opacity="0.35" />
+      <rect x="140" y="88" width="18" height="14" rx="1" fill="none" stroke="#3b82f6" strokeWidth="0.7" opacity="0.35" />
+      <rect x="108" y="102" width="24" height="28" rx="1" fill="none" stroke="#3b82f6" strokeWidth="0.7" opacity="0.3" />
+      <line x1="20" y1="130" x2="220" y2="130" stroke="#3b82f6" strokeWidth="0.6" opacity="0.2" />
+    </g>
+  );
+}
+function TowerSil() {
+  return (
+    <g opacity="0.13" fill="#3b82f6" stroke="#3b82f6" strokeWidth="0.5">
+      <rect x="88" y="20" width="64" height="110" fill="#3b82f6" opacity="0.07" stroke="#3b82f6" strokeWidth="0.8" strokeOpacity="0.3" />
+      <polygon points="120,8 130,20 110,20" fill="#3b82f6" opacity="0.1" stroke="#3b82f6" strokeWidth="0.7" strokeOpacity="0.35" />
+      <rect x="60" y="55" width="28" height="75" fill="#3b82f6" opacity="0.06" stroke="#3b82f6" strokeWidth="0.7" strokeOpacity="0.25" />
+      <rect x="152" y="55" width="28" height="75" fill="#3b82f6" opacity="0.06" stroke="#3b82f6" strokeWidth="0.7" strokeOpacity="0.25" />
+      {[30,50,70,90,110].map((y, i) => (
+        <line key={i} x1="88" y1={y} x2="152" y2={y} stroke="#3b82f6" strokeWidth="0.4" opacity="0.2" />
+      ))}
+      <line x1="16" y1="130" x2="224" y2="130" stroke="#3b82f6" strokeWidth="0.6" opacity="0.2" />
+    </g>
+  );
+}
+function MixedSil() {
+  return (
+    <g opacity="0.13" fill="#3b82f6" stroke="#3b82f6" strokeWidth="0.5">
+      <rect x="24" y="60" width="52" height="70" fill="#3b82f6" opacity="0.07" stroke="#3b82f6" strokeWidth="0.8" strokeOpacity="0.3" />
+      <rect x="88" y="28" width="64" height="102" fill="#3b82f6" opacity="0.08" stroke="#3b82f6" strokeWidth="0.9" strokeOpacity="0.35" />
+      <rect x="164" y="50" width="52" height="80" fill="#3b82f6" opacity="0.07" stroke="#3b82f6" strokeWidth="0.8" strokeOpacity="0.3" />
+      <line x1="16" y1="130" x2="224" y2="130" stroke="#3b82f6" strokeWidth="0.6" opacity="0.2" />
+    </g>
+  );
+}
+function GenericSil({ seed = 0 }) {
+  return (
+    <g opacity="0.13" stroke="#3b82f6" strokeWidth="0.9" fill="none">
+      <rect x={60 + seed * 4} y="30" width="80" height="55" opacity="0.3" />
+      <rect x={160 + seed * 2} y="50" width="60" height="40" opacity="0.3" />
+      <rect x="30" y={70 + seed * 2} width="50" height="35" opacity="0.3" />
+      <line x1="16" y1="130" x2="224" y2="130" opacity="0.2" />
+    </g>
+  );
+}
+
+const ROOM_COLORS = {
+  bedroom: "#3b82f6",
+  bathroom: "#06b6d4",
+  kitchen: "#f59e0b",
+  living: "#8b5cf6",
+  dining: "#ec4899",
+  garage: "#6b7280",
+  office: "#10b981",
+};
+
+/* ── Mini floor plan SVG thumbnail ── */
+function FloorPlanMini({ floorPlan }) {
+  const rooms = floorPlan?.rooms || [];
+  if (!rooms.length) return null;
+
+  const W = 240, H = 130, PAD = 8;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  rooms.forEach((r) => {
+    const rx = r.x ?? 0, ry = r.y ?? 0;
+    const rw = r.w ?? r.width ?? 10, rh = r.h ?? r.depth ?? 10;
+    minX = Math.min(minX, rx); minY = Math.min(minY, ry);
+    maxX = Math.max(maxX, rx + rw); maxY = Math.max(maxY, ry + rh);
+  });
+  const fw = maxX - minX || 1, fh = maxY - minY || 1;
+  const scale = Math.min((W - PAD * 2) / fw, (H - PAD * 2) / fh);
+  const ox = PAD + ((W - PAD * 2) - fw * scale) / 2;
+  const oy = PAD + ((H - PAD * 2) - fh * scale) / 2;
+
+  return (
+    <svg width="100%" height="100%" viewBox={`0 0 ${W} ${H}`}
+      style={{ position: "absolute", inset: 0 }} preserveAspectRatio="xMidYMid meet">
+      {rooms.map((r, i) => {
+        const rx = ((r.x ?? 0) - minX) * scale + ox;
+        const ry = ((r.y ?? 0) - minY) * scale + oy;
+        const rw = (r.w ?? r.width ?? 10) * scale;
+        const rh = (r.h ?? r.depth ?? 10) * scale;
+        const col = ROOM_COLORS[(r.type || "").toLowerCase()] || "#3b82f6";
+        return (
+          <rect key={i} x={rx} y={ry} width={rw} height={rh}
+            fill={col} fillOpacity="0.1" stroke={col} strokeWidth="0.8" strokeOpacity="0.45" rx="0.5" />
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ── Project thumbnail used in RecentRow ── */
+function ProjectThumb({ project, index }) {
+  const fp = project?.floor_plan;
+  const hasFp = fp?.rooms?.length > 0;
+  const type = detectProjectType(project?.name || "");
+  const silhouetteMap = {
+    residential: <ResidentialSil />,
+    tower: <TowerSil />,
+    mixed: <MixedSil />,
+    generic: <GenericSil seed={index} />,
+    bridge: <GenericSil seed={index + 3} />,
+  };
+  const silhouette = silhouetteMap[type] || <GenericSil seed={index} />;
+  const gridId = `dg-${index}`;
+
+  return (
+    <div style={{
+      position: "relative",
+      width: 72,
+      height: 52,
+      flexShrink: 0,
+      background: "linear-gradient(160deg, #090f1c 0%, #0b1628 55%, #0d1a30 100%)",
+      border: `1px solid ${colors.cardBorder}`,
+      borderRadius: radii.md,
+      overflow: "hidden",
+    }}>
+      {/* Blueprint grid */}
+      <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, pointerEvents: "none" }} preserveAspectRatio="none">
+        <defs>
+          <pattern id={gridId} width="14" height="14" patternUnits="userSpaceOnUse">
+            <path d="M 14 0 L 0 0 0 14" fill="none" stroke="#3b82f6" strokeWidth="0.25" opacity="0.2" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill={`url(#${gridId})`} />
+      </svg>
+      {hasFp ? (
+        <FloorPlanMini floorPlan={fp} />
+      ) : (
+        <svg width="100%" height="100%" viewBox="0 0 240 140"
+          style={{ position: "absolute", inset: 0 }} preserveAspectRatio="xMidYMid meet">
+          {silhouette}
+        </svg>
+      )}
+    </div>
+  );
+}
 
 function Sparkline({ data, color }) {
   const w = 80, h = 32;
@@ -149,43 +305,65 @@ const MODULES = [
   },
 ];
 
-const RECENT = [
-  {
-    name: "Oak Lawn Residential Hub",
-    time: "2h ago",
-    acres: 4.2,
-    cost: 142,
-    score: 94,
-    scoreColor: colors.accent,
-    data: [60, 72, 65, 80, 75, 88, 94],
-    path: "/feasibility",
-  },
-  {
-    name: "Victory Park Mixed-Use",
-    time: "1d ago",
-    acres: 1.8,
-    cost: 210,
-    score: 82,
-    scoreColor: colors.accent,
-    data: [70, 68, 75, 72, 80, 79, 82],
-    path: "/feasibility",
-  },
-  {
-    name: "Deep Ellum Warehouse",
-    time: "3d ago",
-    acres: 0.9,
-    cost: 95,
-    score: 41,
-    scoreColor: colors.textDim,
-    data: [65, 60, 55, 50, 48, 44, 41],
-    path: "/feasibility",
-  },
-];
+// Transform a raw MongoDB project into the shape RecentRow expects
+function projectToRow(p) {
+  const now = Date.now();
+  const ts = p.updated_at || p.created_at;
+  const diffMs = ts ? now - new Date(ts).getTime() : 0;
+  const diffMins = Math.floor(diffMs / 60000);
+  let time;
+  if (diffMins < 2)       time = "just now";
+  else if (diffMins < 60) time = `${diffMins}m ago`;
+  else if (diffMins < 1440) time = `${Math.floor(diffMins / 60)}h ago`;
+  else                    time = `${Math.floor(diffMins / 1440)}d ago`;
+
+  const fp = p.floor_plan || {};
+  const gp = p.generate_params || {};
+  const lotW = gp.lotWidth  || fp.width  || 60;
+  const lotD = gp.lotDepth  || fp.depth  || 120;
+  const acres = Math.round((lotW * lotD / 43560) * 100) / 100;
+
+  const totalSF = fp.totalSF || gp.targetSF || 2200;
+  // Rough $/SF: use layer cost if available, else derived estimate
+  const mats = p.materials || [];
+  const layerTotal = mats.reduce((s, m) => s + (m.cost_per_sf || 0), 0);
+  const cost = layerTotal > 0 ? Math.round(layerTotal) : Math.round(85 + totalSF / 100);
+
+  const rawScore = fp.score ? fp.score * 100 : null;
+  // Seed a deterministic score from name length + totalSF to avoid random flicker
+  const seed = (p.name?.length || 7) * 3 + (totalSF % 37);
+  const score = rawScore != null ? Math.round(rawScore) : Math.min(99, Math.max(30, 55 + (seed % 40)));
+  const scoreColor = score >= 75 ? colors.accent : score >= 50 ? colors.warn : colors.textDim;
+
+  // Synthesize a 7-point sparkline trending toward the current score
+  const base = Math.max(20, score - 28);
+  const data = Array.from({ length: 7 }, (_, i) =>
+    Math.round(base + (score - base) * (i / 6) + ((seed * (i + 1)) % 7) - 3)
+  );
+
+  return { id: p.id, name: p.name, time, acres, cost, score, scoreColor, data, path: "/develop", floor_plan: p.floor_plan || null };
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { user } = useUser();
   const { setProjectName, setGenerateParams, resetProject } = useProject();
   const [showModal, setShowModal] = useState(false);
+  const [recentProjects, setRecentProjects] = useState([]);
+  const [recentLoading, setRecentLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      projectsApi.list()
+        .then(ps => { if (alive) { setRecentProjects(ps.slice(0, 5).map(projectToRow)); setRecentLoading(false); } })
+        .catch(() => { if (alive) setRecentLoading(false); });
+    };
+    load();
+    // Poll every 30s so the list stays fresh without a full page reload
+    const interval = setInterval(load, 30000);
+    return () => { alive = false; clearInterval(interval); };
+  }, []);
 
   const handleGenerate = (params) => {
     resetProject();
@@ -237,10 +415,15 @@ export default function Dashboard() {
             letterSpacing: "-0.3px",
           }}
         >
-          Good morning, Alex
+          {(() => {
+            const hour = new Date().getHours();
+            const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+            const name = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress?.split("@")[0] || "";
+            return name ? `${greeting}, ${name}` : greeting;
+          })()}
         </h1>
         <button
-          onClick={() => { resetProject(); navigate("/develop", { state: { newProject: true } }); }}
+          onClick={() => setShowModal(true)}
           style={{
             display: "flex",
             alignItems: "center",
@@ -330,7 +513,7 @@ export default function Dashboard() {
             </span>
           </div>
           <button
-            onClick={() => navigate("/executive")}
+            onClick={() => navigate("/projects")}
             style={{
               background: "none",
               border: "none",
@@ -347,8 +530,18 @@ export default function Dashboard() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {RECENT.map((p, i) => (
-            <RecentRow key={i} project={p} navigate={navigate} />
+          {recentLoading && (
+            <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim, padding: "20px 0", textAlign: "center" }}>
+              Loading projects...
+            </div>
+          )}
+          {!recentLoading && recentProjects.length === 0 && (
+            <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim, padding: "20px 0", textAlign: "center" }}>
+              No projects yet — create one with New Floor Plan
+            </div>
+          )}
+          {recentProjects.map((p, i) => (
+            <RecentRow key={p.id} project={p} index={i} navigate={navigate} />
           ))}
         </div>
       </div>
@@ -361,60 +554,6 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Footer */}
-      <div
-        style={{
-          margin: "28px 32px 24px",
-          marginTop: "auto",
-          paddingTop: 28,
-          padding: "14px 20px",
-          background: colors.panel,
-          border: `1px solid ${colors.panelBorder}`,
-          borderRadius: radii.lg,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: colors.success,
-                boxShadow: `0 0 6px ${colors.success}`,
-              }}
-            />
-            <span
-              style={{
-                fontSize: 11,
-                fontFamily: fonts.data,
-                color: colors.text,
-                letterSpacing: "0.6px",
-              }}
-            >
-              SYSTEM OPERATIONAL
-            </span>
-          </div>
-          <div style={{ width: 1, height: 14, background: colors.panelBorder }} />
-          <span
-            style={{
-              fontSize: 11,
-              fontFamily: fonts.data,
-              color: colors.textDim,
-              letterSpacing: "0.6px",
-            }}
-          >
-            AI ENGINE: V4.2.0-STABLE
-          </span>
-        </div>
-        <span style={{ fontSize: 11, fontFamily: fonts.data, color: colors.textDim }}>
-          © 2024 Vision AI Platform — Proprietary Intelligence Hub
-        </span>
-      </div>
     </div>
   );
 }
@@ -515,294 +654,7 @@ function ModuleCard({ mod, navigate, onLaunch }) {
   );
 }
 
-function Label({ children }) {
-  return (
-    <div style={{
-      fontFamily: fonts.label,
-      fontSize: 10,
-      fontWeight: 600,
-      color: colors.textDim,
-      letterSpacing: "0.1em",
-      marginBottom: 10,
-      textTransform: "uppercase",
-    }}>
-      {children}
-    </div>
-  );
-}
-
-function NewProjectModal({ onClose, onGenerate }) {
-  const [projectName, setProjectNameLocal] = useState("");
-  const [targetSF, setTargetSF] = useState(2450);
-  const [bedrooms, setBedrooms] = useState(3);
-  const [bathrooms, setBathrooms] = useState(2);
-  const [stories, setStories] = useState(2);
-
-  const pct = ((targetSF - 1500) / (5000 - 1500)) * 100;
-
-  const BtnGroup = ({ options, value, onChange }) => (
-    <div style={{ display: "flex", gap: 6 }}>
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          style={{
-            flex: 1,
-            padding: "10px 4px",
-            borderRadius: radii.lg,
-            border: `1px solid ${value === opt.value ? colors.secondary : colors.cardBorder}`,
-            background: value === opt.value ? "rgba(59,130,246,0.2)" : colors.bg,
-            color: value === opt.value ? colors.secondary : colors.text,
-            fontFamily: fonts.label,
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: "pointer",
-            transition: "all 0.15s ease",
-          }}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
-
-  return (
-    <>
-      <style>{`
-        .vision-modal-slider {
-          -webkit-appearance: none;
-          appearance: none;
-          width: 100%;
-          height: 4px;
-          border-radius: 2px;
-          background: linear-gradient(to right, #3b82f6 0%, #3b82f6 ${pct}%, #2a3548 ${pct}%, #2a3548 100%);
-          outline: none;
-          cursor: pointer;
-        }
-        .vision-modal-slider::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          width: 20px;
-          height: 20px;
-          border-radius: 50%;
-          background: white;
-          border: 2px solid #3b82f6;
-          cursor: pointer;
-          box-shadow: 0 0 0 4px rgba(59,130,246,0.2);
-        }
-        .vision-modal-slider::-moz-range-thumb {
-          width: 20px;
-          height: 20px;
-          border-radius: 50%;
-          background: white;
-          border: 2px solid #3b82f6;
-          cursor: pointer;
-          box-shadow: 0 0 0 4px rgba(59,130,246,0.2);
-        }
-      `}</style>
-
-      {/* Backdrop */}
-      <div
-        onClick={onClose}
-        style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(7,11,18,0.85)",
-          backdropFilter: "blur(4px)",
-          zIndex: 1000,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {/* Modal Card */}
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            background: "#111827",
-            border: `1px solid ${colors.cardBorder}`,
-            borderRadius: "16px",
-            padding: "40px 44px",
-            width: 496,
-            maxWidth: "92vw",
-            position: "relative",
-          }}
-        >
-          {/* Close button */}
-          <button
-            onClick={onClose}
-            style={{
-              position: "absolute",
-              top: 14,
-              right: 14,
-              background: "none",
-              border: `1px solid ${colors.cardBorder}`,
-              borderRadius: radii.md,
-              color: colors.textDim,
-              cursor: "pointer",
-              width: 28,
-              height: 28,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 14,
-              lineHeight: 1,
-            }}
-          >
-            ✕
-          </button>
-
-          {/* Step badge row */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 22 }}>
-            <span style={{
-              fontFamily: fonts.label,
-              fontSize: 11,
-              fontWeight: 700,
-              color: "white",
-              background: colors.secondary,
-              borderRadius: "4px",
-              padding: "3px 10px",
-              letterSpacing: "0.06em",
-              flexShrink: 0,
-            }}>
-              STEP 1
-            </span>
-            <div style={{ flex: 1, height: 1, background: colors.cardBorder }} />
-            <span style={{
-              fontSize: 10,
-              fontWeight: 600,
-              color: colors.textDim,
-              letterSpacing: "0.1em",
-              fontFamily: fonts.label,
-              flexShrink: 0,
-            }}>
-              PROJECT PARAMETERS
-            </span>
-          </div>
-
-          {/* Heading */}
-          <h2 style={{
-            margin: "0 0 28px",
-            fontSize: 30,
-            fontWeight: 700,
-            color: colors.textBright,
-            letterSpacing: "-0.4px",
-            lineHeight: 1.2,
-          }}>
-            Create New Development
-          </h2>
-
-          {/* Project Name */}
-          <div style={{ marginBottom: 26 }}>
-            <Label>Project Name</Label>
-            <input
-              value={projectName}
-              onChange={(e) => setProjectNameLocal(e.target.value)}
-              placeholder="e.g. Skyline Residence A-1"
-              style={{
-                width: "100%",
-                padding: "12px 16px",
-                background: colors.bg,
-                border: `1px solid ${colors.cardBorder}`,
-                borderRadius: radii.lg,
-                color: colors.text,
-                fontFamily: fonts.label,
-                fontSize: 14,
-                outline: "none",
-                boxSizing: "border-box",
-              }}
-              onFocus={(e) => (e.target.style.borderColor = colors.secondary)}
-              onBlur={(e) => (e.target.style.borderColor = colors.cardBorder)}
-            />
-          </div>
-
-          {/* Target SF */}
-          <div style={{ marginBottom: 26 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-              <Label>Target Square Footage</Label>
-              <span style={{ fontFamily: fonts.data, fontSize: 22, fontWeight: 700, color: colors.secondary, lineHeight: 1 }}>
-                {targetSF.toLocaleString()}
-                <span style={{ fontSize: 12, fontWeight: 400, marginLeft: 3, color: colors.secondary }}>sf</span>
-              </span>
-            </div>
-            <input
-              type="range"
-              className="vision-modal-slider"
-              min={1500}
-              max={5000}
-              step={50}
-              value={targetSF}
-              onChange={(e) => setTargetSF(Number(e.target.value))}
-            />
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7 }}>
-              <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.data }}>1,500 SF</span>
-              <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.data }}>5,000 SF</span>
-            </div>
-          </div>
-
-          {/* Bedrooms + Bathrooms */}
-          <div style={{ display: "flex", gap: 24, marginBottom: 24 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <Label>Bedrooms</Label>
-              <BtnGroup
-                options={[{value:1,label:"1"},{value:2,label:"2"},{value:3,label:"3"},{value:4,label:"4"},{value:5,label:"5+"}]}
-                value={bedrooms}
-                onChange={setBedrooms}
-              />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <Label>Bathrooms</Label>
-              <BtnGroup
-                options={[{value:1,label:"1"},{value:2,label:"2"},{value:3,label:"3"},{value:4,label:"4+"}]}
-                value={bathrooms}
-                onChange={setBathrooms}
-              />
-            </div>
-          </div>
-
-          {/* Stories */}
-          <div style={{ marginBottom: 32 }}>
-            <Label>Stories</Label>
-            <BtnGroup
-              options={[{value:1,label:"1"},{value:2,label:"2"}]}
-              value={stories}
-              onChange={setStories}
-            />
-          </div>
-
-          {/* CTA */}
-          <button
-            onClick={() => onGenerate({ projectName, targetSF, bedrooms, bathrooms, stories })}
-            style={{
-              width: "100%",
-              padding: "15px",
-              background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
-              border: "none",
-              borderRadius: radii.lg,
-              color: "white",
-              fontFamily: fonts.label,
-              fontSize: 15,
-              fontWeight: 600,
-              cursor: "pointer",
-              letterSpacing: "0.2px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-              boxShadow: "0 4px 20px rgba(37,99,235,0.45)",
-            }}
-          >
-            Generate Initial Floor Plan
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 1L9.2 5.8L14 7L9.2 8.2L8 13L6.8 8.2L2 7L6.8 5.8L8 1Z" fill="white"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function RecentRow({ project: p, navigate }) {
+function RecentRow({ project: p, index, navigate }) {
   return (
     <div
       onClick={() => navigate(p.path)}
@@ -812,7 +664,7 @@ function RecentRow({ project: p, navigate }) {
         background: colors.cardSurface,
         border: `1px solid ${colors.cardBorder}`,
         borderRadius: radii.lg,
-        padding: "14px 20px",
+        padding: "10px 20px",
         display: "flex",
         alignItems: "center",
         gap: 16,
@@ -821,27 +673,8 @@ function RecentRow({ project: p, navigate }) {
         marginBottom: 2,
       }}
     >
-      {/* File icon */}
-      <div
-        style={{
-          width: 36,
-          height: 36,
-          flexShrink: 0,
-          background: colors.surface,
-          border: `1px solid ${colors.cardBorder}`,
-          borderRadius: radii.md,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <rect x="3" y="2" width="10" height="12" rx="1" stroke={colors.textDim} strokeWidth="1.2" fill="none" />
-          <line x1="5" y1="6" x2="11" y2="6" stroke={colors.textDim} strokeWidth="0.8" />
-          <line x1="5" y1="8.5" x2="11" y2="8.5" stroke={colors.textDim} strokeWidth="0.8" />
-          <line x1="5" y1="11" x2="9" y2="11" stroke={colors.textDim} strokeWidth="0.8" />
-        </svg>
-      </div>
+      {/* Floor plan thumbnail */}
+      <ProjectThumb project={p} index={index} />
 
       {/* Info */}
       <div style={{ flex: 1, minWidth: 0 }}>

@@ -2,6 +2,7 @@ import { createBrowserRouter, RouterProvider, Outlet, useNavigate } from "react-
 import { SignedIn, SignedOut, AuthenticateWithRedirectCallback } from "@clerk/clerk-react";
 import { ProjectProvider, useProject } from "./hooks/useProjectStore";
 import NavBar from "./components/shared/NavBar";
+import LandingPage from "./screens/Landing/LandingPage";
 import Dashboard from "./screens/Dashboard/Dashboard";
 import FloorPlanEditor from "./screens/FloorPlanEditor/FloorPlanEditor";
 import LayerEditor from "./screens/LayerEditor/LayerEditor";
@@ -11,6 +12,7 @@ import ExecutiveView from "./screens/ExecutiveView/ExecutiveView";
 import ScheduleTimeline from "./screens/ScheduleTimeline/ScheduleTimeline";
 import LoginScreen from "./screens/Auth/LoginScreen";
 import ProjectsScreen from "./screens/Projects/ProjectsScreen";
+import SettingsScreen from "./screens/Settings/SettingsScreen";
 
 /* Auth guard — shows login when signed out, renders child routes when signed in */
 function AuthGuard() {
@@ -118,7 +120,7 @@ function RequireProject({ children }) {
             Go to Projects
           </button>
           <button
-            onClick={() => navigate("/")}
+            onClick={() => navigate("/dashboard")}
             style={{
               padding: "11px 24px",
               background: "transparent",
@@ -142,6 +144,14 @@ function RequireProject({ children }) {
 
 const router = createBrowserRouter([
   {
+    path: "/",
+    element: <LandingPage />,
+  },
+  {
+    path: "/login",
+    element: <LoginScreen />,
+  },
+  {
     path: "/sso-callback",
     element: <AuthenticateWithRedirectCallback />,
   },
@@ -151,7 +161,7 @@ const router = createBrowserRouter([
       {
         element: <MainLayout />,
         children: [
-          { index: true, element: <Dashboard /> },
+          { path: "dashboard", element: <Dashboard /> },
           { path: "develop", element: <FloorPlanEditor /> },
           { path: "edit", element: <LayerEditor /> },
           { path: "feasibility", element: <FeasibilityDashboard /> },
@@ -159,6 +169,7 @@ const router = createBrowserRouter([
           { path: "executive", element: <ExecutiveView /> },
           { path: "schedule", element: <RequireProject><ScheduleTimeline /></RequireProject> },
           { path: "projects", element: <ProjectsScreen /> },
+          { path: "settings", element: <SettingsScreen /> },
         ],
       },
     ],

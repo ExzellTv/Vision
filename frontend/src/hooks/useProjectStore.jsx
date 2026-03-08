@@ -115,6 +115,7 @@ export function ProjectProvider({ children }) {
   const [maxStep, setMaxStep] = useState(0);                  // furthest step reached (0-5)
   const [projectId, setProjectId] = useState(null);           // MongoDB _id after first save
   const [buildingContext, setBuildingContextRaw] = useState(DEFAULT_BUILDING_CONTEXT);
+  const [savedSchedule, setSavedSchedule] = useState(null);   // persisted schedule from MongoDB
 
   const setBuildingContext = useCallback((updates) => {
     setBuildingContextRaw((prev) => ({ ...prev, ...updates }));
@@ -133,6 +134,7 @@ export function ProjectProvider({ children }) {
     setMaxStep(0);
     setProjectId(null);
     setBuildingContextRaw(DEFAULT_BUILDING_CONTEXT);
+    setSavedSchedule(null);
   }, []);
 
   /* Wrap setters to normalize API data */
@@ -182,6 +184,7 @@ export function ProjectProvider({ children }) {
     maxStep, setMaxStep,
     projectId, setProjectId,
     buildingContext, setBuildingContext,
+    savedSchedule, setSavedSchedule,
     resetProject,
     // Derived
     totalSF, stories, footprintWidth, footprintDepth,
