@@ -2,11 +2,13 @@
  * LeafletMap — live map component for the Analysis Hub.
  *
  * Renders inside the 60% left panel of FeasibilityDashboard. All Leaflet
- * lifecycle is delegated to useLeafletMap. This component owns only:
- *  - layer visibility state (showComps, showZoning, showLand)
+ * lifecycle is delegated to useLeafletMap. This component owns:
+ *  - layer visibility state (showComps, showLand)
  *  - tile type state (activeLayer)
+ *  - listing filter state (compFilters, landFilters, filterOpen)
+ *  - draggable position state for the layers menu and filter panel
  *  - the map container ref passed to the hook
- *  - the zoom + layer toggle UI rendered as React elements
+ *  - all overlay UI rendered as React elements
  *
  * Props flowing up to FeasibilityDashboard:
  *  - onLocChange  → sets loc (analysis pin)
@@ -14,11 +16,63 @@
  *  - onRadiusChange → sets radius for comp search
  */
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { colors, fonts, radii } from "../../theme/tokens";
 import { useLeafletMap } from "./useLeafletMap";
 
+// ── Filter defaults ────────────────────────────────────────────────────────
+
+const COMP_FILTER_DEFAULT = {
+  minPrice: "", maxPrice: "",
+  minSf:    "", maxSf:    "",
+  minPsf:   "", maxPsf:   "",
+  minBeds:  "",
+  propertyType: "",
+};
+
+const LAND_FILTER_DEFAULT = {
+  minPrice: "", maxPrice: "",
+  minLotSf: "", maxLotSf: "",
+  status:   "",
+  zoning:   "",
+  maxDom:   "",
+};
+
+// ── Filter functions (pure) ────────────────────────────────────────────────
+
+function applyCompFilters(list, f) {
+  return list.filter((c) => {
+    if (f.minPrice     && c.sale_price   < +f.minPrice)       return false;
+    if (f.maxPrice     && c.sale_price   > +f.maxPrice)       return false;
+    if (f.minSf        && c.sf           < +f.minSf)          return false;
+    if (f.maxSf        && c.sf           > +f.maxSf)          return false;
+    if (f.minPsf       && c.price_per_sf < +f.minPsf)         return false;
+    if (f.maxPsf       && c.price_per_sf > +f.maxPsf)         return false;
+    if (f.minBeds      && c.bedrooms     < +f.minBeds)        return false;
+    if (f.propertyType && c.property_type !== f.propertyType)  return false;
+    return true;
+  });
+}
+
+function applyLandFilters(list, f) {
+  return list.filter((l) => {
+    if (f.minPrice && l.price  < +f.minPrice) return false;
+    if (f.maxPrice && l.price  > +f.maxPrice) return false;
+    if (f.minLotSf && l.lot_sf < +f.minLotSf) return false;
+    if (f.maxLotSf && l.lot_sf > +f.maxLotSf) return false;
+    if (f.status   && l.status  !== f.status)  return false;
+    if (f.zoning   && l.zoning  !== f.zoning)  return false;
+    if (f.maxDom   && l.days_on_market != null && l.days_on_market > +f.maxDom) return false;
+    return true;
+  });
+}
+
+function countActiveFilters(filters) {
+  return Object.values(filters).filter((v) => v !== "").length;
+}
+
 // ── Button style factories ────────────────────────────────────────────────
+
 const overlayPill = (active, activeColor = colors.accent) => ({
   display:        "flex",
   alignItems:     "center",
@@ -57,7 +111,30 @@ const zoomBtn = {
   lineHeight:     1,
 };
 
+const DropdownDivider = () => (
+  <div style={{ height: 1, background: colors.cardBorder, margin: "4px 0" }} />
+);
+
+// ── Grip handle icon ──────────────────────────────────────────────────────
+
+function GripIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+      <circle cx="2" cy="2" r="1.1" />
+      <circle cx="5" cy="2" r="1.1" />
+      <circle cx="8" cy="2" r="1.1" />
+      <circle cx="2" cy="5" r="1.1" />
+      <circle cx="5" cy="5" r="1.1" />
+      <circle cx="8" cy="5" r="1.1" />
+      <circle cx="2" cy="8" r="1.1" />
+      <circle cx="5" cy="8" r="1.1" />
+      <circle cx="8" cy="8" r="1.1" />
+    </svg>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────
+
 export default function LeafletMap({
   loc,
   onLocChange,
@@ -72,32 +149,157 @@ export default function LeafletMap({
 }) {
   const mapRef = useRef(null);
 
-  // Map-internal state — does not need to live in FeasibilityDashboard
-  const [showComps,   setShowComps]   = useState(true);
-  const [showZoning,  setShowZoning]  = useState(true);
-  const [showLand,    setShowLand]    = useState(true);
-  const [activeLayer, setActiveLayer] = useState("dark");
+  // ── Layer visibility ──────────────────────────────────────────────────
+  const [showComps, setShowComps] = useState(true);
+  const [showLand,  setShowLand]  = useState(true);
 
+  // ── Filter state ──────────────────────────────────────────────────────
+  const [compFilters, setCompFilters] = useState(COMP_FILTER_DEFAULT);
+  const [landFilters, setLandFilters] = useState(LAND_FILTER_DEFAULT);
+  const [filterOpen,  setFilterOpen]  = useState(null); // null | "comp" | "land"
+  const filterPanelRef = useRef(null);
+
+  // ── Filter panel drag ─────────────────────────────────────────────────
+  const [filterPos, setFilterPos] = useState({ top: 12, left: 210 });
+  const dragState = useRef(null); // null | { x0, y0, left0, top0 }
+
+  useEffect(() => {
+    const onMove = (e) => {
+      const d = dragState.current;
+      if (!d) return;
+      setFilterPos({ left: d.left0 + (e.clientX - d.x0), top: d.top0 + (e.clientY - d.y0) });
+    };
+    const onUp = () => { dragState.current = null; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup",   onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup",   onUp);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startFilterDrag = (e, currentPos) => {
+    if (e.button !== 0) return;
+    dragState.current = { x0: e.clientX, y0: e.clientY, left0: currentPos.left, top0: currentPos.top };
+    e.preventDefault();
+  };
+
+  // ── Unique select options from live data ──────────────────────────────
+  const compPropTypes = useMemo(
+    () => [...new Set((comps ?? []).map((c) => c.property_type).filter(Boolean))].sort(),
+    [comps]
+  );
+  const landStatuses = useMemo(
+    () => [...new Set((land ?? []).map((l) => l.status).filter(Boolean))].sort(),
+    [land]
+  );
+  const landZonings = useMemo(
+    () => [...new Set((land ?? []).map((l) => l.zoning).filter((v) => v && v !== "N/A"))].sort(),
+    [land]
+  );
+
+  // ── Filtered datasets ─────────────────────────────────────────────────
+  const filteredComps = useMemo(
+    () => applyCompFilters(comps ?? [], compFilters),
+    [comps, compFilters]
+  );
+  const filteredNearbyComps = useMemo(
+    () => applyCompFilters(nearbyComps ?? [], compFilters),
+    [nearbyComps, compFilters]
+  );
+  const filteredLand = useMemo(
+    () => applyLandFilters(land ?? [], landFilters),
+    [land, landFilters]
+  );
+
+  const compFilterCount = countActiveFilters(compFilters);
+  const landFilterCount = countActiveFilters(landFilters);
+
+  // ── Close filter panel on outside click ──────────────────────────────
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (!filterOpen) return;
+    const handler = (e) => {
+      if (
+        filterPanelRef.current && !filterPanelRef.current.contains(e.target) &&
+        dropdownRef.current    && !dropdownRef.current.contains(e.target) &&
+        !(mapRef.current       &&  mapRef.current.contains(e.target))
+      ) {
+        setFilterOpen(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [filterOpen]);
+
+  // ── Layers dropdown open/close ────────────────────────────────────────
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [dropdownOpen]);
+
+  // ── Tile layer ────────────────────────────────────────────────────────
+  const [activeLayer, setActiveLayer] = useState(
+    () => localStorage.getItem("vmap_theme") || "satellite"
+  );
+  const handleLayerChange = (key) => {
+    setActiveLayer(key);
+    localStorage.setItem("vmap_theme", key);
+  };
+
+  // ── Leaflet hook ──────────────────────────────────────────────────────
   const { mapI } = useLeafletMap({
     mapRef,
     loc,
     onLocChange,
     onLandSelect,
-    nearbyComps,
-    comps,
-    land,
+    nearbyComps: filteredNearbyComps,
+    comps:       filteredComps,
+    land:        filteredLand,
     radius,
     radiusEnabled,
     showComps,
-    showZoning,
     showLand,
     activeLayer,
   });
 
+  // ── Shared input styles for filter panel ─────────────────────────────
+  const inputS = {
+    width:        "100%",
+    background:   "rgba(13,17,23,0.8)",
+    border:       `1px solid ${colors.cardBorder}`,
+    borderRadius: 4,
+    color:        colors.text,
+    fontFamily:   fonts.data,
+    fontSize:     10,
+    padding:      "3px 6px",
+    outline:      "none",
+    boxSizing:    "border-box",
+  };
+  const labelS = {
+    fontFamily:    fonts.label,
+    fontSize:      9,
+    color:         colors.textDim,
+    fontWeight:    700,
+    letterSpacing: "0.6px",
+    textTransform: "uppercase",
+    marginBottom:  3,
+    display:       "block",
+  };
+
   return (
     <div style={{ position: "absolute", inset: 0 }}>
 
-      {/* ── Leaflet popup + tooltip overrides (dark theme) ── */}
+      {/* ── Leaflet popup + global CSS ── */}
       <style>{`
         .vmap-popup .leaflet-popup-content-wrapper {
           background:    ${colors.cardSurface};
@@ -114,9 +316,6 @@ export default function LeafletMap({
         .vmap-popup-grid  { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; font-size: 11px; }
         .vmap-popup-grid span { color: ${colors.textDim}; }
         .vmap-popup-grid b    { color: ${colors.textBright}; font-family: 'JetBrains Mono', monospace; }
-        .vmap-zone-tip { background: transparent !important; border: none !important;
-                         box-shadow: none !important; font-weight: 700; font-size: 10px; }
-        .vmap-zone-tip::before { display: none; }
         .leaflet-control-attribution {
           background: rgba(13,17,23,0.75) !important;
           color: ${colors.textDim} !important;
@@ -127,24 +326,32 @@ export default function LeafletMap({
           0%   { transform: scale(1);   opacity: 0.7; }
           100% { transform: scale(2.2); opacity: 0;   }
         }
+        @keyframes vDropFadeIn {
+          from { opacity: 0; transform: translateY(-6px); }
+          to   { opacity: 1; transform: translateY(0);    }
+        }
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+        .vmap-select option { background: #1a2233; color: #e2e8f0; }
       `}</style>
 
-      {/* ── Map canvas (Leaflet mounts here) ── */}
+      {/* ── Map canvas ── */}
       <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
 
-      {/* ── Tile-type toggles — top-left, below FeasibilityDashboard's overlays ── */}
+      {/* ── Tile-type toggles — top-right (fixed, no drag needed) ── */}
       <div style={{
-        position: "absolute", top: 96, left: 12, zIndex: 400,
+        position: "absolute", top: 12, right: 12, zIndex: 400,
         display: "flex", flexDirection: "column", gap: 4,
       }}>
         {[
-          ["dark",     "DARK"],
-          ["satellite","SAT"],
-          ["standard", "OSM"],
+          ["dark",      "DARK"],
+          ["satellite", "SAT"],
+          ["standard",  "OSM"],
         ].map(([key, label]) => (
           <button
             key={key}
-            onClick={() => setActiveLayer(key)}
+            onClick={() => handleLayerChange(key)}
             style={overlayPill(activeLayer === key)}
           >
             {label}
@@ -152,30 +359,464 @@ export default function LeafletMap({
         ))}
       </div>
 
-      {/* ── Data-layer toggles — below tile toggles ── */}
-      <div style={{
-        position: "absolute", top: 210, left: 12, zIndex: 400,
-        display: "flex", flexDirection: "column", gap: 4,
-      }}>
-        {[
-          ["COMPS",  showComps,  setShowComps,  colors.success],
-          ["ZONES",  showZoning, setShowZoning, colors.secondary],
-          ["LAND",   showLand,   setShowLand,   "#8b5cf6"],
-        ].map(([label, active, set, accentCol]) => (
-          <button
-            key={label}
-            onClick={() => set((v) => !v)}
-            style={overlayPill(active, accentCol)}
+      {/* ── Layer Dropdown — fixed position ── */}
+      <div
+        ref={dropdownRef}
+        style={{ position: "absolute", top: 12, left: 12, zIndex: 400 }}
+      >
+        <button
+          onClick={() => setDropdownOpen((v) => !v)}
+            style={{
+              display:        "flex",
+              alignItems:     "center",
+              gap:            6,
+              padding:        "6px 12px",
+              borderRadius:   radii.md,
+              border:         `1px solid ${dropdownOpen ? colors.accent : colors.cardBorder}`,
+              background:     dropdownOpen ? `${colors.accent}18` : "rgba(26,34,51,0.88)",
+              color:          dropdownOpen ? colors.accent : colors.text,
+              fontSize:       11,
+              fontWeight:     700,
+              letterSpacing:  "0.6px",
+              cursor:         "pointer",
+              fontFamily:     fonts.label,
+              backdropFilter: "blur(10px)",
+              WebkitBackdropFilter: "blur(10px)",
+              transition:     "border-color 0.15s, color 0.15s, background 0.15s",
+            }}
+            title="Map Layers &amp; Filters"
           >
-            <span style={{
-              width: 6, height: 6, borderRadius: "50%",
-              background: active ? accentCol : colors.cardBorder,
-              flexShrink: 0,
-            }} />
-            {label}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+              <polyline points="2 17 12 22 22 17" />
+              <polyline points="2 12 12 17 22 12" />
+            </svg>
+            LAYERS
+            <svg
+              width="10" height="10" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+              style={{
+                transform:  dropdownOpen ? "rotate(180deg)" : "rotate(0deg)",
+                transition: "transform 0.18s ease",
+                marginLeft: 2,
+              }}
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </button>
-        ))}
+
+        {/* Dropdown panel */}
+        {dropdownOpen && (
+          <div style={{
+            position:       "absolute",
+            top:            "calc(100% + 6px)",
+            left:           0,
+            minWidth:       190,
+            background:     "rgba(26,34,51,0.97)",
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+            border:         `1px solid ${colors.cardBorder}`,
+            borderRadius:   radii.lg,
+            boxShadow:      "0 8px 32px rgba(0,0,0,0.55)",
+            overflow:       "hidden",
+            animation:      "vDropFadeIn 0.14s ease",
+          }}>
+
+            {/* Map Layers section */}
+            <div style={{
+              padding: "8px 10px 5px",
+              fontFamily: fonts.label, fontSize: 9, fontWeight: 700,
+              letterSpacing: "1px", color: colors.textDim, textTransform: "uppercase",
+            }}>
+              Map Layers
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "0 8px 6px" }}>
+              {[
+                ["COMPS", showComps, () => setShowComps((v) => !v), colors.success],
+                ["LAND",  showLand,  () => setShowLand((v) => !v),  "#8b5cf6"],
+              ].map(([label, active, handler, accentCol]) => (
+                <button key={label} onClick={handler} style={overlayPill(active, accentCol)}>
+                  <span style={{
+                    width: 6, height: 6, borderRadius: "50%",
+                    background: active ? accentCol : colors.cardBorder,
+                    flexShrink: 0,
+                  }} />
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <DropdownDivider />
+
+            {/* Listing Filters section */}
+            <div style={{
+              padding: "5px 10px 5px",
+              fontFamily: fonts.label, fontSize: 9, fontWeight: 700,
+              letterSpacing: "1px", color: colors.textDim, textTransform: "uppercase",
+            }}>
+              Listing Filters
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "0 8px 10px" }}>
+
+              <button
+                onClick={() => setFilterOpen((v) => v === "land" ? null : "land")}
+                style={overlayPill(filterOpen === "land" || landFilterCount > 0, colors.warn)}
+              >
+                <span style={{
+                  width: 6, height: 6, borderRadius: "2px",
+                  background: (filterOpen === "land" || landFilterCount > 0) ? colors.warn : colors.cardBorder,
+                  transform: "rotate(45deg)", flexShrink: 0,
+                }} />
+                LAND LISTINGS
+                {landFilterCount > 0 && (
+                  <span style={{
+                    marginLeft: "auto", background: colors.warn, color: "#000",
+                    fontFamily: fonts.data, fontSize: 8, fontWeight: 700,
+                    borderRadius: 8, padding: "1px 5px", lineHeight: 1.4,
+                  }}>
+                    {landFilterCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setFilterOpen((v) => v === "comp" ? null : "comp")}
+                style={overlayPill(filterOpen === "comp" || compFilterCount > 0, colors.accent)}
+              >
+                <span style={{
+                  width: 6, height: 6, borderRadius: "50%",
+                  background: (filterOpen === "comp" || compFilterCount > 0) ? colors.accent : colors.cardBorder,
+                  flexShrink: 0,
+                }} />
+                COMP LISTINGS
+                {compFilterCount > 0 && (
+                  <span style={{
+                    marginLeft: "auto", background: colors.accent, color: "#000",
+                    fontFamily: fonts.data, fontSize: 8, fontWeight: 700,
+                    borderRadius: 8, padding: "1px 5px", lineHeight: 1.4,
+                  }}>
+                    {compFilterCount}
+                  </span>
+                )}
+              </button>
+
+            </div>
+          </div>
+        )}
+
+        {/* ── Comp marker legend — always visible below the LAYERS button ── */}
+        {showComps && (
+          <div style={{
+            marginTop:      8,
+            background:     "rgba(26,34,51,0.88)",
+            backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
+            border:         `1px solid ${colors.cardBorder}`,
+            borderRadius:   radii.md,
+            padding:        "7px 10px",
+            minWidth:       160,
+          }}>
+            <div style={{
+              fontFamily:    fonts.label,
+              fontSize:      8,
+              fontWeight:    700,
+              letterSpacing: "1px",
+              color:         colors.textDim,
+              textTransform: "uppercase",
+              marginBottom:  5,
+            }}>
+              Comp $/SF
+            </div>
+            {[
+              [colors.success, "< $207",       "Below Market"],
+              [colors.warn,    "$207 – $212",   "At Market"],
+              [colors.danger,  "≥ $212",        "Above Market"],
+            ].map(([col, range, label]) => (
+              <div key={range} style={{
+                display:     "flex",
+                alignItems:  "center",
+                gap:         6,
+                marginBottom: 3,
+              }}>
+                <span style={{
+                  width:        8,
+                  height:       8,
+                  borderRadius: "50%",
+                  background:   col,
+                  flexShrink:   0,
+                }} />
+                <span style={{
+                  fontFamily: fonts.data,
+                  fontSize:   9,
+                  color:      col,
+                  fontWeight: 700,
+                  minWidth:   52,
+                }}>
+                  {range}
+                </span>
+                <span style={{
+                  fontFamily: fonts.label,
+                  fontSize:   9,
+                  color:      colors.textDim,
+                }}>
+                  {label}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* ── Filter Panel — draggable ── */}
+      {filterOpen && (
+        <div
+          ref={filterPanelRef}
+          style={{
+            position:         "absolute",
+            top:              filterPos.top,
+            left:             filterPos.left,
+            zIndex:           410,
+            width:            240,
+            background:       "rgba(26,34,51,0.97)",
+            backdropFilter:   "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+            border:           `1px solid ${colors.cardBorder}`,
+            borderRadius:     radii.lg,
+            boxShadow:        "0 8px 32px rgba(0,0,0,0.55)",
+            animation:        "vDropFadeIn 0.14s ease",
+            userSelect:       "none",
+            WebkitUserSelect: "none",
+          }}
+        >
+          {/* Drag handle header */}
+          <div
+            onMouseDown={(e) => startFilterDrag(e, filterPos)}
+            style={{
+              display:        "flex",
+              alignItems:     "center",
+              justifyContent: "space-between",
+              padding:        "9px 12px 8px",
+              cursor:         "grab",
+              borderBottom:   `1px solid ${colors.cardBorder}`,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              {/* Grip dots in header */}
+              <span style={{ color: colors.textDim, lineHeight: 0, opacity: 0.6 }}>
+                <GripIcon />
+              </span>
+              <span style={{
+                fontFamily:    fonts.label,
+                fontSize:      10,
+                fontWeight:    700,
+                color:         filterOpen === "land" ? colors.warn : colors.accent,
+                letterSpacing: "0.8px",
+                textTransform: "uppercase",
+              }}>
+                {filterOpen === "land" ? "Land" : "Comp"} Filters
+              </span>
+            </div>
+            {/* Close button — stopPropagation so it doesn't start a drag */}
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => setFilterOpen(null)}
+              style={{
+                background: "transparent", border: "none",
+                color:      colors.textDim, fontSize: 15, lineHeight: 1,
+                cursor:     "pointer", padding: "0 2px", fontFamily: fonts.data,
+              }}
+              title="Close"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Filter fields */}
+          <div style={{
+            padding:       "10px 12px",
+            display:       "flex",
+            flexDirection: "column",
+            gap:           10,
+            // Allow the panel to scroll if it grows tall
+            maxHeight:     420,
+            overflowY:     "auto",
+          }}>
+
+            {filterOpen === "comp" ? (
+              <>
+                {/* Sale Price */}
+                <div>
+                  <label style={labelS}>Sale Price ($)</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+                    <input type="number" min={0} placeholder="Min" style={inputS}
+                           value={compFilters.minPrice}
+                           onChange={(e) => setCompFilters((f) => ({ ...f, minPrice: e.target.value }))} />
+                    <input type="number" min={0} placeholder="Max" style={inputS}
+                           value={compFilters.maxPrice}
+                           onChange={(e) => setCompFilters((f) => ({ ...f, maxPrice: e.target.value }))} />
+                  </div>
+                </div>
+
+                {/* Interior Size */}
+                <div>
+                  <label style={labelS}>Size (SF)</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+                    <input type="number" min={0} placeholder="Min" style={inputS}
+                           value={compFilters.minSf}
+                           onChange={(e) => setCompFilters((f) => ({ ...f, minSf: e.target.value }))} />
+                    <input type="number" min={0} placeholder="Max" style={inputS}
+                           value={compFilters.maxSf}
+                           onChange={(e) => setCompFilters((f) => ({ ...f, maxSf: e.target.value }))} />
+                  </div>
+                </div>
+
+                {/* Price / SF */}
+                <div>
+                  <label style={labelS}>Price / SF</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+                    <input type="number" min={0} placeholder="Min" style={inputS}
+                           value={compFilters.minPsf}
+                           onChange={(e) => setCompFilters((f) => ({ ...f, minPsf: e.target.value }))} />
+                    <input type="number" min={0} placeholder="Max" style={inputS}
+                           value={compFilters.maxPsf}
+                           onChange={(e) => setCompFilters((f) => ({ ...f, maxPsf: e.target.value }))} />
+                  </div>
+                </div>
+
+                {/* Min Bedrooms */}
+                <div>
+                  <label style={labelS}>Min Bedrooms</label>
+                  <input type="number" min={0} max={10} placeholder="Any" style={inputS}
+                         value={compFilters.minBeds}
+                         onChange={(e) => setCompFilters((f) => ({ ...f, minBeds: e.target.value }))} />
+                </div>
+
+                {/* Property Type */}
+                {compPropTypes.length > 0 && (
+                  <div>
+                    <label style={labelS}>Property Type</label>
+                    <select
+                      className="vmap-select"
+                      style={{ ...inputS, cursor: "pointer" }}
+                      value={compFilters.propertyType}
+                      onChange={(e) => setCompFilters((f) => ({ ...f, propertyType: e.target.value }))}
+                    >
+                      <option value="">All types</option>
+                      {compPropTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Land Price */}
+                <div>
+                  <label style={labelS}>Price ($)</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+                    <input type="number" min={0} placeholder="Min" style={inputS}
+                           value={landFilters.minPrice}
+                           onChange={(e) => setLandFilters((f) => ({ ...f, minPrice: e.target.value }))} />
+                    <input type="number" min={0} placeholder="Max" style={inputS}
+                           value={landFilters.maxPrice}
+                           onChange={(e) => setLandFilters((f) => ({ ...f, maxPrice: e.target.value }))} />
+                  </div>
+                </div>
+
+                {/* Lot Size */}
+                <div>
+                  <label style={labelS}>Lot Size (SF)</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+                    <input type="number" min={0} placeholder="Min" style={inputS}
+                           value={landFilters.minLotSf}
+                           onChange={(e) => setLandFilters((f) => ({ ...f, minLotSf: e.target.value }))} />
+                    <input type="number" min={0} placeholder="Max" style={inputS}
+                           value={landFilters.maxLotSf}
+                           onChange={(e) => setLandFilters((f) => ({ ...f, maxLotSf: e.target.value }))} />
+                  </div>
+                </div>
+
+                {/* Status */}
+                {landStatuses.length > 0 && (
+                  <div>
+                    <label style={labelS}>Status</label>
+                    <select
+                      className="vmap-select"
+                      style={{ ...inputS, cursor: "pointer" }}
+                      value={landFilters.status}
+                      onChange={(e) => setLandFilters((f) => ({ ...f, status: e.target.value }))}
+                    >
+                      <option value="">All statuses</option>
+                      {landStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                {/* Zoning */}
+                {landZonings.length > 0 && (
+                  <div>
+                    <label style={labelS}>Zoning</label>
+                    <select
+                      className="vmap-select"
+                      style={{ ...inputS, cursor: "pointer" }}
+                      value={landFilters.zoning}
+                      onChange={(e) => setLandFilters((f) => ({ ...f, zoning: e.target.value }))}
+                    >
+                      <option value="">All zones</option>
+                      {landZonings.map((z) => <option key={z} value={z}>{z}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                {/* Max Days on Market */}
+                <div>
+                  <label style={labelS}>Max Days on Market</label>
+                  <input type="number" min={0} placeholder="Any" style={inputS}
+                         value={landFilters.maxDom}
+                         onChange={(e) => setLandFilters((f) => ({ ...f, maxDom: e.target.value }))} />
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Footer — count + clear */}
+          <div style={{
+            borderTop:      `1px solid ${colors.cardBorder}`,
+            padding:        "8px 12px",
+            display:        "flex",
+            justifyContent: "space-between",
+            alignItems:     "center",
+          }}>
+            <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim }}>
+              {filterOpen === "comp"
+                ? `${filteredComps.length} / ${(comps ?? []).length} comps`
+                : `${filteredLand.length} / ${(land ?? []).length} listings`}
+            </span>
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() =>
+                filterOpen === "comp"
+                  ? setCompFilters(COMP_FILTER_DEFAULT)
+                  : setLandFilters(LAND_FILTER_DEFAULT)
+              }
+              style={{
+                fontFamily:    fonts.label,
+                fontSize:      9,
+                fontWeight:    700,
+                letterSpacing: "0.5px",
+                color:         filterOpen === "land" ? colors.warn : colors.accent,
+                background:    "transparent",
+                border:        "none",
+                cursor:        "pointer",
+                padding:       "2px 0",
+                textTransform: "uppercase",
+              }}
+            >
+              Clear All
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Zoom controls — right side, vertically centred ── */}
       <div style={{
@@ -211,7 +852,6 @@ export default function LeafletMap({
         padding:        "8px 12px",
         width:          168,
       }}>
-        {/* Toggle row */}
         <div style={{
           display: "flex", justifyContent: "space-between", alignItems: "center",
           marginBottom: 6,
@@ -246,10 +886,7 @@ export default function LeafletMap({
           </button>
         </div>
 
-        {/* Value display */}
-        <div style={{
-          display: "flex", justifyContent: "space-between", marginBottom: 4,
-        }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
           <span style={{
             fontSize: 10, color: radiusEnabled ? colors.accent : colors.textDim,
             fontWeight: 700, fontFamily: fonts.data,
@@ -259,7 +896,6 @@ export default function LeafletMap({
           </span>
         </div>
 
-        {/* Slider — disabled when radius is off */}
         <input
           type="range"
           min={0.1} max={2} step={0.1}
@@ -267,17 +903,17 @@ export default function LeafletMap({
           disabled={!radiusEnabled}
           onChange={(e) => onRadiusChange(parseFloat(e.target.value))}
           style={{
-            width: "100%",
+            width:       "100%",
             accentColor: radiusEnabled ? colors.accent : colors.cardBorder,
-            cursor: radiusEnabled ? "pointer" : "not-allowed",
-            margin: 0,
-            opacity: radiusEnabled ? 1 : 0.4,
-            transition: "opacity 0.15s ease",
+            cursor:      radiusEnabled ? "pointer" : "not-allowed",
+            margin:      0,
+            opacity:     radiusEnabled ? 1 : 0.4,
+            transition:  "opacity 0.15s ease",
           }}
         />
       </div>
 
-      {/* ── "No location" instruction hint ── */}
+      {/* ── "No location" hint ── */}
       {!loc && (
         <div style={{
           position:       "absolute",
