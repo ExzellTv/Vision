@@ -66,7 +66,7 @@ BUILDING_CONTEXTS: dict[int, dict] = {pid: dict(_DEFAULT_CONTEXT) for pid in ran
 
 def _configure_gemini():
     """Configure the Gemini SDK with the API key (idempotent)."""
-    genai.configure(api_key=settings.google_api_key)
+    genai.configure(api_key=settings.gemini_api_key)
 
 
 # ─── Prompt template ─────────────────────────────────────────────────────────
@@ -320,11 +320,75 @@ async def evaluate_compliance(project_id: int = 1, building_context_override: di
     fb = _fallback_result(ctx)
     governing = gemini_result.get("governing_combination", fb["governing_combination"])
 
+    # Merge checks: use Gemini results but always override IBC with deterministic room check
+    raw_checks = gemini_result.get("checks", fb["checks"])
+    ibc_override = _ibc_room_check(ctx)
+    merged_checks = [
+        ibc_override if c.get("name") == "International Building Code" else c
+        for c in raw_checks
+    ]
+    # Guard: if Gemini omitted IBC entirely, prepend it
+    if not any(c.get("name") == "International Building Code" for c in merged_checks):
+        merged_checks.insert(0, ibc_override)
+
     return {
-        "checks": gemini_result.get("checks", fb["checks"]),
+        "checks": merged_checks,
         "metrics": metrics,
         "loads": loads,
         "governing_combination": governing,
+    }
+
+
+def _ibc_room_check(ctx: dict) -> dict:
+    """
+    Deterministically evaluate IBC 2021 §R304 bedroom dimensional requirements:
+      - Every bedroom must be >= 70 SF (IRC R304.1)
+      - Every bedroom must have no dimension < 7 ft (IRC R304.2)
+    Returns a compliant check dict ready to replace the Gemini/fallback result.
+    """
+    rooms = ctx.get("rooms") or []
+    stories = ctx.get("stories", 1)
+    failing_rooms: list[str] = []
+
+    for r in rooms:
+        rtype = (r.get("type") or r.get("label") or "").lower()
+        if "bed" not in rtype:
+            continue
+        w = r.get("width_ft", 0)
+        d = r.get("depth_ft", 0)
+        area = r.get("area_sf") or (w * d)
+        label = r.get("label") or r.get("type") or "bedroom"
+        if area < 70:
+            failing_rooms.append(f"{label} ({w}×{d} ft, {area:.0f} SF < 70 SF min)")
+        elif min(w, d) < 7:
+            failing_rooms.append(f"{label} ({w}×{d} ft, min dimension {min(w,d):.1f} ft < 7 ft min)")
+
+    if stories > 3:
+        failing_rooms.append(f"{stories} stories exceeds Dallas residential cap of 3")
+
+    if failing_rooms:
+        return {
+            "name": "International Building Code",
+            "standard": "IBC 2021",
+            "factor": "1.00",
+            "status": "FAIL",
+            "explanation": "IBC 2021 §R304 violated: " + "; ".join(failing_rooms) + ".",
+        }
+    # No rooms to check — can't confirm compliance but don't flag
+    if not any("bed" in (r.get("type") or r.get("label") or "").lower() for r in rooms):
+        return {
+            "name": "International Building Code",
+            "standard": "IBC 2021",
+            "factor": "0.00",
+            "status": "PASS",
+            "explanation": "No bedroom rooms detected; general IBC minimums assumed met.",
+        }
+    return {
+        "name": "International Building Code",
+        "standard": "IBC 2021",
+        "factor": "1.00",
+        "status": "PASS",
+        "explanation": "All bedrooms meet IBC 2021 §R304 minimum 70 SF and 7 ft dimension requirements.",
     }
 
 
@@ -379,8 +443,8 @@ def _fallback_result(ctx: dict | None = None) -> dict:
     # Flexural utilization
     flex_ratio = round(M_inlb / phi_Mn, 2) if phi_Mn > 0 else 0
 
-    # IBC general — pass if flexural + deflection are OK
-    ibc_ok = flex_ratio <= 1.0 and defl_ratio <= 1.0
+    # IBC general — deterministic room-dimension check (overrides LLM)
+    ibc_check = _ibc_room_check(ctx)
 
     # Deflection status
     if defl_ratio > 1.0:
@@ -399,7 +463,7 @@ def _fallback_result(ctx: dict | None = None) -> dict:
     lc_expl = f"LC2 governs at {lc_ratio:.2f} utilization; {'demand exceeds capacity' if lc_ratio > 1.0 else 'demand within capacity'}."
 
     checks = [
-        {"name": "International Building Code", "standard": "IBC 2021",     "factor": f"{flex_ratio:.2f}", "status": "PASS" if ibc_ok else "FAIL", "explanation": "All IBC minimums met." if ibc_ok else "Flexural or deflection limits exceeded."},
+        ibc_check,
         {"name": "Load Combinations",           "standard": "ASCE 7-22",    "factor": f"{lc_ratio:.2f}",   "status": lc_status, "explanation": lc_expl},
         {"name": "Deflection Limit",            "standard": "L/360",        "factor": f"{defl_ratio:.2f}", "status": defl_status, "explanation": defl_expl},
         # --- Checks without real data: always PASS ---

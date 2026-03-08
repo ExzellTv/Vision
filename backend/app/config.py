@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     clerk_jwks_url: str = "https://eternal-airedale-89.clerk.accounts.dev/.well-known/jwks.json"
 
     # Gemini / Google AI
-    google_api_key: str = ""
+    gemini_api_key: str = ""
 
     # Optional services
     redis_url: str = "redis://localhost:6379/0"
