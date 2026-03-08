@@ -7,6 +7,7 @@ import StatusBadge from "../../components/shared/StatusBadge";
 import LeafletMap from "./LeafletMap";
 import ImportModelModal from "./ImportModelModal";
 import { computeNearbyComps, runValuation, fmtK, fmtUSD, BUILD_COST_PSF } from "./valuationEngine";
+import { generateFeasibilityPDF } from "./pdfReport";
 import { mapApi, projectsApi } from "../../services/api";
 
 /* ── Hardcoded Dallas fixture data (shown when no location is selected) ── */
@@ -603,16 +604,39 @@ export default function FeasibilityDashboard() {
           )}
 
           {/* Generate PDF Report */}
-          <button style={{
-            padding:      "12px 0",
-            background:   colors.accent,
-            border:       "none",
-            borderRadius: radii.md,
-            color:        colors.bg,
-            fontFamily:   fonts.label, fontSize: 14, fontWeight: 700,
-            cursor:       "pointer", textAlign: "center",
-            letterSpacing: "0.3px",
-          }}>
+          <button
+            onClick={() =>
+              generateFeasibilityPDF({
+                projectName,
+                loc,
+                selLand,
+                valuation,
+                nearbyComps,
+                totalSF,
+                stories,
+                bedrooms,
+                bathrooms,
+                style,
+                importedModel,
+                marketStats,
+                demoScore:     DEMO.score,
+                demoCostPSF:   DEMO.costPerSf,
+                demoMargin:    DEMO.margin,
+                demoARV:       DEMO.marketValue,
+                demoTotalCost: DEMO.totalCost,
+              })
+            }
+            style={{
+              padding:      "12px 0",
+              background:   colors.accent,
+              border:       "none",
+              borderRadius: radii.md,
+              color:        colors.bg,
+              fontFamily:   fonts.label, fontSize: 14, fontWeight: 700,
+              cursor:       "pointer", textAlign: "center",
+              letterSpacing: "0.3px",
+            }}
+          >
             Generate PDF Report
           </button>
         </div>

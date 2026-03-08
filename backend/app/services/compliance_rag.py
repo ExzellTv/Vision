@@ -58,6 +58,9 @@ _DEFAULT_CONTEXT = {
     "sci_score": 6.2,
 }
 
+# BUILDING_CONTEXTS is kept only for legacy callers that supply a project_id
+# without a building_context_override. Real per-project data always comes
+# in via building_context_override from the frontend.
 BUILDING_CONTEXTS: dict[int, dict] = {pid: dict(_DEFAULT_CONTEXT) for pid in range(1, 11)}
 
 
@@ -70,28 +73,53 @@ def _configure_gemini():
 _SYSTEM_PROMPT = """\
 You are a structural code compliance evaluator for the Vision platform.
 You evaluate residential building projects against IBC 2021 / ASCE 7-22
-compliance requirements.
+compliance requirements using the full structural knowledge base below.
 
-KNOWLEDGE BASE (compliance rules, formulas, thresholds):
-{knowledge}
+═══════════════════════════════════════════════════════════
+KNOWLEDGE BASE — COMPLIANCE CHECKS (IBC 2021 / ASCE 7-22):
+═══════════════════════════════════════════════════════════
+{compliance_knowledge}
 
-BUILDING CONTEXT (the project being evaluated):
+═══════════════════════════════════════════════════════════
+KNOWLEDGE BASE — BEAM ANALYSIS METHOD:
+═══════════════════════════════════════════════════════════
+{beam_knowledge}
+
+═══════════════════════════════════════════════════════════
+KNOWLEDGE BASE — AISC W-SHAPE SECTIONS:
+═══════════════════════════════════════════════════════════
+{aisc_knowledge}
+
+═══════════════════════════════════════════════════════════
+BUILDING CONTEXT (computed from the actual floor plan and materials):
+═══════════════════════════════════════════════════════════
 {context}
 
+═══════════════════════════════════════════════════════════
+FLOOR PLAN DESCRIPTION (from 3D model):
+═══════════════════════════════════════════════════════════
+{floor_plan_description}
+
 TASK:
-Evaluate ALL 7 compliance checks from the knowledge base against the building
-context.  For each check, determine:
-  - name: exact name from knowledge base
-  - standard: the code standard
-  - factor: numeric utilization factor (ratio of actual / allowable, rounded to 2 decimals)
-  - status: "PASS", "WARNING", or "FAIL" using the status_logic rules
-  - explanation: one concise sentence explaining the result
+Using the full knowledge base AND all building context (including rooms,
+materials, and floor plan description), evaluate ALL 7 compliance checks.
+For each check:
+  - name: exact name from the knowledge base
+  - standard: the code standard (e.g. "IBC 2021", "ASCE 7-22", "L/360")
+  - factor: numeric utilization factor (actual / allowable), 2 decimal places.
+    Use real computed values from the building context where calculable;
+    use 0.00 for checks that cannot be evaluated from available data.
+  - status: "PASS", "WARNING", or "FAIL" per the status_logic rules.
+    Reference the specific numbers from the building context in your reasoning.
+  - explanation: one concise sentence referencing actual values and limits.
 
-Also determine which LRFD load combination governs (the one producing the
-highest factored demand).
+For the IBC check, evaluate room sizes and stories against the IBC dimensional
+rules in the knowledge base using the rooms array from the building context.
 
-Return ONLY a valid JSON object with this exact schema — no markdown, no
-fences, no extra text:
+Also determine which LRFD load combination governs (highest factored demand)
+based on the actual dead/live/snow loads in the building context.
+
+Return ONLY a valid JSON object — no markdown, no fences, no extra text:
 
 {{
   "checks": [
@@ -112,27 +140,95 @@ fences, no extra text:
 """
 
 
+def _build_floor_plan_narrative(ctx: dict) -> str:
+    """Build a human-readable description of the floor plan for Gemini to reason about."""
+    lines = []
+    lines.append(
+        f"Building: {ctx.get('total_sf', 2200):,} SF total, "
+        f"{ctx.get('stories', 2)} stor{'ies' if ctx.get('stories', 2) != 1 else 'y'}"
+    )
+    lines.append(f"Governing beam span: {ctx.get('span_ft', 24)} ft")
+    lines.append(f"Foundation: {ctx.get('foundation_type', 'slab_on_grade').replace('_', ' ')}")
+    lines.append(f"Framing material: {ctx.get('framing_material', 'Wood SPF')}")
+    lines.append(
+        f"Selected AISC section: {ctx.get('section', 'W14x22')} "
+        f"(Ix={ctx.get('Ix_in4', 199)} in⁴, Zx={ctx.get('Zx_in3', 33.2)} in³)"
+    )
+    lines.append(
+        f"Loads: D={ctx.get('dead_load_psf', 25)} psf, "
+        f"L={ctx.get('live_load_psf', 40)} psf, "
+        f"S={ctx.get('snow_load_psf', 5)} psf"
+    )
+    lines.append(
+        f"Computed demand: M={ctx.get('max_moment_kip_ft', 0)} kip·ft, "
+        f"V={ctx.get('max_shear_kips', 0)} kips, "
+        f"δ={ctx.get('max_deflection_in', 0)} in"
+    )
+    lines.append(f"Structural Complexity Index: {ctx.get('sci_score', 0)} / 10")
+
+    # Design intent from generate_params
+    gp = ctx.get("generate_params") or {}
+    if gp.get("bedrooms") or gp.get("bathrooms"):
+        lines.append(
+            f"Design intent: {gp.get('bedrooms', '?')} bed / {gp.get('bathrooms', '?')} bath, "
+            f"Style: {gp.get('style', 'N/A')}, Garage: {gp.get('garage', 'N/A')}, "
+            f"Lot: {gp.get('lotWidth', '?')}×{gp.get('lotDepth', '?')} ft"
+        )
+
+    # Room breakdown
+    rooms = ctx.get("rooms") or []
+    if rooms:
+        room_lines = []
+        for r in rooms:
+            room_lines.append(
+                f"  Floor {r.get('floor', 1)}: {r.get('label', r.get('type', 'room'))} "
+                f"({r.get('width_ft', 0)}×{r.get('depth_ft', 0)} ft, {r.get('area_sf', 0)} SF)"
+            )
+        lines.append(f"Rooms ({ctx.get('room_count', len(rooms))} total):\n" + "\n".join(room_lines))
+    else:
+        lines.append(f"Rooms: {ctx.get('room_count_summary', 'no room data available')}")
+
+    # Materials
+    mats = ctx.get("materials_summary") or []
+    if mats:
+        mat_lines = [
+            f"  Layer {m.get('layer', i+1)} — {m.get('layer_name', '')}: {m.get('material', '')} "
+            f"(${m.get('cost', 0):,})"
+            for i, m in enumerate(mats)
+        ]
+        lines.append("Material selections:\n" + "\n".join(mat_lines))
+
+    return "\n".join(lines)
+
+
 async def evaluate_compliance(project_id: int = 1, building_context_override: dict | None = None) -> dict:
     """
-    Run Gemini Pro compliance evaluation for a project.
+    Run Gemini compliance evaluation for a project using the full RAG knowledge base.
 
     Returns dict with:
-      - checks: list of 7 check results
-      - metrics: drift / deflection / shear from building context
+      - checks: list of 7 check results from Gemini
+      - metrics: drift / deflection / shear computed analytically from context
       - loads: D / L / S / Lr values
       - governing_combination: which LC governs
 
-    If building_context_override is supplied it is used directly instead of
-    the hardcoded BUILDING_CONTEXTS lookup, enabling real per-project data.
+    building_context_override (from frontend) takes priority over the legacy
+    hardcoded BUILDING_CONTEXTS lookup, carrying real per-project floor plan,
+    room, and material data for Gemini to reason about.
     """
     ctx = building_context_override or BUILDING_CONTEXTS.get(project_id, _DEFAULT_CONTEXT)
 
     _configure_gemini()
 
-    # Build the prompt with full knowledge + context
+    # Build the prompt with the FULL knowledge base (all 3 sections) + narrative
     prompt = _SYSTEM_PROMPT.format(
-        knowledge=json.dumps(KNOWLEDGE_BASE["compliance_checks"], indent=2),
-        context=json.dumps(ctx, indent=2),
+        compliance_knowledge=json.dumps(KNOWLEDGE_BASE["compliance_checks"], indent=2),
+        beam_knowledge=json.dumps(KNOWLEDGE_BASE.get("beam_analysis", {}), indent=2),
+        aisc_knowledge=json.dumps(KNOWLEDGE_BASE.get("aisc_sections", []), indent=2),
+        context=json.dumps(
+            {k: v for k, v in ctx.items() if k not in ("rooms", "materials_summary", "generate_params")},
+            indent=2,
+        ),
+        floor_plan_description=_build_floor_plan_narrative(ctx),
     )
 
     model = genai.GenerativeModel("gemini-2.5-flash")
@@ -413,9 +509,14 @@ async def diagnose_issues(analysis_type: str, results: dict, project_id: int = 1
     ctx = building_context_override or BUILDING_CONTEXTS.get(project_id, _DEFAULT_CONTEXT)
     _configure_gemini()
 
+    full_kb = {
+        "compliance_checks": KNOWLEDGE_BASE.get("compliance_checks", []),
+        "beam_analysis":     KNOWLEDGE_BASE.get("beam_analysis", {}),
+        "aisc_sections":     KNOWLEDGE_BASE.get("aisc_sections", []),
+    }
     prompt = _DIAGNOSIS_PROMPT.format(
-        knowledge=json.dumps(KNOWLEDGE_BASE.get("compliance_checks", []), indent=2),
-        context=json.dumps(ctx, indent=2),
+        knowledge=json.dumps(full_kb, indent=2),
+        context=json.dumps(ctx, indent=2) + "\n\nFLOOR PLAN:\n" + _build_floor_plan_narrative(ctx),
         issues=json.dumps(issues, indent=2),
     )
 

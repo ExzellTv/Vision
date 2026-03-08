@@ -2764,10 +2764,6 @@ export default function FloorPlanEditor() {
           display: "flex", alignItems: "center", justifyContent: "space-between",
         }}>
           <span style={{ ...panelLabel, fontSize: 11 }}>Floor Navigation</span>
-          <button style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}
-            onClick={() => { setDraftParams({ ...params }); setShowParamsModal(true); }}>
-            <GearIcon />
-          </button>
         </div>
 
         {/* Level tabs */}
@@ -2847,7 +2843,7 @@ export default function FloorPlanEditor() {
         </div>
 
         {/* Floor Plan Settings */}
-        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8, marginTop: "auto", flexShrink: 0 }}>
           <button onClick={() => { setDraftParams({ ...params }); setShowParamsModal(true); }} style={{
             width: "100%", padding: "10px", border: "1px solid #1a2236", borderRadius: 6,
             background: "#0f1420", color: "#8a9bb0", fontFamily: fonts.label, fontSize: 12,

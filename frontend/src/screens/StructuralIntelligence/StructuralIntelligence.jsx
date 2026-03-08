@@ -3,37 +3,61 @@ import { colors, fonts, card, radii } from "../../theme/tokens";
 import { complianceApi, projectsApi } from "../../services/api";
 import { useProject } from "../../hooks/useProjectStore";
 
+// Canvas uses PX_PER_FT=4; rooms may be stored in canvas px or feet.
+// If a dimension > 50 it's almost certainly canvas px → convert to ft.
+function _roomDimFt(raw) {
+  return raw > 50 ? Math.round(raw / 4) : (raw || 0);
+}
+
 // ─── Derive structural building context from a real MongoDB project ──────────
-// materials[0] = Foundation layer, materials[1] = Structural Frame layer
+// materials[0] = Foundation, [1] = Structural Frame, etc.
 function deriveContextFromProject(project) {
   if (!project) return null;
-  const fp  = project.floor_plan      || {};
-  const gp  = project.generate_params || {};
-  const mats = project.materials      || [];
-  const dims = fp.dimensions || {};
+  const fp        = project.floor_plan      || {};
+  const gp        = project.generate_params || {};
+  const mats      = project.materials       || [];
+  const dims      = fp.dimensions || {};
+  const storyPlans = project.story_plans    || [];
 
   const totalSF  = fp.totalSF || dims.total_sf || gp.targetSF || 2200;
-  const stories  = fp.stories || dims.stories  || gp.stories  || 2;
+  const stories  = storyPlans.length || fp.stories || dims.stories || gp.stories || 2;
 
-  // Compute beam span from the longest room dimension (most realistic for residential)
-  const rooms = fp.rooms || [];
+  // ── Collect rooms from ALL story plans (not just floor 1) ──────────────
+  const allRooms = [];
+  const planSources = storyPlans.length > 0 ? storyPlans : (fp.rooms ? [fp] : []);
+  planSources.forEach((sp, floorIdx) => {
+    (sp.rooms || []).forEach(r => {
+      const width_ft  = _roomDimFt(r.w || r.width  || 0);
+      const depth_ft  = _roomDimFt(r.h || r.depth  || 0);
+      if (width_ft < 2 || depth_ft < 2) return; // skip degenerate rooms
+      allRooms.push({
+        type:     r.type  || "room",
+        label:    r.label || r.type || "room",
+        width_ft,
+        depth_ft,
+        area_sf:  Math.round(width_ft * depth_ft),
+        floor:    floorIdx + 1,
+      });
+    });
+  });
+
+  // ── Max span from all rooms across all floors ────────────────────────────
   let maxRoomSpan = 0;
-  for (const r of rooms) {
-    const bigger = Math.max(r.w || r.width || 0, r.h || r.depth || 0);
+  for (const r of allRooms) {
+    const bigger = Math.max(r.width_ft, r.depth_ft);
     if (bigger > maxRoomSpan) maxRoomSpan = bigger;
   }
-  const fpWidth = fp.width || dims.footprint_width || Math.sqrt(totalSF / stories) || 44;
-  // Prefer longest room span; fall back to footprint width
-  const rawSpan = maxRoomSpan > 8 ? maxRoomSpan : fpWidth;
+  const fpWidth  = fp.width || dims.footprint_width || Math.sqrt(totalSF / stories) || 44;
+  const rawSpan  = maxRoomSpan > 8 ? maxRoomSpan : fpWidth;
   const span_ft  = Math.max(16, Math.min(48, Math.round(rawSpan)));
 
-  // Foundation type from layer 0
+  // ── Foundation type from layer 0 ─────────────────────────────────────────
   const foundMat = (mats[0]?.material || "Slab").toLowerCase();
   const foundation_type = foundMat.includes("pier")  ? "pier_and_beam"
                         : foundMat.includes("crawl") ? "crawl_space"
                         : "slab_on_grade";
 
-  // Framing and dead load from layer 1 (realistic residential per ASCE 7-22)
+  // ── Framing and dead load from layer 1 ───────────────────────────────────
   const framMat      = mats[1]?.material || "Wood SPF";
   const framLower    = framMat.toLowerCase();
   const dead_load_psf = framLower.includes("concrete") ? 55
@@ -42,24 +66,24 @@ function deriveContextFromProject(project) {
 
   const live_load_psf = 40, snow_load_psf = 5, trib_w = 8, E_ksi = 29000;
 
-  // Auto-select lightest AISC section that passes flex AND deflection
+  // ── Auto-select lightest AISC section passing flex AND deflection ─────────
   const SECTIONS = [
-    { name: "W14x22", Ix: 199, Sx: 29.0, Zx: 33.2 },
-    { name: "W14x30", Ix: 291, Sx: 42.0, Zx: 47.3 },
-    { name: "W16x36", Ix: 448, Sx: 56.5, Zx: 64.0 },
-    { name: "W18x50", Ix: 800, Sx: 88.9, Zx: 101.0 },
+    { name: "W14x22", Ix: 199,  Sx: 29.0,  Zx: 33.2  },
+    { name: "W14x30", Ix: 291,  Sx: 42.0,  Zx: 47.3  },
+    { name: "W16x36", Ix: 448,  Sx: 56.5,  Zx: 64.0  },
+    { name: "W18x50", Ix: 800,  Sx: 88.9,  Zx: 101.0 },
     { name: "W21x62", Ix: 1330, Sx: 127.0, Zx: 144.0 },
     { name: "W24x84", Ix: 2370, Sx: 196.0, Zx: 224.0 },
   ];
-  const L_in_sel = span_ft * 12;
-  const lc2_sel  = 1.2 * dead_load_psf + 1.6 * live_load_psf;
-  const M_sel    = (lc2_sel * trib_w / 12) * L_in_sel * L_in_sel / 8;
+  const L_in_sel  = span_ft * 12;
+  const lc2_sel   = 1.2 * dead_load_psf + 1.6 * live_load_psf;
+  const M_sel     = (lc2_sel * trib_w / 12) * L_in_sel * L_in_sel / 8;
   const w_svc_sel = (dead_load_psf + live_load_psf) * trib_w / 12;
-  const d_allow  = L_in_sel / 360;
+  const d_allow   = L_in_sel / 360;
   let section = SECTIONS[SECTIONS.length - 1].name;
-  let Ix_in4 = SECTIONS[SECTIONS.length - 1].Ix;
-  let Sx_in3 = SECTIONS[SECTIONS.length - 1].Sx;
-  let Zx_in3 = SECTIONS[SECTIONS.length - 1].Zx;
+  let Ix_in4  = SECTIONS[SECTIONS.length - 1].Ix;
+  let Sx_in3  = SECTIONS[SECTIONS.length - 1].Sx;
+  let Zx_in3  = SECTIONS[SECTIONS.length - 1].Zx;
   for (const s of SECTIONS) {
     const fr = M_sel / (0.9 * 50 * s.Zx * 1000);
     const dr = (5 * w_svc_sel * Math.pow(L_in_sel, 4) / (384 * E_ksi * 1000 * s.Ix)) / d_allow;
@@ -69,20 +93,20 @@ function deriveContextFromProject(project) {
     }
   }
 
-  // Closed-form calcs: M = wL²/8, V = wL/2, Δ = 5wL⁴/(384EI)
-  const w_klf         = (dead_load_psf + live_load_psf) * trib_w / 1000;
-  const L             = span_ft;
-  const max_moment_kip_ft  = Math.round(w_klf * L * L / 8 * 100) / 100;
-  const max_shear_kips     = Math.round(w_klf * L / 2 * 100) / 100;
-  const L_in               = L * 12;
-  const max_deflection_in  = Math.round(
+  // ── Closed-form calcs: M = wL²/8, V = wL/2, Δ = 5wL⁴/(384EI) ───────────
+  const w_klf             = (dead_load_psf + live_load_psf) * trib_w / 1000;
+  const L                 = span_ft;
+  const max_moment_kip_ft = Math.round(w_klf * L * L / 8 * 100) / 100;
+  const max_shear_kips    = Math.round(w_klf * L / 2 * 100) / 100;
+  const L_in              = L * 12;
+  const max_deflection_in = Math.round(
     5 * (w_klf / 12) * Math.pow(L_in, 4) / (384 * E_ksi * Ix_in4) * 1000
   ) / 1000;
-  const footing_area_ft2   = Math.max(3.0, Math.round(
+  const footing_area_ft2  = Math.max(3.0, Math.round(
     (dead_load_psf + live_load_psf) * trib_w * L * stories / 2 / 2000 * 10
   ) / 10);
 
-  // SCI — matches structural_engine.py formula exactly
+  // ── SCI — matches structural_engine.py formula exactly ───────────────────
   const norm    = (v, lo, hi) => Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
   const fFactor = foundation_type === "pier_and_beam" ? 0.7
                 : foundation_type === "crawl_space"   ? 0.5 : 0.2;
@@ -91,6 +115,21 @@ function deriveContextFromProject(project) {
     + 0.20 * fFactor + 0.20 * norm(dead_load_psf + live_load_psf, 60, 200)) * 100
   ) / 10;
 
+  // ── Materials summary (all 7 layers) for Gemini narrative ─────────────────
+  const materials_summary = mats.map((m, idx) => ({
+    layer:      idx + 1,
+    layer_name: m.name || `Layer ${idx + 1}`,
+    material:   m.material || "",
+    cost:       m.cost || 0,
+  })).filter(m => m.material);
+
+  // ── Room type counts, e.g. "2× bedroom, 1× kitchen, 1× bathroom" ─────────
+  const roomTypeCounts = {};
+  allRooms.forEach(r => { roomTypeCounts[r.type] = (roomTypeCounts[r.type] || 0) + 1; });
+  const room_count_summary = Object.entries(roomTypeCounts)
+    .map(([t, n]) => `${n}× ${t}`)
+    .join(", ") || "no rooms recorded";
+
   return {
     span_ft: L, stories, total_sf: totalSF, foundation_type,
     framing_material: framMat, section, Ix_in4, Sx_in3, Zx_in3, Fy_ksi: 50,
@@ -98,6 +137,21 @@ function deriveContextFromProject(project) {
     max_moment_kip_ft, max_shear_kips, max_deflection_in,
     footing_area_ft2, total_reaction_lbs: Math.round(max_shear_kips * 1000),
     story_drift_ratio: 0.018, sci_score,
+    // ── Enriched floor plan data for Gemini RAG ──
+    rooms: allRooms,
+    room_count: allRooms.length,
+    room_count_summary,
+    materials_summary,
+    generate_params: {
+      bedrooms:  gp.bedrooms  || null,
+      bathrooms: gp.bathrooms || null,
+      stories:   gp.stories   || stories,
+      targetSF:  gp.targetSF  || totalSF,
+      style:     gp.style     || null,
+      garage:    gp.garage    || null,
+      lotWidth:  gp.lotWidth  || null,
+      lotDepth:  gp.lotDepth  || null,
+    },
   };
 }
 
