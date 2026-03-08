@@ -13,7 +13,6 @@ import { useRef, useEffect } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { colors } from "../../theme/tokens";
-import { DALLAS_COMPS, DALLAS_LAND, ZONING_DISTRICTS } from "./mapData";
 import { haversine } from "./valuationEngine";
 
 // ── Tile providers ────────────────────────────────────────────────────────
@@ -46,17 +45,22 @@ export function useLeafletMap({
   onLocChange,
   onLandSelect,
   nearbyComps,
+  comps,
+  land,
   radius,
+  radiusEnabled,
   showComps,
-  showZoning,
   showLand,
   activeLayer,
 }) {
+  // Use live data from props — empty array when data hasn't loaded yet
+  const allComps = comps ?? [];
+  const allLand  = land  ?? [];
+
   // Leaflet instance refs — never stored in state to avoid re-renders
   const mapI     = useRef(null);
   const tileL    = useRef(null);
   const markersL = useRef(null);
-  const zoningL  = useRef(null);
   const landL    = useRef(null);
   const propM    = useRef(null);
   const radC     = useRef(null);
@@ -84,7 +88,6 @@ export function useLeafletMap({
     }).addTo(map);
 
     markersL.current = L.layerGroup().addTo(map);
-    zoningL.current  = L.layerGroup().addTo(map);
     landL.current    = L.layerGroup().addTo(map);
 
     // Map click → set analysis location, deselect any land parcel
@@ -134,15 +137,18 @@ export function useLeafletMap({
       }),
     }).addTo(mapI.current);
 
-    radC.current = L.circle([loc.lat, loc.lng], {
-      radius:      radius * 1609.34,
-      color:       colors.accent,
-      fillColor:   colors.accent,
-      fillOpacity: 0.05,
-      weight:      1.5,
-      dashArray:   "6 4",
-    }).addTo(mapI.current);
-  }, [loc, radius]);
+    // Only draw the radius circle when radius is enabled
+    if (radiusEnabled) {
+      radC.current = L.circle([loc.lat, loc.lng], {
+        radius:      radius * 1609.34,
+        color:       colors.accent,
+        fillColor:   colors.accent,
+        fillOpacity: 0.05,
+        weight:      1.5,
+        dashArray:   "6 4",
+      }).addTo(mapI.current);
+    }
+  }, [loc, radius, radiusEnabled]);
 
   // ── Effect 4: Comparable sale markers ────────────────────────────────
   useEffect(() => {
@@ -150,10 +156,13 @@ export function useLeafletMap({
     markersL.current.clearLayers();
     if (!showComps) return;
 
-    // Show nearby comps when a location is pinned, all comps otherwise
-    const compsToRender = loc && nearbyComps.length ? nearbyComps : DALLAS_COMPS;
+    // When a location is pinned, nearbyComps is already filtered by the
+    // valuation engine (respects radiusEnabled). When no location is
+    // pinned, show all comps.
+    const compsToRender = loc ? nearbyComps : allComps;
 
     compsToRender.forEach((c) => {
+      if (c.lat == null || c.lng == null) return;
       const col = compColor(c.price_per_sf);
       const m   = L.marker([c.lat, c.lng], {
         icon: L.divIcon({
@@ -168,18 +177,25 @@ export function useLeafletMap({
       m.bindPopup(
         `<div class="vmap-popup-body">
           <div class="vmap-popup-price">$${c.sale_price.toLocaleString()}</div>
+          ${c.address ? `<div class="vmap-popup-address">${c.address}</div>` : ""}
           <div class="vmap-popup-grid">
             <span>$/SF</span><b>$${c.price_per_sf.toFixed(0)}</b>
             <span>Size</span><b>${c.sf.toLocaleString()} SF</b>
             <span>Bd/Ba</span><b>${c.bedrooms}/${c.bathrooms}</b>
             <span>Year</span><b>${c.year_built}</b>
           </div>
+          ${c.url
+            ? `<a href="${c.url}" target="_blank" rel="noopener noreferrer"
+                  style="display:inline-block;margin-top:6px;font-size:10px;color:${colors.accent};text-decoration:none;font-weight:600;">
+                  View on Redfin ↗
+               </a>`
+            : ""}
         </div>`,
         { className: "vmap-popup" }
       );
       m.addTo(markersL.current);
     });
-  }, [nearbyComps, showComps, loc]);
+  }, [nearbyComps, allComps, showComps, loc]);
 
   // ── Effect 5: Land parcel markers ────────────────────────────────────
   useEffect(() => {
@@ -187,7 +203,7 @@ export function useLeafletMap({
     landL.current.clearLayers();
     if (!showLand) return;
 
-    DALLAS_LAND.forEach((lot) => {
+    allLand.forEach((lot) => {
       const sc = landStatusColor(lot.status);
       const m  = L.marker([lot.lat, lot.lng], {
         icon: L.divIcon({
@@ -200,16 +216,24 @@ export function useLeafletMap({
         }),
       });
 
+      const psfLand = lot.lot_sf > 0 ? "$" + (lot.price / lot.lot_sf).toFixed(2) : "N/A";
+      const urlLink = lot.url
+        ? `<a href="${lot.url}" target="_blank" rel="noopener noreferrer"
+              style="display:inline-block;margin-top:6px;font-size:10px;color:${colors.accent};text-decoration:none;font-weight:600;">
+              View on Redfin ↗
+           </a>`
+        : "";
       m.bindPopup(
         `<div class="vmap-popup-body">
           <div class="vmap-popup-price">$${lot.price.toLocaleString()}</div>
           <div class="vmap-popup-address">${lot.address}</div>
           <div class="vmap-popup-grid">
-            <span>Lot</span><b>${lot.lot_sf.toLocaleString()} SF</b>
+            <span>Lot</span><b>${lot.lot_sf > 0 ? lot.lot_sf.toLocaleString() + " SF" : "N/A"}</b>
             <span>Zone</span><b>${lot.zoning}</b>
-            <span>$/SF</span><b>$${(lot.price / lot.lot_sf).toFixed(2)}</b>
+            <span>$/SF</span><b>${psfLand}</b>
             <span>Status</span><b>${lot.status}</b>
           </div>
+          ${urlLink}
         </div>`,
         { className: "vmap-popup" }
       );
@@ -223,29 +247,7 @@ export function useLeafletMap({
 
       m.addTo(landL.current);
     });
-  }, [showLand]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Effect 6: Zoning district polygons ───────────────────────────────
-  useEffect(() => {
-    if (!zoningL.current) return;
-    zoningL.current.clearLayers();
-    if (!showZoning) return;
-
-    ZONING_DISTRICTS.forEach((z) => {
-      const poly = L.polygon(z.polygon, {
-        color:       z.color,
-        fillColor:   z.color,
-        fillOpacity: z.fillOpacity,
-        weight:      1.5,
-      });
-      poly.bindTooltip(z.id, {
-        permanent:  true,
-        direction:  "center",
-        className:  "vmap-zone-tip",
-      });
-      poly.addTo(zoningL.current);
-    });
-  }, [showZoning]);
+  }, [showLand, allLand]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { mapI };
 }
