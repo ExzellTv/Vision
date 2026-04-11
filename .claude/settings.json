@@ -23,7 +23,8 @@
       "Bash(curl -s -o /dev/null -w \"Frontend: %{http_code}\" http://localhost:5173)",
       "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} projects'\\); [print\\(f'  - {p[\\\\\"name\\\\\"]}'\\) for p in d[:5]]\")",
       "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} projects'\\); print\\(d[0]['name'] if d else 'none'\\)\")",
-      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(type\\(d\\).__name__, len\\(d\\)\\); print\\(json.dumps\\(d, default=str\\)[:300]\\)\")"
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(type\\(d\\).__name__, len\\(d\\)\\); print\\(json.dumps\\(d, default=str\\)[:300]\\)\")",
+      "Bash(node -e ':*)"
     ]
   }
 }

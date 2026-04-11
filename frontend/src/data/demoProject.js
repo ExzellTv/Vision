@@ -1,88 +1,82 @@
 /**
  * DEMO PROJECT CACHE — Red Bull Basement National Finals
  *
- * A hand-crafted 2,400 SF modern ranch showcasing the full Vision platform.
- * This project auto-loads so demo gallery visitors see a beautiful 3D house
- * immediately without needing to generate anything.
+ * Hand-crafted 2,400 SF modern ranch for the demo gallery.
+ * Layout: 60' x 40' bounding box, zero gaps, zero overlaps.
+ * 3 bed / 2.5 bath + office, 2-car garage, open-concept living.
  *
- * Layout: open-concept ranch, 3 bed / 2.5 bath, 2-car garage
- * Footprint: 60' wide x 44' deep  (2,400 SF ground floor)
+ * Grid verification:
+ *   Bounding box: 60 x 40 = 2,400 sqft
+ *   Total room area: 2,400 sqft (100% coverage)
+ *   Overlaps: 0
+ *   Gaps: 0
  */
 
-// ── Room layout (2D coordinates in feet, origin top-left) ────────────────────
+// ── Room layout (feet, origin top-left) ──────────────────────────────────────
 const rooms = [
-  // Great room / open concept living (front-left)
-  { type: "living",   label: "Great Room",        x: 0,   y: 0,   w: 22, h: 18 },
-  // Kitchen + island (front-center)
-  { type: "kitchen",  label: "Kitchen",           x: 22,  y: 0,   w: 16, h: 14 },
-  // Dining (front-right of kitchen)
-  { type: "dining",   label: "Dining Room",       x: 22,  y: 14,  w: 16, h: 10 },
-  // Master suite (back-left)
-  { type: "bedroom",  label: "Master Bedroom",    x: 0,   y: 18,  w: 16, h: 16 },
-  // Master bath (back, adjacent to master)
-  { type: "bathroom", label: "Master Bath",       x: 16,  y: 18,  w: 10, h: 10 },
-  // Master closet
-  { type: "closet",   label: "Walk-in Closet",    x: 16,  y: 28,  w: 10, h: 6  },
-  // Hallway (center spine)
-  { type: "hallway",  label: "Hallway",           x: 26,  y: 24,  w: 4,  h: 16 },
-  // Bedroom 2 (back-right)
-  { type: "bedroom",  label: "Bedroom 2",         x: 30,  y: 24,  w: 14, h: 10 },
-  // Bedroom 3 (back-right)
-  { type: "bedroom",  label: "Bedroom 3",         x: 30,  y: 34,  w: 14, h: 10 },
-  // Guest bath (between bedrooms)
-  { type: "bathroom", label: "Bathroom",          x: 44,  y: 24,  w: 8,  h: 10 },
-  // Laundry
-  { type: "laundry",  label: "Laundry",           x: 44,  y: 34,  w: 8,  h: 10 },
-  // 2-car garage (far right)
-  { type: "garage",   label: "2-Car Garage",      x: 52,  y: 0,   w: 20, h: 24 },
-  // Entry / foyer
-  { type: "entry",    label: "Entry",             x: 38,  y: 0,   w: 14, h: 8  },
-  // Powder room (half bath near entry)
-  { type: "bathroom", label: "Powder Room",       x: 38,  y: 8,   w: 8,  h: 6  },
+  // ── Front row (y=0 → y=20) ──
+  { type: "living",   label: "Great Room",        x: 0,   y: 0,  w: 20, h: 20 },  // 400 SF
+  { type: "kitchen",  label: "Kitchen",           x: 20,  y: 0,  w: 14, h: 12 },  // 168 SF
+  { type: "dining",   label: "Dining Room",       x: 20,  y: 12, w: 14, h: 8  },  // 112 SF
+  { type: "entry",    label: "Entry",             x: 34,  y: 0,  w: 6,  h: 12 },  //  72 SF
+  { type: "bathroom", label: "Powder Room",       x: 34,  y: 12, w: 6,  h: 8  },  //  48 SF
+  { type: "garage",   label: "2-Car Garage",      x: 40,  y: 0,  w: 20, h: 20 },  // 400 SF
+
+  // ── Back row (y=20 → y=40) ──
+  { type: "bedroom",  label: "Master Bedroom",    x: 0,   y: 20, w: 16, h: 14 },  // 224 SF
+  { type: "closet",   label: "Walk-in Closet",    x: 0,   y: 34, w: 10, h: 6  },  //  60 SF
+  { type: "bathroom", label: "Master Bath",       x: 10,  y: 34, w: 6,  h: 6  },  //  36 SF
+  { type: "hallway",  label: "Hallway",           x: 16,  y: 20, w: 4,  h: 20 },  //  80 SF
+  { type: "bedroom",  label: "Bedroom 2",         x: 20,  y: 20, w: 14, h: 10 },  // 140 SF
+  { type: "bedroom",  label: "Bedroom 3",         x: 20,  y: 30, w: 14, h: 10 },  // 140 SF
+  { type: "bathroom", label: "Bathroom",          x: 34,  y: 20, w: 12, h: 10 },  // 120 SF
+  { type: "laundry",  label: "Laundry",           x: 34,  y: 30, w: 12, h: 10 },  // 120 SF
+  { type: "office",   label: "Home Office",       x: 46,  y: 20, w: 14, h: 20 },  // 280 SF
 ];
 
-// Compute bounding box
-const fpWidth = Math.max(...rooms.map(r => r.x + r.w));   // 72
-const fpDepth = Math.max(...rooms.map(r => r.y + r.h));   // 44
+const fpWidth = 60;
+const fpDepth = 40;
 
-// ── Exterior windows (side = which exterior wall) ────────────────────────────
+// ── Exterior windows (no overlaps with doors, verified) ──────────────────────
 const windows = [
-  // Front wall (bottom edge → side "bottom")
-  { x: 8,  y: 0,  width: 6, height: 4, side: "bottom" },   // Great room left
-  { x: 16, y: 0,  width: 4, height: 4, side: "bottom" },   // Great room right
-  { x: 28, y: 0,  width: 5, height: 4, side: "bottom" },   // Kitchen
-  // Back wall (top edge → side "top")
-  { x: 12, y: fpDepth, width: 5, height: 4, side: "top" }, // Master (clear of patio door at 2-8)
-  { x: 36, y: fpDepth, width: 5, height: 4, side: "top" }, // Bedroom 2
-  { x: 48, y: fpDepth, width: 4, height: 4, side: "top" }, // Bedroom 3
-  // Left wall
-  { x: 0,  y: 8,  width: 5, height: 4, side: "left" },     // Great room
-  { x: 0,  y: 26, width: 5, height: 4, side: "left" },     // Master
-  // Right wall
-  { x: fpWidth, y: 10, width: 5, height: 3, side: "right" }, // Garage
+  // Front wall (side "bottom")
+  { x: 8,  y: 0,       width: 5, height: 4, side: "bottom" },   // Great Room left
+  { x: 16, y: 0,       width: 4, height: 4, side: "bottom" },   // Great Room right
+  { x: 25, y: 0,       width: 4, height: 4, side: "bottom" },   // Kitchen
+  // Back wall (side "top") — patio door at 2-8, so windows start after 8
+  { x: 10, y: fpDepth,  width: 5, height: 4, side: "top" },     // Master Bedroom
+  { x: 24, y: fpDepth,  width: 5, height: 4, side: "top" },     // Bedroom 2
+  { x: 32, y: fpDepth,  width: 4, height: 4, side: "top" },     // Bedroom 3
+  { x: 52, y: fpDepth,  width: 5, height: 4, side: "top" },     // Office
+  // Left wall (side "left")
+  { x: 0,  y: 8,       width: 5, height: 4, side: "left" },     // Great Room
+  { x: 0,  y: 26,      width: 5, height: 4, side: "left" },     // Master
+  // Right wall (side "right")
+  { x: fpWidth, y: 8,  width: 5, height: 3, side: "right" },    // Garage
+  { x: fpWidth, y: 28, width: 5, height: 4, side: "right" },    // Office
 ];
 
-// ── Exterior doors (positioned to avoid window overlap) ──────────────────────
+// ── Exterior doors (no overlaps with windows, verified) ──────────────────────
 const doors = [
-  { x: 40, y: 0, width: 3.5, side: "bottom", isExterior: true },   // Front door (entry room x=38, centered)
-  { x: 60, y: 0, width: 9,   side: "bottom", isExterior: true },   // Garage door (garage x=52, centered)
-  { x: 3,  y: fpDepth, width: 6, side: "top", isExterior: true },  // Back patio door
+  { x: 36, y: 0,       width: 3.5, side: "bottom", isExterior: true },  // Front door (entry at 34-40)
+  { x: 48, y: 0,       width: 9,   side: "bottom", isExterior: true },  // Garage door (garage at 40-60)
+  { x: 3,  y: fpDepth, width: 6,   side: "top",    isExterior: true },  // Back patio slider
 ];
 
 // ── Materials (7-layer system) ───────────────────────────────────────────────
 const materials = [
-  { layer: "foundation", material: "Post-Tension Slab",     cost_per_sf: 12.50, option_index: 0 },
-  { layer: "framing",    material: "Wood SPF 2x6",          cost_per_sf: 8.75,  option_index: 0 },
-  { layer: "sheathing",  material: "ZIP System R-Sheathing", cost_per_sf: 5.20,  option_index: 1 },
-  { layer: "insulation", material: "Closed-Cell Spray Foam", cost_per_sf: 4.80,  option_index: 2 },
-  { layer: "drywall",    material: "5/8\" Type X",           cost_per_sf: 2.90,  option_index: 0 },
+  { layer: "foundation", material: "Post-Tension Slab",          cost_per_sf: 12.50, option_index: 0 },
+  { layer: "framing",    material: "Wood SPF 2x6",               cost_per_sf: 8.75,  option_index: 0 },
+  { layer: "sheathing",  material: "ZIP System R-Sheathing",     cost_per_sf: 5.20,  option_index: 1 },
+  { layer: "insulation", material: "Closed-Cell Spray Foam",     cost_per_sf: 4.80,  option_index: 2 },
+  { layer: "drywall",    material: "5/8\" Type X",                cost_per_sf: 2.90,  option_index: 0 },
   { layer: "cladding",   material: "Fiber Cement (HardiePlank)", cost_per_sf: 9.50,  option_index: 1 },
-  { layer: "paint",      material: "Sherwin-Williams Duration", cost_per_sf: 1.80,  option_index: 0 },
+  { layer: "paint",      material: "Sherwin-Williams Duration",  cost_per_sf: 1.80,  option_index: 0 },
 ];
 
 // ── Building context for structural intelligence ─────────────────────────────
 const buildingContext = {
-  span_ft: 22,
+  span_ft: 20,
   stories: 1,
   total_sf: 2400,
   foundation_type: "slab_on_grade",
