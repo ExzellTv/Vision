@@ -16,3 +16,12 @@ frontend/dist/
 
 # OS
 .DS_Store
+
+# Project docs (contains local context)
+CLAUDE.md
+
+# Windsurf/Cursor conversation files (may contain secrets)
+Vision.json
+**/Vision.json
+.windsurf/
+.cursor/
