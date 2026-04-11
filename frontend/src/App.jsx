@@ -1,28 +1,33 @@
 import { createBrowserRouter, RouterProvider, Outlet, useNavigate } from "react-router-dom";
-import { SignedIn, SignedOut, AuthenticateWithRedirectCallback } from "@clerk/clerk-react";
+// import { SignedIn, SignedOut, AuthenticateWithRedirectCallback } from "@clerk/clerk-react";
 import { ProjectProvider, useProject } from "./hooks/useProjectStore";
+import { UserTypeProvider } from "./context/UserTypeContext";
 import NavBar from "./components/shared/NavBar";
-import LandingPage from "./screens/Landing/LandingPage";
+// import LandingPage from "./screens/Landing/LandingPage";
+import DemoLandingPage from "./screens/Landing/DemoLandingPage";
 import Dashboard from "./screens/Dashboard/Dashboard";
 import FloorPlanEditor from "./screens/FloorPlanEditor/FloorPlanEditor";
 import LayerEditor from "./screens/LayerEditor/LayerEditor";
 import FeasibilityDashboard from "./screens/FeasibilityDashboard/FeasibilityDashboard";
-import StructuralIntelligence from "./screens/StructuralIntelligence/StructuralIntelligence";
+// import StructuralIntelligence from "./screens/StructuralIntelligence/StructuralIntelligence"; // DEMO: Integrated into 3D house build
 import ExecutiveView from "./screens/ExecutiveView/ExecutiveView";
 import ScheduleTimeline from "./screens/ScheduleTimeline/ScheduleTimeline";
-import LoginScreen from "./screens/Auth/LoginScreen";
+// import LoginScreen from "./screens/Auth/LoginScreen";
 import ProjectsScreen from "./screens/Projects/ProjectsScreen";
 import SettingsScreen from "./screens/Settings/SettingsScreen";
+import Browse from "./screens/Browse/Browse";
+import Chat from "./screens/Chat/Chat";
+import House3DPreview from "./screens/House3DPreview/House3DPreview";
 
-/* Auth guard — shows login when signed out, renders child routes when signed in */
-function AuthGuard() {
-  return (
-    <>
-      <SignedOut><LoginScreen /></SignedOut>
-      <SignedIn><Outlet /></SignedIn>
-    </>
-  );
-}
+/* Auth guard — DISABLED FOR DEMO — shows login when signed out, renders child routes when signed in */
+// function AuthGuard() {
+//   return (
+//     <>
+//       <SignedOut><LoginScreen /></SignedOut>
+//       <SignedIn><Outlet /></SignedIn>
+//     </>
+//   );
+// }
 
 /* Main layout — project store + navbar + page outlet */
 function MainLayout() {
@@ -145,38 +150,43 @@ function RequireProject({ children }) {
 const router = createBrowserRouter([
   {
     path: "/",
-    element: <LandingPage />,
+    element: <DemoLandingPage />,
   },
+  // DEMO MODE: Auth routes disabled
+  // {
+  //   path: "/login",
+  //   element: <LoginScreen />,
+  // },
+  // {
+  //   path: "/sso-callback",
+  //   element: <AuthenticateWithRedirectCallback />,
+  // },
+  // DEMO MODE: AuthGuard bypassed — all routes accessible
   {
-    path: "/login",
-    element: <LoginScreen />,
-  },
-  {
-    path: "/sso-callback",
-    element: <AuthenticateWithRedirectCallback />,
-  },
-  {
-    element: <AuthGuard />,
+    element: <MainLayout />,
     children: [
-      {
-        element: <MainLayout />,
-        children: [
-          { path: "dashboard", element: <Dashboard /> },
-          { path: "develop", element: <FloorPlanEditor /> },
-          { path: "edit", element: <LayerEditor /> },
-          { path: "feasibility", element: <FeasibilityDashboard /> },
-          { path: "structural", element: <StructuralIntelligence /> },
-          { path: "executive", element: <ExecutiveView /> },
-          { path: "schedule", element: <RequireProject><ScheduleTimeline /></RequireProject> },
-          { path: "projects", element: <ProjectsScreen /> },
-          { path: "settings", element: <SettingsScreen /> },
-        ],
-      },
+      { path: "dashboard", element: <Dashboard /> },
+      { path: "projects", element: <ProjectsScreen /> },
+      { path: "browse", element: <Browse /> },
+      { path: "chat", element: <Chat /> },
+      // Internal project routes (accessed within project flow)
+      { path: "develop", element: <FloorPlanEditor /> },
+      { path: "preview3d", element: <House3DPreview /> },
+      { path: "edit", element: <LayerEditor /> },
+      { path: "feasibility", element: <FeasibilityDashboard /> },
+      // { path: "structural", element: <StructuralIntelligence /> }, // DEMO: Integrated into 3D house
+      { path: "executive", element: <ExecutiveView /> },
+      { path: "schedule", element: <RequireProject><ScheduleTimeline /></RequireProject> },
+      { path: "settings", element: <SettingsScreen /> },
     ],
   },
 ]);
 
 export default function App() {
-  return <RouterProvider router={router} />;
+  return (
+    <UserTypeProvider>
+      <RouterProvider router={router} />
+    </UserTypeProvider>
+  );
 }
 

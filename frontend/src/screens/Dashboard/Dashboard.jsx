@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useUser } from "@clerk/clerk-react";
+// import { useUser } from "@clerk/clerk-react"; // DEMO MODE: Clerk disabled
 import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { projectsApi } from "../../services/api";
@@ -273,21 +273,6 @@ const MODULES = [
     ),
   },
   {
-    title: "Structural Lab",
-    description: "Engineering simulation, code compliance, and internal structural stress testing.",
-    path: "/structural",
-    iconBg: "linear-gradient(135deg, #0d5e5e 0%, #0891b2 100%)",
-    cardBg: "linear-gradient(160deg, #091818 0%, #0c2222 50%, #0e2a2a 100%)",
-    Pattern: StructuralPattern,
-    Icon: () => (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <path d="M10 2L18 17H2L10 2Z" stroke="white" strokeWidth="1.5" fill="none" opacity="0.9" />
-        <line x1="10" y1="6" x2="10" y2="17" stroke="white" strokeWidth="1" opacity="0.6" />
-        <line x1="6.5" y1="11" x2="13.5" y2="11" stroke="white" strokeWidth="1" opacity="0.6" />
-      </svg>
-    ),
-  },
-  {
     title: "Analysis Hub",
     description: "Geospatial site feasibility, Dallas GIS layers, and land aggregation tools.",
     path: "/feasibility",
@@ -300,6 +285,22 @@ const MODULES = [
         <rect x="11" y="3" width="6" height="6" rx="1" fill="white" opacity="0.6" />
         <rect x="3" y="11" width="6" height="6" rx="1" fill="white" opacity="0.6" />
         <rect x="11" y="11" width="6" height="6" rx="1" fill="white" opacity="0.9" />
+      </svg>
+    ),
+  },
+  {
+    title: "Browse Builders",
+    description: "Find trusted residential builders near you, view profiles, and connect directly.",
+    path: "/browse",
+    iconBg: "linear-gradient(135deg, #0d5e5e 0%, #0891b2 100%)",
+    cardBg: "linear-gradient(160deg, #091818 0%, #0c2222 50%, #0e2a2a 100%)",
+    Pattern: StructuralPattern,
+    Icon: () => (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <circle cx="8" cy="7" r="3" stroke="white" strokeWidth="1.5" fill="none" opacity="0.9" />
+        <path d="M2 17c0-3 2.5-5 6-5s6 2 6 5" stroke="white" strokeWidth="1.5" fill="none" opacity="0.9" />
+        <circle cx="14" cy="6" r="2" stroke="white" strokeWidth="1.2" fill="none" opacity="0.6" />
+        <path d="M14 10c2 0 4 1.2 4 3" stroke="white" strokeWidth="1.2" fill="none" opacity="0.6" />
       </svg>
     ),
   },
@@ -346,7 +347,9 @@ function projectToRow(p) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { user } = useUser();
+  // DEMO MODE: Mock user instead of Clerk
+  // const { user } = useUser();
+  const user = { firstName: "Demo" };
   const { setProjectName, setGenerateParams, resetProject } = useProject();
   const [showModal, setShowModal] = useState(false);
   const [recentProjects, setRecentProjects] = useState([]);

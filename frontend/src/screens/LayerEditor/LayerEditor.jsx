@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { colors, fonts } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { projectsApi, costApi } from "../../services/api";
+import { useUserType } from "../../context/UserTypeContext";
 
 /* ───────────────────────────────────────────────────────────
    LAYER EDITOR — Screen #2
@@ -1354,6 +1355,7 @@ export function createOrbitControls(camera, domElement) {
 
 export default function LayerEditor() {
   const project = useProject();
+  const { isHomeowner, isBuilder } = useUserType();
   const canvasRef = useRef(null);
   const sceneRef = useRef(null);
   const layerGroupsRef = useRef([]);
@@ -1938,70 +1940,73 @@ export default function LayerEditor() {
           {/* Scrollable section */}
           <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
 
-            {/* Layer Controls */}
-            <div style={{ padding: "14px 20px", borderBottom: "1px solid #1a2236" }}>
-              <div style={{
-                fontSize: 10, fontFamily: fonts.data, fontWeight: 700,
-                letterSpacing: "0.12em", textTransform: "uppercase",
-                color: colors.textDim, marginBottom: 10,
-              }}>Layer Controls</div>
+            {/* Layer Controls - Only visible for builders */}
+            {isBuilder && (
+              <div style={{ padding: "14px 20px", borderBottom: "1px solid #1a2236" }}>
+                <div style={{
+                  fontSize: 10, fontFamily: fonts.data, fontWeight: 700,
+                  letterSpacing: "0.12em", textTransform: "uppercase",
+                  color: colors.textDim, marginBottom: 10,
+                }}>Layer Controls</div>
 
-              {[...MATERIALS_DATA].reverse().map((ld, ri) => {
-                const i = MATERIALS_DATA.length - 1 - ri;
-                const layer = layers[i];
-                const isActive = activeLayer === i;
-                return (
-                  <div
-                    key={i}
-                    onClick={() => handleSelectLayer(i)}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 10,
-                      padding: "7px 10px", borderRadius: 7, cursor: "pointer",
-                      marginBottom: 2,
-                      transition: "all 0.15s ease",
-                      background: isActive ? `${colors.accent}10` : "transparent",
-                      border: isActive ? `1px solid ${colors.accent}30` : "1px solid transparent",
-                    }}
-                  >
-                    {/* Visibility toggle */}
+                {[...MATERIALS_DATA].reverse().map((ld, ri) => {
+                  const i = MATERIALS_DATA.length - 1 - ri;
+                  const layer = layers[i];
+                  const isActive = activeLayer === i;
+                  return (
                     <div
-                      onClick={(e) => { e.stopPropagation(); handleToggleLayer(i); }}
+                      key={i}
+                      onClick={() => handleSelectLayer(i)}
                       style={{
-                        width: 18, height: 18, borderRadius: 4, flexShrink: 0,
-                        border: `2px solid ${layer.visible ? ld.color : "#2a3548"}`,
-                        background: layer.visible ? ld.color : "transparent",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        cursor: "pointer", transition: "all 0.15s ease",
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "7px 10px", borderRadius: 7, cursor: "pointer",
+                        marginBottom: 2,
+                        transition: "all 0.15s ease",
+                        background: isActive ? `${colors.accent}10` : "transparent",
+                        border: isActive ? `1px solid ${colors.accent}30` : "1px solid transparent",
                       }}
                     >
-                      {layer.visible && (
-                        <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                          <path d="M1 4L3.5 6.5L9 1" stroke="#080c14" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      )}
+                      {/* Visibility toggle */}
+                      <div
+                        onClick={(e) => { e.stopPropagation(); handleToggleLayer(i); }}
+                        style={{
+                          width: 18, height: 18, borderRadius: 4, flexShrink: 0,
+                          border: `2px solid ${layer.visible ? ld.color : "#2a3548"}`,
+                          background: layer.visible ? ld.color : "transparent",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          cursor: "pointer", transition: "all 0.15s ease",
+                        }}
+                      >
+                        {layer.visible && (
+                          <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                            <path d="M1 4L3.5 6.5L9 1" stroke="#080c14" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </div>
+                      {/* Layer number */}
+                      <span style={{ fontSize: 10, fontFamily: fonts.data, color: colors.textDim, width: 14, flexShrink: 0 }}>{i + 1}</span>
+                      {/* Layer name */}
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: isActive ? 600 : 400, color: isActive ? colors.textBright : colors.text }}>
+                        {ld.name}
+                      </span>
+                      {/* Selected material chip */}
+                      <span style={{
+                        fontSize: 10, fontFamily: fonts.data,
+                        color: isActive ? colors.accent : colors.textDim,
+                        background: isActive ? `${colors.accent}10` : "transparent",
+                        padding: "1px 6px", borderRadius: 4,
+                        whiteSpace: "nowrap",
+                      }}>{layer.material}</span>
+                      {/* Color dot */}
+                      <div style={{ width: 7, height: 7, borderRadius: "50%", background: ld.color, flexShrink: 0 }} />
                     </div>
-                    {/* Layer number */}
-                    <span style={{ fontSize: 10, fontFamily: fonts.data, color: colors.textDim, width: 14, flexShrink: 0 }}>{i + 1}</span>
-                    {/* Layer name */}
-                    <span style={{ flex: 1, fontSize: 13, fontWeight: isActive ? 600 : 400, color: isActive ? colors.textBright : colors.text }}>
-                      {ld.name}
-                    </span>
-                    {/* Selected material chip */}
-                    <span style={{
-                      fontSize: 10, fontFamily: fonts.data,
-                      color: isActive ? colors.accent : colors.textDim,
-                      background: isActive ? `${colors.accent}10` : "transparent",
-                      padding: "1px 6px", borderRadius: 4,
-                      whiteSpace: "nowrap",
-                    }}>{layer.material}</span>
-                    {/* Color dot */}
-                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: ld.color, flexShrink: 0 }} />
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
 
-            {/* Material Picker */}
+            {/* Material Picker - Only visible for builders */}
+            {isBuilder ? (
             <div style={{ padding: "14px 20px", borderBottom: "1px solid #1a2236" }}>
               <div style={{
                 fontSize: 10, fontFamily: fonts.data, fontWeight: 700,
@@ -2170,6 +2175,66 @@ export default function LayerEditor() {
                 })
               )}
             </div>
+            ) : (
+              /* Homeowner View - Simplified info panel */
+              <div style={{ padding: "14px 20px", borderBottom: "1px solid #1a2236" }}>
+                <div style={{
+                  fontSize: 10, fontFamily: fonts.data, fontWeight: 700,
+                  letterSpacing: "0.12em", textTransform: "uppercase",
+                  color: colors.textDim, marginBottom: 12,
+                }}>Your Home Preview</div>
+                <div style={{
+                  padding: "16px",
+                  background: "rgba(59, 130, 246, 0.08)",
+                  border: "1px solid rgba(59, 130, 246, 0.2)",
+                  borderRadius: 8,
+                  marginBottom: 12,
+                }}>
+                  <div style={{ fontSize: 13, color: colors.textBright, fontWeight: 500, marginBottom: 8 }}>
+                    Explore Your Vision
+                  </div>
+                  <div style={{ fontSize: 12, color: colors.text, lineHeight: 1.5 }}>
+                    Use the visualization modes below to explore your home design.
+                    Rotate the view by dragging, and zoom with your scroll wheel.
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 6, background: "rgba(46, 213, 115, 0.1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 2L2 6v6l6 4 6-4V6L8 2z" stroke="#2ed573" strokeWidth="1.5" fill="none"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, color: colors.textBright, fontWeight: 500 }}>Standard View</div>
+                      <div style={{ fontSize: 11, color: colors.textDim }}>Full house exterior</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 6, background: "rgba(0, 212, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M2 8h12M8 2v12" stroke="#00d4ff" strokeWidth="1.5" strokeLinecap="round"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, color: colors.textBright, fontWeight: 500 }}>Section View</div>
+                      <div style={{ fontSize: 11, color: colors.textDim }}>See inside your home</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 6, background: "rgba(255, 159, 67, 0.1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M4 12V4l4 4 4-4v8" stroke="#ff9f43" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, color: colors.textBright, fontWeight: 500 }}>Build-Up View</div>
+                      <div style={{ fontSize: 11, color: colors.textDim }}>Watch it come together</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Cost Breakdown */}
             <div style={{ padding: "14px 20px" }}>

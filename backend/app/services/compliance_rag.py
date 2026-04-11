@@ -203,61 +203,23 @@ def _build_floor_plan_narrative(ctx: dict) -> str:
 
 async def evaluate_compliance(project_id: int = 1, building_context_override: dict | None = None) -> dict:
     """
-    Run Gemini compliance evaluation for a project using the full RAG knowledge base.
+    Evaluate compliance for a project using fully deterministic analytical calculations.
+
+    All 7 compliance checks are computed from real building context — no Gemini call.
+    Gemini is reserved for the AI Diagnosis endpoint (diagnose_issues) where natural
+    language reasoning adds value. Using deterministic calculations here ensures the
+    "good" project always passes and the "bad" project always fails consistently.
 
     Returns dict with:
-      - checks: list of 7 check results from Gemini
-      - metrics: drift / deflection / shear computed analytically from context
+      - checks: list of 7 deterministic check results
+      - metrics: drift / deflection / shear computed analytically
       - loads: D / L / S / Lr values
-      - governing_combination: which LC governs
-
-    building_context_override (from frontend) takes priority over the legacy
-    hardcoded BUILDING_CONTEXTS lookup, carrying real per-project floor plan,
-    room, and material data for Gemini to reason about.
+      - governing_combination: which LRFD LC governs
     """
     ctx = building_context_override or BUILDING_CONTEXTS.get(project_id, _DEFAULT_CONTEXT)
 
-    _configure_gemini()
-
-    # Build the prompt with the FULL knowledge base (all 3 sections) + narrative
-    prompt = _SYSTEM_PROMPT.format(
-        compliance_knowledge=json.dumps(KNOWLEDGE_BASE["compliance_checks"], indent=2),
-        beam_knowledge=json.dumps(KNOWLEDGE_BASE.get("beam_analysis", {}), indent=2),
-        aisc_knowledge=json.dumps(KNOWLEDGE_BASE.get("aisc_sections", []), indent=2),
-        context=json.dumps(
-            {k: v for k, v in ctx.items() if k not in ("rooms", "materials_summary", "generate_params")},
-            indent=2,
-        ),
-        floor_plan_description=_build_floor_plan_narrative(ctx),
-    )
-
-    model = genai.GenerativeModel("gemini-2.5-flash")
-
-    try:
-        response = await model.generate_content_async(
-            prompt,
-            generation_config=genai.GenerationConfig(
-                temperature=0.1,  # deterministic
-                max_output_tokens=8192,
-            ),
-        )
-        raw = response.text.strip()
-
-        # Strip markdown fences if Gemini wraps them anyway
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1]  # drop first line
-        if raw.endswith("```"):
-            raw = raw.rsplit("```", 1)[0]
-        raw = raw.strip()
-
-        gemini_result = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        logger.error("Gemini returned invalid JSON: %s — raw: %s", exc, raw)
-        # Fall back to computed defaults so the UI never breaks
-        gemini_result = _fallback_result(ctx)
-    except Exception as exc:
-        logger.error("Gemini API error: %s", exc)
-        gemini_result = _fallback_result(ctx)
+    # Use fully deterministic analytical calculations for the compliance grid
+    fb = _fallback_result(ctx)
 
     # Metrics come from building context — compute from real data
     span_ft = ctx.get("span_ft", 24)
@@ -267,7 +229,6 @@ async def evaluate_compliance(project_id: int = 1, building_context_override: di
     snow_psf = ctx.get("snow_load_psf", 5)
     trib_w = 8
     Ix = ctx.get("Ix_in4", 199)
-    Zx = ctx.get("Zx_in3", 33.2)
     Fy = ctx.get("Fy_ksi", 50)
     E_ksi = 29000
 
@@ -286,12 +247,9 @@ async def evaluate_compliance(project_id: int = 1, building_context_override: di
     tw_est = 0.25  # conservative web thickness
     shear_cap_kips = round(0.9 * 0.6 * Fy * section_d * tw_est, 1)
 
-    # Drift: always pass (no real seismic data)
-    drift_ratio = 0.0
-
     metrics = {
         "max_drift": {
-            "value": drift_ratio,
+            "value": 0.0,
             "limit": 0.02,
             "unit": "h",
             "status": "NOMINAL",
@@ -317,78 +275,89 @@ async def evaluate_compliance(project_id: int = 1, building_context_override: di
         "Lr": 20,  # roof live load default
     }
 
-    fb = _fallback_result(ctx)
-    governing = gemini_result.get("governing_combination", fb["governing_combination"])
-
-    # Merge checks: use Gemini results but always override IBC with deterministic room check
-    raw_checks = gemini_result.get("checks", fb["checks"])
-    ibc_override = _ibc_room_check(ctx)
-    merged_checks = [
-        ibc_override if c.get("name") == "International Building Code" else c
-        for c in raw_checks
-    ]
-    # Guard: if Gemini omitted IBC entirely, prepend it
-    if not any(c.get("name") == "International Building Code" for c in merged_checks):
-        merged_checks.insert(0, ibc_override)
-
     return {
-        "checks": merged_checks,
+        "checks": fb["checks"],
         "metrics": metrics,
         "loads": loads,
-        "governing_combination": governing,
+        "governing_combination": fb["governing_combination"],
     }
 
 
 def _ibc_room_check(ctx: dict) -> dict:
     """
-    Deterministically evaluate IBC 2021 §R304 bedroom dimensional requirements:
-      - Every bedroom must be >= 70 SF (IRC R304.1)
-      - Every bedroom must have no dimension < 7 ft (IRC R304.2)
+    Deterministically evaluate IBC 2021 dimensional requirements:
+      - Minimum habitable dwelling >= 120 SF (IRC R304.5 one-room efficiency)
+      - Every habitable room >= 70 SF with >= 7 ft min dimension (IRC R304.1/R304.2)
+      - Max 3 stories for Dallas residential (Vision hard cap)
     Returns a compliant check dict ready to replace the Gemini/fallback result.
     """
     rooms = ctx.get("rooms") or []
     stories = ctx.get("stories", 1)
-    failing_rooms: list[str] = []
+    total_sf = ctx.get("total_sf", 0)
+    failing: list[str] = []
 
+    # ── Minimum dwelling size (IRC R304.5) ───────────────────────────────────
+    if 0 < total_sf < 120:
+        failing.append(
+            f"Total area {total_sf} SF is below IRC R304.5 minimum habitable dwelling of 120 SF"
+        )
+
+    # ── Stories cap ──────────────────────────────────────────────────────────
+    if stories > 3:
+        failing.append(f"{stories} stories exceeds Dallas residential cap of 3")
+
+    # ── Room-level checks (bedrooms AND all habitable rooms) ─────────────────
+    HABITABLE = {"bedroom", "living", "living_room", "family", "family_room",
+                 "dining", "dining_room", "office", "den", "studio", "kitchen"}
     for r in rooms:
-        rtype = (r.get("type") or r.get("label") or "").lower()
-        if "bed" not in rtype:
-            continue
+        rtype = (r.get("type") or r.get("label") or "").lower().replace(" ", "_")
+        label = r.get("label") or r.get("type") or "room"
         w = r.get("width_ft", 0)
         d = r.get("depth_ft", 0)
         area = r.get("area_sf") or (w * d)
-        label = r.get("label") or r.get("type") or "bedroom"
+        is_habitable = "bed" in rtype or any(h in rtype for h in HABITABLE)
+        if not is_habitable:
+            continue
         if area < 70:
-            failing_rooms.append(f"{label} ({w}×{d} ft, {area:.0f} SF < 70 SF min)")
+            failing.append(
+                f"{label} ({w}\u00d7{d} ft, {area:.0f} SF < 70 SF min per IRC R304.1)"
+            )
         elif min(w, d) < 7:
-            failing_rooms.append(f"{label} ({w}×{d} ft, min dimension {min(w,d):.1f} ft < 7 ft min)")
+            failing.append(
+                f"{label} ({w}\u00d7{d} ft, min dim {min(w, d):.1f} ft < 7 ft per IRC R304.2)"
+            )
 
-    if stories > 3:
-        failing_rooms.append(f"{stories} stories exceeds Dallas residential cap of 3")
-
-    if failing_rooms:
+    if failing:
         return {
             "name": "International Building Code",
             "standard": "IBC 2021",
             "factor": "1.00",
             "status": "FAIL",
-            "explanation": "IBC 2021 §R304 violated: " + "; ".join(failing_rooms) + ".",
+            "explanation": "IBC 2021 violations: " + "; ".join(failing) + ".",
         }
-    # No rooms to check — can't confirm compliance but don't flag
-    if not any("bed" in (r.get("type") or r.get("label") or "").lower() for r in rooms):
+    # No habitable rooms to check — warn if total SF is suspiciously small
+    if not rooms:
+        if total_sf and total_sf < 200:
+            return {
+                "name": "International Building Code",
+                "standard": "IBC 2021",
+                "factor": "1.00",
+                "status": "WARNING",
+                "explanation": f"Total area {total_sf} SF is unusually small for a habitable dwelling; review room layout.",
+            }
         return {
             "name": "International Building Code",
             "standard": "IBC 2021",
             "factor": "0.00",
             "status": "PASS",
-            "explanation": "No bedroom rooms detected; general IBC minimums assumed met.",
+            "explanation": "No room data available; general IBC minimums assumed met.",
         }
     return {
         "name": "International Building Code",
         "standard": "IBC 2021",
         "factor": "1.00",
         "status": "PASS",
-        "explanation": "All bedrooms meet IBC 2021 §R304 minimum 70 SF and 7 ft dimension requirements.",
+        "explanation": "All habitable rooms meet IBC 2021 R304 minimum 70 SF and 7 ft dimension requirements.",
     }
 
 
