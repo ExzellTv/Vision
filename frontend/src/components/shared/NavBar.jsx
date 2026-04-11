@@ -1,24 +1,26 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useUser, useClerk } from "@clerk/clerk-react";
+// import { useUser, useClerk } from "@clerk/clerk-react"; // DEMO MODE: Clerk disabled
 import { colors, fonts } from "../../theme/tokens";
+import { useUserType } from "../../context/UserTypeContext";
 
 const LOGO = "/VisionLogo.png";
 
+// DEMO MODE: Simplified navigation — other screens accessible within Projects/Dashboard
 const NAV_LINKS = [
   { label: "Dashboard", path: "/dashboard", match: ["/dashboard"] },
-  { label: "Projects", path: "/projects", match: ["/projects"] },
-  { label: "Plan", path: "/develop", match: ["/develop"] },
-  { label: "Schedule", path: "/schedule", match: ["/schedule"] },
-  { label: "Intelligence", path: "/structural", match: ["/structural", "/executive"] },
-  { label: "Analysis", path: "/feasibility", match: ["/feasibility"] },
+  { label: "Projects", path: "/projects", match: ["/projects", "/develop", "/edit", "/preview3d", "/schedule", "/feasibility"] },
+  { label: "Browse", path: "/browse", match: ["/browse"] },
+  { label: "Chat", path: "/chat", match: ["/chat"] },
 ];
 
 export default function NavBar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useUser();
-  const { signOut } = useClerk();
+  const { isHomeowner, isBuilder, clearUserType } = useUserType();
+  // DEMO MODE: Using mock user instead of Clerk
+  // const { user } = useUser();
+  // const { signOut } = useClerk();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -37,15 +39,11 @@ export default function NavBar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [dropdownOpen]);
 
-  const displayName = user?.fullName || user?.firstName || user?.username || "User";
-  const displayEmail = user?.primaryEmailAddress?.emailAddress || "";
-  const avatarUrl = user?.imageUrl;
-  const initials = displayName
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  // DEMO MODE: Display based on user type selection
+  const displayName = isHomeowner ? "Homeowner" : isBuilder ? "Builder" : "Demo User";
+  const displayEmail = isHomeowner ? "Designing your dream home" : isBuilder ? "Professional builder mode" : "demo@vision.app";
+  const avatarUrl = null;
+  const initials = isHomeowner ? "HO" : isBuilder ? "BD" : "DU";
 
   return (
     <nav
@@ -261,7 +259,7 @@ export default function NavBar() {
 
             <div style={{ borderTop: "1px solid #2a3548" }}>
               <button
-                onClick={() => signOut({ redirectUrl: "/" })}
+                onClick={() => { clearUserType(); navigate("/"); }}
                 style={{
                   display: "flex",
                   alignItems: "center",

@@ -2,7 +2,9 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useLocation, useBlocker } from "react-router-dom";
 import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
+import { useUserType } from "../../context/UserTypeContext";
 import { projectsApi } from "../../services/api";
+import { useStructuralValidation, ValidationPanel, ValidationBadge } from "../../hooks/useStructuralValidation.jsx";
 
 /* ───────────────────────── Constants ───────────────────────── */
 
@@ -189,12 +191,153 @@ function _doRectsOverlap(a, b) {
            a.y + a.h <= b.y + EPS || b.y + b.h <= a.y + EPS);
 }
 
+/**
+ * Find the maximum valid position for moving item towards target without overlapping obstacles.
+ * Uses binary search to find the collision boundary.
+ */
+function _findMaxValidMove(startItem, targetX, targetY, obstacles, planW, planH) {
+  const snap = (ft) => Math.round(ft * 2) / 2;
+
+  // If target position is valid, use it
+  let candidate = { ...startItem, x: targetX, y: targetY };
+  if (planW && planH) candidate = _clampToPlan(candidate, planW, planH);
+
+  if (!obstacles.some(o => _doRectsOverlap(candidate, o))) {
+    return candidate;
+  }
+
+  // Binary search to find the collision point
+  const dx = targetX - startItem.x;
+  const dy = targetY - startItem.y;
+
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 10; i++) { // 10 iterations gives ~0.1% precision
+    const mid = (lo + hi) / 2;
+    const testX = snap(startItem.x + dx * mid);
+    const testY = snap(startItem.y + dy * mid);
+    let test = { ...startItem, x: testX, y: testY };
+    if (planW && planH) test = _clampToPlan(test, planW, planH);
+
+    if (obstacles.some(o => _doRectsOverlap(test, o))) {
+      hi = mid;
+    } else {
+      lo = mid;
+    }
+  }
+
+  // Use the safe position (lo)
+  const safeX = snap(startItem.x + dx * lo);
+  const safeY = snap(startItem.y + dy * lo);
+  let result = { ...startItem, x: safeX, y: safeY };
+  if (planW && planH) result = _clampToPlan(result, planW, planH);
+  return result;
+}
+
+/**
+ * Find the maximum valid resize dimensions without overlapping obstacles.
+ * Clamps resize at the collision boundary instead of reverting entirely.
+ */
+function _findMaxValidResize(startItem, targetW, targetH, targetX, targetY, handle, obstacles, planW, planH) {
+  const snap = (ft) => Math.round(ft * 2) / 2;
+
+  // If target resize is valid, use it (use handle-aware clamping)
+  let candidate = { ...startItem, x: targetX, y: targetY, w: targetW, h: targetH };
+  if (planW && planH) candidate = _clampResizeToPlan(candidate, startItem, handle, planW, planH);
+
+  if (!obstacles.some(o => _doRectsOverlap(candidate, o))) {
+    return candidate;
+  }
+
+  // Binary search to find the collision point for resize
+  const dw = targetW - startItem.w;
+  const dh = targetH - startItem.h;
+  const dx = targetX - startItem.x;
+  const dy = targetY - startItem.y;
+
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 10; i++) {
+    const mid = (lo + hi) / 2;
+    const testW = Math.max(0.5, snap(startItem.w + dw * mid));
+    const testH = Math.max(0.5, snap(startItem.h + dh * mid));
+    const testX = snap(startItem.x + dx * mid);
+    const testY = snap(startItem.y + dy * mid);
+    let test = { ...startItem, x: testX, y: testY, w: testW, h: testH };
+    if (planW && planH) test = _clampResizeToPlan(test, startItem, handle, planW, planH);
+
+    if (obstacles.some(o => _doRectsOverlap(test, o))) {
+      hi = mid;
+    } else {
+      lo = mid;
+    }
+  }
+
+  // Use the safe dimensions (lo)
+  const safeW = Math.max(0.5, snap(startItem.w + dw * lo));
+  const safeH = Math.max(0.5, snap(startItem.h + dh * lo));
+  const safeX = snap(startItem.x + dx * lo);
+  const safeY = snap(startItem.y + dy * lo);
+  let result = { ...startItem, x: safeX, y: safeY, w: safeW, h: safeH };
+  if (planW && planH) result = _clampResizeToPlan(result, startItem, handle, planW, planH);
+  return result;
+}
+
 /** Clamp item so it stays fully inside the plan footprint (0,0)→(planW,planH). */
 function _clampToPlan(item, planW, planH) {
   const w = Math.max(0.5, Math.min(item.w, planW));
   const h = Math.max(0.5, Math.min(item.h, planH));
   const x = Math.max(0, Math.min(item.x, planW - w));
   const y = Math.max(0, Math.min(item.y, planH - h));
+  return { ...item, x, y, w, h };
+}
+
+/**
+ * Clamp resize to plan boundaries while keeping the opposite edge fixed.
+ * handle: 'n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'
+ */
+function _clampResizeToPlan(item, startItem, handle, planW, planH) {
+  let { x, y, w, h } = item;
+
+  // For east handle: keep west edge fixed, clamp east edge to plan
+  if (handle.includes("e")) {
+    const maxW = planW - startItem.x; // max width keeping west edge at startItem.x
+    w = Math.min(w, maxW);
+    x = startItem.x; // west edge stays fixed
+  }
+
+  // For west handle: keep east edge fixed, clamp west edge to 0
+  if (handle.includes("w")) {
+    const rightEdge = startItem.x + startItem.w; // original right edge
+    if (x < 0) {
+      w = w + x; // reduce width by how much x went negative
+      x = 0;
+    }
+    // Ensure we don't exceed plan and right edge stays put
+    w = Math.min(w, rightEdge);
+    x = rightEdge - w;
+  }
+
+  // For south handle: keep north edge fixed, clamp south edge to plan
+  if (handle.includes("s")) {
+    const maxH = planH - startItem.y;
+    h = Math.min(h, maxH);
+    y = startItem.y; // north edge stays fixed
+  }
+
+  // For north handle: keep south edge fixed, clamp north edge to 0
+  if (handle.includes("n")) {
+    const bottomEdge = startItem.y + startItem.h;
+    if (y < 0) {
+      h = h + y;
+      y = 0;
+    }
+    h = Math.min(h, bottomEdge);
+    y = bottomEdge - h;
+  }
+
+  // Ensure minimum dimensions
+  w = Math.max(0.5, w);
+  h = Math.max(0.5, h);
+
   return { ...item, x, y, w, h };
 }
 
@@ -1369,6 +1512,7 @@ export default function FloorPlanEditor() {
   const navigate = useNavigate();
   const location = useLocation();
   const project = useProject();
+  const { isHomeowner } = useUserType();
 
   const [params, setParams] = useState(() => project.generateParams ?? { ...DEFAULT_PARAMS });
   const [allStoryVariants, setAllStoryVariants] = useState(() => {
@@ -1743,14 +1887,17 @@ export default function FloorPlanEditor() {
             const bounded = activePlan ? _clampToPlan(raw, activePlan.width, activePlan.depth) : raw;
             next[ds.itemIdx] = bounded;
           } else if (raw.isRoom || raw.isCustom) {
-            // Rooms/custom: clamp to plan, reject if overlapping another room/custom block
-            const bounded = activePlan ? _clampToPlan(raw, activePlan.width, activePlan.depth) : raw;
+            // Rooms/custom: stop at collision boundary instead of rejecting
             const otherRooms = others.filter(o => (o.isRoom || o.isCustom) && !o.isStair);
-            if (otherRooms.some((o) => _doRectsOverlap(bounded, o))) {
-              showToast("Can't overlap another block");
-              return prev;
-            }
-            next[ds.itemIdx] = bounded;
+            const validPos = _findMaxValidMove(
+              ds.startItem,
+              snap(ds.startItem.x + dft_x),
+              snap(ds.startItem.y + dft_y),
+              otherRooms,
+              activePlan?.width,
+              activePlan?.depth
+            );
+            next[ds.itemIdx] = validPos;
           } else {
             // Furniture/doors/windows: apply constraint first (snaps door to edge / furniture inside room),
             // then only reject if it collides with another non-room item (stairs excluded)
@@ -1786,19 +1933,21 @@ export default function FloorPlanEditor() {
           let candidate = { ...si, x, y, w, h };
           const others = prev.filter((_, i) => i !== ds.itemIdx);
           if (candidate.isStair) {
-            // Stairs: clamp to plan, no overlap rejection
-            if (activePlan) candidate = _clampToPlan(candidate, activePlan.width, activePlan.depth);
+            // Stairs: clamp to plan (handle-aware), no overlap rejection
+            if (activePlan) candidate = _clampResizeToPlan(candidate, si, ds.handle, activePlan.width, activePlan.depth);
             next[ds.itemIdx] = candidate;
           } else if (candidate.isRoom || candidate.isCustom) {
-            // Clamp resize to plan boundaries; reject only if overlapping another room/custom (stairs excluded)
-            if (activePlan) candidate = _clampToPlan(candidate, activePlan.width, activePlan.depth);
+            // Stop resize at collision boundary instead of rejecting entirely
             const otherRooms = others.filter(o => (o.isRoom || o.isCustom) && !o.isStair);
-            if (otherRooms.some((o) => _doRectsOverlap(candidate, o))) {
-              showToast("Can't stretch over another block");
-              next[ds.itemIdx] = prev[ds.itemIdx];
-            } else {
-              next[ds.itemIdx] = candidate;
-            }
+            const validResize = _findMaxValidResize(
+              si,
+              w, h, x, y,
+              ds.handle,
+              otherRooms,
+              activePlan?.width,
+              activePlan?.depth
+            );
+            next[ds.itemIdx] = validResize;
           } else {
             // Non-room resize: only block if it would overlap another non-room item (stairs excluded)
             const otherNonRooms = others.filter(o => !o.isRoom && !o.isCustom && !o.isStair);
@@ -2170,7 +2319,8 @@ export default function FloorPlanEditor() {
 
     setIsDirty(false);
     savedRef.current = true;
-    navigate("/edit");
+    // Homeowners go to complete 3D view; builders go to layer-by-layer editor
+    navigate(isHomeowner ? "/preview3d" : "/edit");
   };
 
   const setP = (key) => (e) => {
@@ -2209,6 +2359,10 @@ export default function FloorPlanEditor() {
 
   const totalSF = roomStats.reduce((s, r) => s + r.area, 0);
   const scaleLabel = zoom <= 0.6 ? "1:100" : zoom <= 0.9 ? "1:75" : zoom <= 1.2 ? "1:50" : zoom <= 1.6 ? "1:35" : "1:25";
+
+  // Structural validation - real-time checks
+  const validation = useStructuralValidation(placedItems, params);
+  const [showValidationPanel, setShowValidationPanel] = useState(false);
 
   /* ── Shared style atoms ── */
   const panelLabel = {
@@ -2581,19 +2735,50 @@ export default function FloorPlanEditor() {
             {project.projectName || "New Project"}
           </div>
 
-          {/* Spacer + save */}
+          {/* Structural validation badge */}
+          {placedItems.length > 0 && (
+            <ValidationBadge
+              validation={validation}
+              onClick={() => setShowValidationPanel(!showValidationPanel)}
+            />
+          )}
+
+          {/* Spacer + actions */}
           <div style={{ flex: 1 }} />
           {activePlan && (
-            <button onClick={handleSaveToEdit} disabled={saving} style={{
-              padding: "6px 18px", borderRadius: 6, border: "none",
-              background: saving ? "rgba(0,212,255,0.3)" : "linear-gradient(135deg, #00d4ff, #0099cc)",
-              color: saving ? "#4a8a99" : "#0d1117",
-              fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
-              cursor: saving ? "default" : "pointer", letterSpacing: "0.3px",
-              transition: "all 0.2s",
-            }}>
-              {saving ? "Saving…" : "Save to Project →"}
-            </button>
+            <>
+              <button
+                onClick={() => navigate("/preview3d")}
+                style={{
+                  padding: "6px 14px", borderRadius: 6,
+                  border: "1px solid #2a3548",
+                  background: "transparent",
+                  color: colors.text,
+                  fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
+                  cursor: "pointer", marginRight: 8,
+                  display: "flex", alignItems: "center", gap: 6,
+                  transition: "all 0.2s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.accent; e.currentTarget.style.color = colors.accent; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#2a3548"; e.currentTarget.style.color = colors.text; }}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M7 1L1 4v6l6 3 6-3V4L7 1z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+                  <path d="M1 4l6 3 6-3M7 7v6" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+                </svg>
+                View in 3D
+              </button>
+              <button onClick={handleSaveToEdit} disabled={saving} style={{
+                padding: "6px 18px", borderRadius: 6, border: "none",
+                background: saving ? "rgba(0,212,255,0.3)" : "linear-gradient(135deg, #00d4ff, #0099cc)",
+                color: saving ? "#4a8a99" : "#0d1117",
+                fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
+                cursor: saving ? "default" : "pointer", letterSpacing: "0.3px",
+                transition: "all 0.2s",
+              }}>
+                {saving ? "Saving…" : isHomeowner ? "Build My Home →" : "Save to Project →"}
+              </button>
+            </>
           )}
         </div>
 
@@ -2850,6 +3035,25 @@ export default function FloorPlanEditor() {
             </div>
           )}
         </div>
+
+        {/* Structural Validation Panel */}
+        {showValidationPanel && placedItems.length > 0 && (
+          <div style={{ borderBottom: "1px solid #1a2236", padding: "10px 12px" }}>
+            <div style={{ padding: "0 4px 8px" }}>
+              <span style={panelLabel}>Structural Checks</span>
+            </div>
+            <ValidationPanel
+              validation={validation}
+              onIssueClick={(issue) => {
+                // Highlight the room with the issue
+                if (issue.roomId) {
+                  const idx = placedItems.findIndex(item => item.id === issue.roomId);
+                  if (idx >= 0) setSelectedItemIdx(idx);
+                }
+              }}
+            />
+          </div>
+        )}
 
         {/* Floor Plan Settings */}
         <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8, marginTop: "auto", flexShrink: 0 }}>

@@ -3,9 +3,9 @@ import { colors, fonts, card, radii } from "../../theme/tokens";
 import { complianceApi, projectsApi } from "../../services/api";
 import { useProject } from "../../hooks/useProjectStore";
 
-// Rooms are stored in feet by both the AI generator and the canvas draw tool.
-// Only treat as canvas pixels when the value is clearly non-foot scale (> 200),
-// using PX_PER_FT=7 (the actual canvas ratio in FloorPlanDraw).
+// FloorPlanDraw uses PX_PER_FT=7; FloorPlanEditor uses PX_PER_FT=4.
+// Rooms are stored in FEET throughout. If a canvas-pixel value somehow
+// leaked in (> 200), convert it with the display-canvas ratio of 7.
 function _roomDimFt(raw) {
   return raw > 200 ? Math.round(raw / 7) : (raw || 0);
 }
@@ -43,8 +43,7 @@ function deriveContextFromProject(project) {
   });
 
   // ── Max span from all rooms across all floors ────────────────────────────
-  // Beam span = the SHORT room dimension: joists run along the length and
-  // bridge the width, so a 15×60 ft room requires 15 ft beams, not 60 ft.
+  // Beams span the SHORT direction of each room (structural engineering convention)
   let maxRoomSpan = 0;
   for (const r of allRooms) {
     const span = Math.min(r.width_ft, r.depth_ft);
@@ -317,43 +316,27 @@ function ComplianceScreen({ selectedProject, setSelectedProject, projects, proje
   const [modalOpen, setModalOpen] = useState(false);
   // Track the full result for passing to diagnosis
   const [lastResult, setLastResult] = useState(null);
-  // In-memory diagnosis cache per project (backed by MongoDB on save)
+  // Cache diagnosis results per project so re-opening doesn't re-run
   const diagCacheRef = useRef({});
   const lastProjectRef = useRef(selectedProject);
   const hasAutoRun = useRef(false);
 
-  // Hydrate from saved MongoDB cache when project changes; only auto-run if no cache
+  // Clear stale results and queue auto-run when project changes
   if (lastProjectRef.current !== selectedProject) {
     lastProjectRef.current = selectedProject;
     setDiagnoses(null);
     setModalOpen(false);
+    setError(null);
+    setChecks([]);
+    setMetrics(null);
+    setLoads(null);
+    setGoverning(null);
     setLastResult(null);
-
-    // Try to restore compliance results from the project's persisted cache
-    const projectData = (projects || []).find(p => p.id === selectedProject);
-    const savedCompliance = projectData?.compliance_cache;
-    if (savedCompliance) {
-      setChecks(savedCompliance.checks || []);
-      setMetrics(savedCompliance.metrics || null);
-      setLoads(savedCompliance.loads || null);
-      setGoverning(savedCompliance.governing_combination || null);
-      setLastResult(savedCompliance);
-      hasAutoRun.current = true; // cache present — skip Gemini auto-run
-    } else {
-      setChecks([]);
-      setMetrics(null);
-      setLoads(null);
-      setGoverning(null);
-      hasAutoRun.current = false; // no cache — let useEffect trigger auto-run
-    }
-
-    // Restore diagnosis cache from the project's persisted data
-    const savedDiagnosis = projectData?.diagnosis_cache;
-    if (savedDiagnosis?.length) {
-      diagCacheRef.current[selectedProject] = savedDiagnosis;
-    } else {
-      delete diagCacheRef.current[selectedProject];
-    }
+    // Restore any cached AI diagnosis (Gemini — worth keeping)
+    const proj = (projects || []).find(p => p.id === selectedProject);
+    if (proj?.diagnosis_cache) diagCacheRef.current[selectedProject] = proj.diagnosis_cache;
+    // Always auto-run: compliance is now deterministic & fast (no Gemini)
+    hasAutoRun.current = false;
   }
 
   useEffect(() => {
@@ -379,10 +362,6 @@ function ComplianceScreen({ selectedProject, setSelectedProject, projects, proje
         setLoads(data.loads || null);
         setGoverning(data.governing_combination || null);
         setLastResult(data);
-        // Persist compliance result to MongoDB so it survives page refresh
-        if (selectedProject) {
-          projectsApi.update(selectedProject, { compliance_cache: data }).catch(() => {});
-        }
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
@@ -406,11 +385,11 @@ function ComplianceScreen({ selectedProject, setSelectedProject, projects, proje
         const diags = data.diagnoses || [];
         setDiagnoses(diags);
         diagCacheRef.current[selectedProject] = diags;
-        setModalOpen(true);
-        // Persist diagnosis to MongoDB so it survives page refresh
+        // Persist diagnosis to MongoDB (best-effort)
         if (selectedProject) {
           projectsApi.update(selectedProject, { diagnosis_cache: diags }).catch(() => {});
         }
+        setModalOpen(true);
       })
       .catch(err => setError(err.message))
       .finally(() => setDiagLoading(false));
@@ -505,20 +484,6 @@ function ComplianceScreen({ selectedProject, setSelectedProject, projects, proje
               {(projects || []).length} total
             </span>
           </div>
-          <button
-            onClick={runCheck}
-            disabled={loading}
-            style={{
-              fontFamily: fonts.data, fontSize: 12, fontWeight: 600,
-              color: loading ? colors.textDim : "#0d1117",
-              background: loading ? colors.panel : colors.accent,
-              border: "none", borderRadius: radii.sm,
-              padding: "8px 20px", cursor: loading ? "not-allowed" : "pointer",
-              transition: "all 0.15s ease", letterSpacing: "0.04em",
-            }}
-          >
-            {loading ? "Evaluating..." : "Generate"}
-          </button>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", flex: 1, minHeight: 0, paddingRight: 4 }}>
             {(projects || []).length === 0 ? (
               <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim, padding: "20px 0", textAlign: "center" }}>
