@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { DEMO_PROJECT } from "../data/demoProject";
 
 /**
  * Shared project state across all Tier 1 screens.
@@ -116,10 +117,25 @@ export function ProjectProvider({ children }) {
   const [projectId, setProjectId] = useState(null);           // MongoDB _id after first save
   const [buildingContext, setBuildingContextRaw] = useState(DEFAULT_BUILDING_CONTEXT);
   const [savedSchedule, setSavedSchedule] = useState(null);   // persisted schedule from MongoDB
+  const [demoLoaded, setDemoLoaded] = useState(false);        // prevent double-load
 
   const setBuildingContext = useCallback((updates) => {
     setBuildingContextRaw((prev) => ({ ...prev, ...updates }));
   }, []);
+
+  /* Auto-load demo project on first mount so gallery visitors see a house immediately */
+  useEffect(() => {
+    if (demoLoaded) return;
+    setDemoLoaded(true);
+    const d = DEMO_PROJECT;
+    setProjectName(d.projectName);
+    setFloorPlanRaw(d.floorPlan);
+    setStoryPlansRaw(d.storyPlans);
+    setGenerateParams(d.generateParams);
+    setMaterials(d.materials);
+    setBuildingContextRaw({ ...DEFAULT_BUILDING_CONTEXT, ...d.buildingContext });
+    setMaxStep(5); // unlock all steps
+  }, [demoLoaded]);
 
   /* Reset entire project state for a clean "new project" flow */
   const resetProject = useCallback(() => {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { useUser } from "@clerk/clerk-react";
+// import { useUser } from "@clerk/clerk-react"; // DEMO MODE: Clerk disabled
 import { colors, fonts, radii } from "../../theme/tokens";
 import { projectsApi } from "../../services/api";
 import { useProject } from "../../hooks/useProjectStore";
@@ -927,7 +927,6 @@ function DeleteModal({ project, onClose, onConfirm }) {
 /* ── Main screen ── */
 export default function ProjectsScreen() {
   const navigate = useNavigate();
-  const { user } = useUser();
   const { setProjectName, setProjectId, setStoryPlans, setFloorPlan, setGenerateParams, resetProject, setBuildingContext, setMaterials, setSavedSchedule } = useProject();
 
   const [projects, setProjects] = useState([]);

@@ -28,8 +28,16 @@ class Settings(BaseSettings):
     aps_client_secret: str = ""
     materials_api_key: str = ""
     cesium_ion_token: str = ""
-    mongodb_uri: str = ""
-    mongodb_db: str = "vision"
+
+    @property
+    def mongodb_uri(self) -> str:
+        """Alias — routers that use mongodb_uri get the same value as mongodb_url."""
+        return self.mongodb_url
+
+    @property
+    def mongodb_db(self) -> str:
+        """Alias — routers that use mongodb_db get the same value as mongodb_db_name."""
+        return self.mongodb_db_name
 
     cors_origins: list[str] = [
         "http://localhost:5173",

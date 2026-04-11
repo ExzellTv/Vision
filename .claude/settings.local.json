@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vite:*)",
+      "Bash(python -c \"from app.main import app; print\\('OK'\\)\")",
+      "Bash(pip list:*)",
+      "Bash(npm install:*)",
+      "Bash(python -c \"import motor; print\\('motor OK'\\)\")",
+      "Bash(python -c \"import pymongo; print\\('pymongo OK'\\)\")",
+      "Bash(python -c \"import jose; print\\('jose OK'\\)\")",
+      "Bash(python -c \"import google.generativeai; print\\('genai OK'\\)\")",
+      "Bash(python -c \"import bson; print\\('bson OK'\\)\")",
+      "Bash(python -c \"from app.main import app; print\\('Backend OK - app loaded successfully'\\)\")",
+      "Bash(pip install:*)",
+      "Bash(python -c \"from app.config import settings; print\\('mongodb_uri:', settings.mongodb_uri\\); print\\('mongodb_db:', settings.mongodb_db\\)\")",
+      "Bash(python -m uvicorn app.main:app --host 0.0.0.0 --port 8000)",
+      "Bash(disown)",
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(curl -s http://localhost:8000/api/structural/sections)",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} sections loaded'\\)\")",
+      "Bash(curl -s http://localhost:8000/api/zoning/templates)",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} zoning templates loaded'\\)\")"
+    ]
+  }
+}

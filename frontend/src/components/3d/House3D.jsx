@@ -373,19 +373,67 @@ function HouseCSG({
   // Position house so bottom is at y=0 (lift by half totalHeight)
   const yOffset = totalHeight / 2;
 
-  // Glass material for windows
-  const glassMaterial = (
-    <meshPhysicalMaterial
-      color="#a8d8ff"
-      transparent
-      opacity={0.25}
-      roughness={0.05}
-      metalness={0.1}
-      transmission={0.95}
-      thickness={0.05}
-      side={THREE.DoubleSide}
-    />
-  );
+  // Window frame material — dark trim around window openings (no glass)
+  const winFrameColor = "#1a1a2e";
+  // Door frame material — wood-look trim
+  const doorFrameColor = "#3a2a1a";
+
+  /**
+   * Window frame — 4 outer beams + center mullion cross.
+   * `side` determines orientation: left/right walls have frames in the YZ plane,
+   * front/back (top/bottom/default) have frames in the XY plane.
+   */
+  const WindowFrame = ({ position, scale: s, side }) => {
+    const t = 0.03; // frame beam thickness
+    const w = s[0], h = s[1];
+    const isSide = side === "left" || side === "right";
+
+    // For front/back walls: frame lies in XY, thin in Z
+    // For left/right walls: frame lies in ZY, thin in X
+    const topBot = isSide ? [t, t, w + t * 2] : [w + t * 2, t, t];
+    const leftRight = isSide ? [t, h, t] : [t, h, t];
+    const crossH = isSide ? [t, 0.015, w] : [w, 0.015, t];
+    const crossV = isSide ? [t, h, 0.015] : [0.015, h, t];
+    // Side posts offset along the wide axis
+    const halfW = w / 2;
+    const lPos = isSide ? [0, 0, -halfW] : [-halfW, 0, 0];
+    const rPos = isSide ? [0, 0, halfW] : [halfW, 0, 0];
+
+    return (
+      <group position={position}>
+        <mesh position={[0, h / 2, 0]}><boxGeometry args={topBot} /><meshStandardMaterial color={winFrameColor} roughness={0.3} metalness={0.4} /></mesh>
+        <mesh position={[0, -h / 2, 0]}><boxGeometry args={topBot} /><meshStandardMaterial color={winFrameColor} roughness={0.3} metalness={0.4} /></mesh>
+        <mesh position={lPos}><boxGeometry args={leftRight} /><meshStandardMaterial color={winFrameColor} roughness={0.3} metalness={0.4} /></mesh>
+        <mesh position={rPos}><boxGeometry args={leftRight} /><meshStandardMaterial color={winFrameColor} roughness={0.3} metalness={0.4} /></mesh>
+        <mesh><boxGeometry args={crossH} /><meshStandardMaterial color={winFrameColor} roughness={0.3} metalness={0.4} /></mesh>
+        <mesh><boxGeometry args={crossV} /><meshStandardMaterial color={winFrameColor} roughness={0.3} metalness={0.4} /></mesh>
+      </group>
+    );
+  };
+
+  /**
+   * Door frame — 3 beams (top + two sides), no solid panel.
+   * `side` determines orientation like WindowFrame.
+   */
+  const DoorFrame = ({ position, scale: s, side }) => {
+    const t = 0.04;
+    const w = s[0] * 0.9, h = s[1] * 1.9;
+    const isSide = side === "left" || side === "right";
+
+    const topBar = isSide ? [t, t, w + t * 2] : [w + t * 2, t, t];
+    const sideBar = isSide ? [t, h, t] : [t, h, t];
+    const halfW = w / 2;
+    const lPos = isSide ? [0, 0, -halfW] : [-halfW, 0, 0];
+    const rPos = isSide ? [0, 0, halfW] : [halfW, 0, 0];
+
+    return (
+      <group position={position}>
+        <mesh position={[0, h / 2, 0]}><boxGeometry args={topBar} /><meshStandardMaterial color={doorFrameColor} roughness={0.5} metalness={0.1} /></mesh>
+        <mesh position={lPos}><boxGeometry args={sideBar} /><meshStandardMaterial color={doorFrameColor} roughness={0.5} metalness={0.1} /></mesh>
+        <mesh position={rPos}><boxGeometry args={sideBar} /><meshStandardMaterial color={doorFrameColor} roughness={0.5} metalness={0.1} /></mesh>
+      </group>
+    );
+  };
 
   return (
     <group {...props} position={[0, yOffset, 0]}>
@@ -533,156 +581,53 @@ function HouseCSG({
         <meshStandardMaterial color="#606060" roughness={0.9} />
       </mesh>
 
-      {/* Interactive mode: Floor plan windows with PivotControls */}
-      {interactive && showWindows && hasFloorPlanWindows && (
-        <>
-          {planWindows.map((win, idx) => {
-            const posKey = `planWindow_${idx}`;
-            const isSideWindow = win.side === 'left' || win.side === 'right';
-            const glassArgs = isSideWindow
-              ? [0.02, win.scale[1] * 0.9, win.scale[0] * 0.9]
-              : [win.scale[0] * 0.9, win.scale[1] * 0.9, 0.02];
-
-            return (
-              <group key={posKey} position={positions[posKey] || win.position}>
-                <PivotControls
-                  activeAxes={isSideWindow ? [false, true, true] : [true, true, false]}
-                  scale={0.4}
-                  depthTest={false}
-                  rotation={win.rotation || [0, 0, 0]}
-                  onDrag={createDragHandler(posKey)}
-                  onDragStart={handleDragStartLocal}
-                  onDragEnd={handleDragEndLocal}
-                >
-                  <mesh>
-                    <boxGeometry args={glassArgs} />
-                    {glassMaterial}
-                  </mesh>
-                </PivotControls>
-              </group>
-            );
-          })}
-        </>
-      )}
-
-      {/* Interactive mode: Default windows with PivotControls (no floor plan) */}
-      {interactive && showWindows && !hasFloorPlanWindows && (
-        <>
-          <group position={positions.frontLeftWindow || [-width * 0.25, totalHeight * 0.3, depth / 2]}>
-            <PivotControls activeAxes={[true, true, false]} scale={0.4} depthTest={false} onDrag={createDragHandler('frontLeftWindow')} onDragStart={handleDragStartLocal} onDragEnd={handleDragEndLocal}>
-              <mesh><boxGeometry args={[0.45, 0.55, 0.02]} />{glassMaterial}</mesh>
-            </PivotControls>
-          </group>
-          <group position={positions.frontRightWindow || [width * 0.25, totalHeight * 0.3, depth / 2]}>
-            <PivotControls activeAxes={[true, true, false]} scale={0.4} depthTest={false} onDrag={createDragHandler('frontRightWindow')} onDragStart={handleDragStartLocal} onDragEnd={handleDragEndLocal}>
-              <mesh><boxGeometry args={[0.45, 0.55, 0.02]} />{glassMaterial}</mesh>
-            </PivotControls>
-          </group>
-          <group position={positions.rightWindow || [width / 2, totalHeight * 0.3, 0]}>
-            <PivotControls activeAxes={[false, true, true]} scale={0.4} depthTest={false} rotation={[0, Math.PI / 2, 0]} onDrag={createDragHandler('rightWindow')} onDragStart={handleDragStartLocal} onDragEnd={handleDragEndLocal}>
-              <mesh><boxGeometry args={[0.02, 0.55, 0.45]} />{glassMaterial}</mesh>
-            </PivotControls>
-          </group>
-          <group position={positions.leftWindow || [-width / 2, totalHeight * 0.3, 0]}>
-            <PivotControls activeAxes={[false, true, true]} scale={0.4} depthTest={false} rotation={[0, -Math.PI / 2, 0]} onDrag={createDragHandler('leftWindow')} onDragStart={handleDragStartLocal} onDragEnd={handleDragEndLocal}>
-              <mesh><boxGeometry args={[0.02, 0.55, 0.45]} />{glassMaterial}</mesh>
-            </PivotControls>
-          </group>
-          {stories > 1 && (
-            <>
-              <group position={positions.upperLeftWindow || [-width * 0.25, totalHeight * 0.7, depth / 2]}>
-                <PivotControls activeAxes={[true, true, false]} scale={0.4} depthTest={false} onDrag={createDragHandler('upperLeftWindow')} onDragStart={handleDragStartLocal} onDragEnd={handleDragEndLocal}>
-                  <mesh><boxGeometry args={[0.45, 0.55, 0.02]} />{glassMaterial}</mesh>
-                </PivotControls>
-              </group>
-              <group position={positions.upperRightWindow || [width * 0.25, totalHeight * 0.7, depth / 2]}>
-                <PivotControls activeAxes={[true, true, false]} scale={0.4} depthTest={false} onDrag={createDragHandler('upperRightWindow')} onDragStart={handleDragStartLocal} onDragEnd={handleDragEndLocal}>
-                  <mesh><boxGeometry args={[0.45, 0.55, 0.02]} />{glassMaterial}</mesh>
-                </PivotControls>
-              </group>
-            </>
-          )}
-        </>
-      )}
-
-      {/* Interactive mode: Floor plan doors with PivotControls */}
-      {interactive && showDoor && hasFloorPlanDoors && (
-        <>
-          {planDoors.map((door, idx) => {
-            const posKey = `planDoor_${idx}`;
-            const pos = positions[posKey] || door.position;
-            return (
-              <group key={posKey} position={[pos[0], pos[1], pos[2] - 0.1]}>
-                <PivotControls activeAxes={[true, true, false]} scale={0.5} depthTest={false} onDrag={createDragHandler(posKey)} onDragStart={handleDragStartLocal} onDragEnd={handleDragEndLocal}>
-                  <mesh><boxGeometry args={[door.scale[0] * 0.9, door.scale[1] * 1.9, 0.05]} /><meshStandardMaterial color={doorColor} roughness={0.6} /></mesh>
-                </PivotControls>
-              </group>
-            );
-          })}
-        </>
-      )}
-
-      {/* Interactive mode: Default door (no floor plan) */}
-      {interactive && showDoor && !hasFloorPlanDoors && positions.door && (
-        <group position={[positions.door[0], positions.door[1], positions.door[2] - 0.1]}>
-          <PivotControls activeAxes={[true, true, false]} scale={0.5} depthTest={false} onDrag={createDragHandler('door')} onDragStart={handleDragStartLocal} onDragEnd={handleDragEndLocal}>
-            <mesh><boxGeometry args={[0.55, 1.35, 0.05]} /><meshStandardMaterial color={doorColor} roughness={0.6} /></mesh>
-          </PivotControls>
-        </group>
-      )}
-
-      {/* Non-interactive mode: Floor plan windows glass */}
-      {!interactive && showWindows && hasFloorPlanWindows && (
+      {/* ── Window frames (both modes — identical look) ── */}
+      {showWindows && hasFloorPlanWindows && (
         <group>
-          {planWindows.map((win, idx) => {
-            const isSideWindow = win.side === 'left' || win.side === 'right';
-            const glassArgs = isSideWindow
-              ? [0.02, win.scale[1] * 0.9, win.scale[0] * 0.9]
-              : [win.scale[0] * 0.9, win.scale[1] * 0.9, 0.02];
-            return (
-              <mesh key={`glass-${idx}`} position={win.position}>
-                <boxGeometry args={glassArgs} />
-                {glassMaterial}
-              </mesh>
-            );
-          })}
-        </group>
-      )}
-
-      {/* Non-interactive mode: Default windows glass (no floor plan) */}
-      {!interactive && showWindows && !hasFloorPlanWindows && (
-        <group>
-          <mesh position={[-width * 0.25, totalHeight * 0.3, depth / 2]}><boxGeometry args={[0.45, 0.55, 0.02]} />{glassMaterial}</mesh>
-          <mesh position={[width * 0.25, totalHeight * 0.3, depth / 2]}><boxGeometry args={[0.45, 0.55, 0.02]} />{glassMaterial}</mesh>
-          <mesh position={[width / 2, totalHeight * 0.3, 0]}><boxGeometry args={[0.02, 0.55, 0.45]} />{glassMaterial}</mesh>
-          <mesh position={[-width / 2, totalHeight * 0.3, 0]}><boxGeometry args={[0.02, 0.55, 0.45]} />{glassMaterial}</mesh>
-          {stories > 1 && (
-            <>
-              <mesh position={[-width * 0.25, totalHeight * 0.7, depth / 2]}><boxGeometry args={[0.45, 0.55, 0.02]} />{glassMaterial}</mesh>
-              <mesh position={[width * 0.25, totalHeight * 0.7, depth / 2]}><boxGeometry args={[0.45, 0.55, 0.02]} />{glassMaterial}</mesh>
-            </>
-          )}
-        </group>
-      )}
-
-      {/* Non-interactive door fill - floor plan doors */}
-      {!interactive && showDoor && hasFloorPlanDoors && (
-        <group>
-          {planDoors.map((door, idx) => (
-            <mesh key={`doorFill-${idx}`} position={[door.position[0], door.position[1], door.position[2] - 0.1]}>
-              <boxGeometry args={[door.scale[0] * 0.9, door.scale[1] * 1.9, 0.05]} />
-              <meshStandardMaterial color={doorColor} roughness={0.6} />
-            </mesh>
+          {planWindows.map((win, idx) => (
+            <WindowFrame
+              key={`wf-${idx}`}
+              position={positions[`planWindow_${idx}`] || win.position}
+              scale={win.scale}
+              side={win.side}
+            />
           ))}
         </group>
       )}
+      {showWindows && !hasFloorPlanWindows && (
+        <group>
+          <WindowFrame position={positions.frontLeftWindow || [-width * 0.25, totalHeight * 0.3, depth / 2]} scale={[0.5, 0.6, 0.25]} side="bottom" />
+          <WindowFrame position={positions.frontRightWindow || [width * 0.25, totalHeight * 0.3, depth / 2]} scale={[0.5, 0.6, 0.25]} side="bottom" />
+          <WindowFrame position={positions.rightWindow || [width / 2, totalHeight * 0.3, 0]} scale={[0.5, 0.6, 0.25]} side="right" />
+          <WindowFrame position={positions.leftWindow || [-width / 2, totalHeight * 0.3, 0]} scale={[0.5, 0.6, 0.25]} side="left" />
+          {stories > 1 && (
+            <>
+              <WindowFrame position={positions.upperLeftWindow || [-width * 0.25, totalHeight * 0.7, depth / 2]} scale={[0.5, 0.6, 0.25]} side="bottom" />
+              <WindowFrame position={positions.upperRightWindow || [width * 0.25, totalHeight * 0.7, depth / 2]} scale={[0.5, 0.6, 0.25]} side="bottom" />
+            </>
+          )}
+        </group>
+      )}
 
-      {/* Non-interactive door fill - default (no floor plan) */}
-      {!interactive && showDoor && !hasFloorPlanDoors && (
-        <mesh position={[0, -totalHeight * 0.2, depth / 2 - 0.1]}>
-          <boxGeometry args={[0.55, 1.35, 0.05]} />
-          <meshStandardMaterial color={doorColor} roughness={0.6} />
-        </mesh>
+      {/* ── Door frames (both modes — frame only, no solid panel) ── */}
+      {showDoor && hasFloorPlanDoors && (
+        <group>
+          {planDoors.map((door, idx) => (
+            <DoorFrame
+              key={`df-${idx}`}
+              position={positions[`planDoor_${idx}`] || door.position}
+              scale={door.scale}
+              side={door.side}
+            />
+          ))}
+        </group>
+      )}
+      {showDoor && !hasFloorPlanDoors && (
+        <DoorFrame
+          position={positions.door || [0, -totalHeight * 0.2, depth / 2]}
+          scale={[0.6, 0.7, 0.25]}
+          side="bottom"
+        />
       )}
     </group>
   );
@@ -1070,6 +1015,7 @@ export default function House3D({
       <Canvas
         shadows
         gl={{
+          preserveDrawingBuffer: true,
           antialias: true,
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: 1.2,

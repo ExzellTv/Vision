@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { colors, fonts } from "../../theme/tokens";
+import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
 import House3D from "../../components/3d/House3D";
+import { renderWithAI, RENDER_STYLES } from "../../lib/myArchitectAI";
 
 /**
  * House3DPreview - Modern 3D house preview screen
@@ -123,6 +124,44 @@ export default function House3DPreview() {
   const [showEnvironment, setShowEnvironment] = useState(true);
   const [editMode, setEditMode] = useState(false);
 
+  // Screenshot + AI render state
+  const viewportRef = useRef(null);
+  const [aiStyle, setAiStyle] = useState("modern exterior");
+  const [aiRendering, setAiRendering] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
+  const [aiError, setAiError] = useState(null);
+
+  const captureScreenshot = useCallback(() => {
+    const canvas = viewportRef.current?.querySelector("canvas");
+    if (!canvas) return null;
+    return canvas.toDataURL("image/png");
+  }, []);
+
+  const handleExportScreenshot = useCallback(() => {
+    const dataUrl = captureScreenshot();
+    if (!dataUrl) return;
+    const link = document.createElement("a");
+    link.download = "house-render.png";
+    link.href = dataUrl;
+    link.click();
+  }, [captureScreenshot]);
+
+  const handleAiRender = useCallback(async () => {
+    const screenshot = captureScreenshot();
+    if (!screenshot) return;
+    setAiRendering(true);
+    setAiError(null);
+    setAiResult(null);
+    try {
+      const result = await renderWithAI(screenshot, aiStyle);
+      setAiResult(result);
+    } catch (err) {
+      setAiError(err.message || "Render failed");
+    } finally {
+      setAiRendering(false);
+    }
+  }, [captureScreenshot, aiStyle]);
+
   // Get dimensions from floor plan (footprint dimensions, not lot dimensions)
   // footprintWidth and footprintDepth come from the actual placed rooms
   const width = project.footprintWidth || project.generateParams?.lotWidth || 40;
@@ -145,7 +184,7 @@ export default function House3DPreview() {
       }}
     >
       {/* 3D Viewport */}
-      <div style={{ flex: 1, position: "relative" }}>
+      <div ref={viewportRef} style={{ flex: 1, position: "relative" }}>
         <House3D
           width={width}
           depth={depth}
@@ -227,6 +266,27 @@ export default function House3DPreview() {
         >
           Drag to rotate • Scroll to zoom
         </div>
+
+        {/* Export Screenshot button */}
+        <button
+          onClick={handleExportScreenshot}
+          style={{
+            position: "absolute", top: 16, right: 16,
+            padding: "8px 14px",
+            background: "rgba(13,17,23,0.85)", backdropFilter: "blur(8px)",
+            border: `1px solid ${colors.cardBorder}`, borderRadius: 8,
+            color: "#fff", fontSize: 11, fontWeight: 600, fontFamily: fonts.label,
+            cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+            transition: "background 0.15s", zIndex: 10,
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = "rgba(13,17,23,0.95)"}
+          onMouseLeave={e => e.currentTarget.style.background = "rgba(13,17,23,0.85)"}
+        >
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+            <path d="M7 1v8M4 6l3 3 3-3M2 11h10" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Export Screenshot
+        </button>
       </div>
 
       {/* Right Sidebar - Controls */}
@@ -567,6 +627,111 @@ export default function House3DPreview() {
                 />
               ))}
             </div>
+          </div>
+
+          {/* AI Photorealistic Render */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{
+              fontSize: 11, fontWeight: 700, letterSpacing: "0.1em",
+              textTransform: "uppercase", color: colors.textDim, marginBottom: 8,
+            }}>
+              AI Render
+            </div>
+
+            {/* Style selector */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
+              {RENDER_STYLES.map(s => (
+                <button
+                  key={s.key}
+                  onClick={() => setAiStyle(s.key)}
+                  style={{
+                    padding: "4px 10px", borderRadius: 5,
+                    border: `1px solid ${aiStyle === s.key ? colors.accent : "#2a3548"}`,
+                    background: aiStyle === s.key ? `${colors.accent}15` : "transparent",
+                    color: aiStyle === s.key ? colors.accent : colors.textDim,
+                    fontSize: 10, fontWeight: 500, fontFamily: fonts.label, cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Generate button */}
+            <button
+              onClick={handleAiRender}
+              disabled={aiRendering}
+              style={{
+                width: "100%", padding: "10px 0",
+                background: aiRendering ? "#2a3548" : `linear-gradient(135deg, ${colors.accent}, #0099cc)`,
+                border: "none", borderRadius: 8,
+                color: aiRendering ? colors.textDim : "#000",
+                fontSize: 12, fontWeight: 700, fontFamily: fonts.label,
+                cursor: aiRendering ? "not-allowed" : "pointer",
+                transition: "box-shadow 0.2s",
+              }}
+              onMouseEnter={e => !aiRendering && (e.currentTarget.style.boxShadow = `0 4px 16px rgba(0,212,255,0.3)`)}
+              onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+            >
+              {aiRendering ? "Rendering..." : "Generate AI Render"}
+            </button>
+
+            {/* Error */}
+            {aiError && (
+              <div style={{
+                marginTop: 8, padding: "8px 12px", borderRadius: 6,
+                background: "rgba(255,71,87,0.1)", border: "1px solid rgba(255,71,87,0.25)",
+                fontSize: 11, color: colors.danger,
+              }}>
+                {aiError}
+                <button
+                  onClick={handleAiRender}
+                  style={{
+                    display: "block", marginTop: 6, padding: "4px 10px",
+                    background: "transparent", border: `1px solid ${colors.danger}`, borderRadius: 4,
+                    color: colors.danger, fontSize: 10, fontWeight: 600, cursor: "pointer",
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {/* Render result */}
+            {aiResult && (
+              <div style={{ marginTop: 8, borderRadius: 8, overflow: "hidden", border: "1px solid #2a3548" }}>
+                {aiResult.demo && (
+                  <div style={{
+                    padding: "4px 8px", background: "rgba(255,159,67,0.1)",
+                    borderBottom: "1px solid rgba(255,159,67,0.2)",
+                    fontSize: 9, color: colors.warn, fontWeight: 600, textAlign: "center",
+                  }}>
+                    DEMO — Set API key for real renders
+                  </div>
+                )}
+                <img
+                  src={aiResult.url}
+                  alt="AI Render"
+                  style={{
+                    width: "100%", height: "auto", display: "block",
+                    filter: aiResult.demo ? "saturate(1.2) contrast(1.05)" : "none",
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Loading skeleton */}
+            {aiRendering && (
+              <div style={{
+                marginTop: 8, height: 180, borderRadius: 8, overflow: "hidden",
+                background: `linear-gradient(110deg, #1a2233 8%, #1e2a3d 18%, #1a2233 33%)`,
+                backgroundSize: "200% 100%",
+                animation: "shimmer 1.5s infinite",
+              }}>
+                <style>{`@keyframes shimmer { to { background-position: -200% 0; } }`}</style>
+              </div>
+            )}
           </div>
 
           {/* Edit Mode Toggle */}

@@ -2273,7 +2273,15 @@ export default function FloorPlanEditor() {
         const rooms = editedRooms.length > 0 ? editedRooms : plan.rooms;
         // Recalculate totalSF from actual room dimensions so the saved value stays accurate
         const totalSF = rooms.reduce((s, r) => s + (r.w || 0) * (r.h || 0), 0) || plan.totalSF;
-        return { ...plan, rooms, totalSF, placed_items: allItems, doors: [], windows: [] };
+        // Compute tight bounding box from actual rooms for accurate 3D correlation
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        rooms.forEach((r) => {
+          minX = Math.min(minX, r.x); maxX = Math.max(maxX, r.x + (r.w || 0));
+          minY = Math.min(minY, r.y); maxY = Math.max(maxY, r.y + (r.h || 0));
+        });
+        const bboxW = rooms.length > 0 ? Math.round((maxX - minX) * 10) / 10 : plan.width;
+        const bboxD = rooms.length > 0 ? Math.round((maxY - minY) * 10) / 10 : plan.depth;
+        return { ...plan, rooms, totalSF, placed_items: allItems, width: bboxW, depth: bboxD, doors: plan.doors || [], windows: plan.windows || [] };
       })
       .filter(Boolean);
 
@@ -2283,8 +2291,8 @@ export default function FloorPlanEditor() {
 
     // Update building context for structural intelligence
     const fp = storyPlans[0];
-    const fpWidth = fp?.width || params.lotWidth || 44;
-    const fpDepth = fp?.depth || params.lotDepth || 50;
+    const fpWidth = fp?.width || 44;
+    const fpDepth = fp?.depth || 50;
     const spanFt = Math.min(fpWidth, fpDepth, 24);
     const numStories = storyPlans.length || params.stories || 2;
     // Sum SF across all stories (not story-1 × count) so multi-storey projects are correct

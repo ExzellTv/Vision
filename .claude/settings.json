@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -X POST http://localhost:8000/api/floorplan/generate -H \"Content-Type: application/json\" -d '{\"targetSF\":2200,\"bedrooms\":3,\"bathrooms\":2,\"stories\":1,\"style\":\"Ranch\",\"garage\":\"2-car\",\"openFloorPlan\":true,\"lotWidth\":60,\"lotDepth\":120}')",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d.get\\(\\\\\"variants\\\\\",[]\\)\\)} variants generated, {len\\(d[\\\\\"variants\\\\\"][0].get\\(\\\\\"rooms\\\\\",[]\\)\\)} rooms in first variant'\\)\")",
+      "Bash(curl -s -X POST http://localhost:8000/api/structural/analyze -H \"Content-Type: application/json\" -d '{\"span_ft\":24,\"stories\":1,\"dead_load_psf\":85,\"live_load_psf\":100,\"snow_load_psf\":5,\"section\":\"W14x22\"}')",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'Structural OK: SCI={d.get\\(\\\\\"sci_score\\\\\",\\\\\"?\\\\\"\\)}, section={d.get\\(\\\\\"section\\\\\",\\\\\"?\\\\\"\\)}, status={d.get\\(\\\\\"status\\\\\",\\\\\"?\\\\\"\\)}'\\)\")",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:d[k] for k in ['governing_case','max_moment_kft','max_shear_k','max_deflection_in','status_summary'] if k in d}, indent=2\\)\\)\")",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(list\\(d.keys\\(\\)\\)[:10]\\)\")",
+      "Bash(curl -s -X POST http://localhost:8000/api/structural/analyze -H \"Content-Type: application/json\" -d '{\"span_ft\":24,\"stories\":1,\"dead_load_psf\":85,\"live_load_psf\":100,\"snow_load_psf\":5,\"section_designation\":\"W14x22\",\"foundation_type\":\"slab_on_grade\"}')",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'SCI={d.get\\(\\\\\"sci_score\\\\\"\\)}, governing={d.get\\(\\\\\"governing_case\\\\\"\\)}, checks_pass={d.get\\(\\\\\"all_checks_pass\\\\\"\\)}'\\)\")",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(f'{k}: {v}'\\) for k,v in list\\(d.items\\(\\)\\)[:8]]\")",
+      "Bash(taskkill /F /IM uvicorn.exe)",
+      "Bash(taskkill /F /IM python.exe /FI \"WINDOWTITLE eq *uvicorn*\")",
+      "Bash(start //B python -m uvicorn app.main:app --host 0.0.0.0 --port 8000)",
+      "Bash(start //B npx vite --host 0.0.0.0 --port 5173)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "Bash(python -c ':*)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(curl -s http://localhost:8000/api/projects)",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} projects, first: {d[0][\\\\\"name\\\\\"] if d else \\\\\"none\\\\\"}'\\)\")",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(curl -s -o /dev/null -w \"Frontend: %{http_code}\" http://localhost:5173)",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} projects'\\); [print\\(f'  - {p[\\\\\"name\\\\\"]}'\\) for p in d[:5]]\")",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} projects'\\); print\\(d[0]['name'] if d else 'none'\\)\")",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(type\\(d\\).__name__, len\\(d\\)\\); print\\(json.dumps\\(d, default=str\\)[:300]\\)\")"
+    ]
+  }
+}

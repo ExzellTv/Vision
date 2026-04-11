@@ -16,8 +16,8 @@ from app.mongodb import get_db
 
 router = APIRouter()
 
-# JSON files sit two directories above this file (repo root)
-REPO_ROOT         = Path(__file__).parent.parent.parent
+# JSON files sit in the repo root (three directories above this file)
+REPO_ROOT         = Path(__file__).resolve().parent.parent.parent.parent
 COMPARABLES_FILE  = REPO_ROOT / "Comparables (1).json"
 LAND_FILE         = REPO_ROOT / "Dallas Land Data.json"
 

@@ -1,6 +1,26 @@
 import { useState } from "react";
-import { useUser, useClerk } from "@clerk/clerk-react";
 import { colors, fonts, radii } from "../../theme/tokens";
+
+// DEMO MODE: Mock user when Clerk is unavailable
+const DEMO_USER = {
+  fullName: "Demo User",
+  firstName: "Demo",
+  lastName: "User",
+  username: "demo_vision",
+  primaryEmailAddress: { emailAddress: "demo@vision.app" },
+  createdAt: new Date("2025-01-15").toISOString(),
+  imageUrl: null,
+  passwordEnabled: true,
+  twoFactorEnabled: false,
+  externalAccounts: [
+    { id: "google-1", provider: "google", emailAddress: "demo@gmail.com" },
+  ],
+};
+
+// In demo mode (no Clerk), just return null
+function useClerkSafe() {
+  return { user: null, clerk: null };
+}
 
 // ── Reusable row inside a card ────────────────────────────────────────────
 
@@ -425,12 +445,14 @@ const TABS = [
 ];
 
 export default function SettingsScreen() {
-  const { user } = useUser();
-  const clerk = useClerk();
+  const { user: clerkUser, clerk } = useClerkSafe();
+  const user = clerkUser || DEMO_USER;
   const [tab, setTab] = useState("profile");
 
   function openManage() {
-    clerk.openUserProfile();
+    if (clerk?.openUserProfile) {
+      clerk.openUserProfile();
+    }
   }
 
   return (

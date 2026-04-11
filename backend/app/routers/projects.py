@@ -13,7 +13,16 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.auth import require_user, get_user_id
+from app.auth import require_user, optional_user, get_user_id
+
+DEMO_USER_ID = "demo_gallery"
+
+
+def _resolve_user_id(user: dict | None) -> str:
+    """Return real Clerk user ID, or demo fallback when unauthenticated."""
+    if user is None:
+        return DEMO_USER_ID
+    return get_user_id(user)
 from app.mongodb import get_db
 
 router = APIRouter()
@@ -63,11 +72,11 @@ class ProjectUpdate(BaseModel):
 
 @router.get("")
 async def list_projects(
-    user: dict = Depends(require_user),
+    user: dict | None = Depends(optional_user),
     db=Depends(get_db),
 ) -> list[dict]:
     """List all projects belonging to the current user."""
-    user_id = get_user_id(user)
+    user_id = _resolve_user_id(user)
     cursor = db.projects.find({"user_id": user_id}).sort("updated_at", -1)
     docs = await cursor.to_list(200)
     return [_to_json(d) for d in docs]
@@ -76,11 +85,11 @@ async def list_projects(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_project(
     body: ProjectCreate,
-    user: dict = Depends(require_user),
+    user: dict | None = Depends(optional_user),
     db=Depends(get_db),
 ) -> dict:
     """Create a new project for the current user."""
-    user_id = get_user_id(user)
+    user_id = _resolve_user_id(user)
     now = datetime.now(timezone.utc)
     doc = {
         "user_id": user_id,
@@ -103,7 +112,7 @@ async def create_project(
 @router.get("/{project_id}")
 async def get_project(
     project_id: str,
-    user: dict = Depends(require_user),
+    user: dict | None = Depends(optional_user),
     db=Depends(get_db),
 ) -> dict:
     """Get a single project (must belong to current user)."""
@@ -112,7 +121,7 @@ async def get_project(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid project ID")
 
-    user_id = get_user_id(user)
+    user_id = _resolve_user_id(user)
     doc = await db.projects.find_one({"_id": oid, "user_id": user_id})
     if doc is None:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -123,7 +132,7 @@ async def get_project(
 async def update_project(
     project_id: str,
     body: ProjectUpdate,
-    user: dict = Depends(require_user),
+    user: dict | None = Depends(optional_user),
     db=Depends(get_db),
 ) -> dict:
     """Partial-update a project."""
@@ -132,7 +141,7 @@ async def update_project(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid project ID")
 
-    user_id = get_user_id(user)
+    user_id = _resolve_user_id(user)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     updates["updated_at"] = datetime.now(timezone.utc)
 
@@ -149,7 +158,7 @@ async def update_project(
 @router.delete("/{project_id}", status_code=status.HTTP_200_OK)
 async def delete_project(
     project_id: str,
-    user: dict = Depends(require_user),
+    user: dict | None = Depends(optional_user),
     db=Depends(get_db),
 ) -> dict:
     """Delete a project."""
@@ -158,7 +167,7 @@ async def delete_project(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid project ID")
 
-    user_id = get_user_id(user)
+    user_id = _resolve_user_id(user)
     result = await db.projects.delete_one({"_id": oid, "user_id": user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Project not found")

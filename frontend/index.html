@@ -15,10 +15,40 @@
         background: #0d1117;
         color: #c8d0e0;
         -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      /* Scrollbar styling */
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(42,53,72,0.6); border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(42,53,72,0.9); }
+      /* Selection */
+      ::selection { background: rgba(0,212,255,0.2); color: #f0f6ff; }
+      /* Animations */
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(4px); }
+        to   { opacity: 1; transform: translateY(0); }
       }
       @keyframes fpToastIn {
         from { opacity: 0; transform: translateX(-50%) translateY(6px); }
         to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+      @keyframes slideIn {
+        from { opacity: 0; transform: translateX(-8px); }
+        to   { opacity: 1; transform: translateX(0); }
+      }
+      /* Focus styles */
+      button:focus-visible, input:focus-visible, select:focus-visible {
+        outline: 2px solid rgba(0,212,255,0.5);
+        outline-offset: 2px;
+      }
+      /* Smooth transitions on inputs */
+      input, select, textarea {
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
       }
     </style>
   </head>

@@ -18,6 +18,7 @@ import SettingsScreen from "./screens/Settings/SettingsScreen";
 import Browse from "./screens/Browse/Browse";
 import Chat from "./screens/Chat/Chat";
 import House3DPreview from "./screens/House3DPreview/House3DPreview";
+// HouseViewer merged into House3DPreview — no separate route needed
 
 /* Auth guard — DISABLED FOR DEMO — shows login when signed out, renders child routes when signed in */
 // function AuthGuard() {
