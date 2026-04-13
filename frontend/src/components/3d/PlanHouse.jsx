@@ -34,7 +34,7 @@ function coerceAndValidate(rawPlan) {
   return result.success ? result.data : coerced;
 }
 
-export default function PlanHouse({ plan, stories, wallColor, roofColor }) {
+export default function PlanHouse({ plan, stories, wallColor, roofColor, showRoof = true }) {
   // Normalize into an array of valid story plans. `stories` wins if provided.
   const validStories = useMemo(() => {
     const raw = Array.isArray(stories) && stories.length > 0 ? stories : (plan ? [plan] : []);
@@ -50,14 +50,14 @@ export default function PlanHouse({ plan, stories, wallColor, roofColor }) {
 
     return validStories.map((story, i) => {
       const nextStory = i < top ? validStories[i + 1] : null;
-      const partialRoofRects = nextStory
+      const partialRoofRects = (showRoof && nextStory)
         ? computeUncoveredByUpperStory(story.rooms, nextStory.rooms)
         : null;
 
       try {
         return buildHouseGeometry(story, {
           includeFoundation: i === 0,
-          includeRoof: i === top,
+          includeRoof: showRoof && i === top,
           partialRoofRects,
           sharedCenter,
           wallColor,
@@ -68,7 +68,7 @@ export default function PlanHouse({ plan, stories, wallColor, roofColor }) {
         return [];
       }
     });
-  }, [validStories, wallColor, roofColor]);
+  }, [validStories, wallColor, roofColor, showRoof]);
 
   // Dispose geometry on plan change / unmount to avoid GPU memory leaks.
   useEffect(() => {

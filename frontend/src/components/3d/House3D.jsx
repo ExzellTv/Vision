@@ -819,6 +819,7 @@ function Scene({
           stories={houseProps.storyPlans}
           wallColor={houseProps.wallColor}
           roofColor={houseProps.roofColor}
+          showRoof={houseProps.showRoof}
         />
       ) : (
         <HouseCSG {...houseProps} />
@@ -1101,6 +1102,7 @@ export default function House3D({
     // array when available; floorPlan is the single active story.
     floorPlan,
     storyPlans,
+    showRoof,
   };
 
   return (

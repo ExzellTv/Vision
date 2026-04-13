@@ -686,134 +686,244 @@ function generateWindowsForRoom(room, width, depth) {
   return wins;
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Style-based floor plan helpers
+// Each builder fills a mainW × depth rectangle.  No gaps, no overlaps.
+// ─────────────────────────────────────────────────────────────────
+
+/** Ranch: wide footprint, open kitchen/living up front, bedroom wing back. */
+function _buildRanch(rooms, W, D, beds, baths) {
+  const frontH = Math.round(D * 0.44);
+  const backH  = D - frontH;
+  const grW    = Math.round(W * 0.52);
+  const kitW   = W - grW;
+  const kitH   = Math.round(frontH * 0.6);
+  rooms.push({ type: "living",  label: "Great Room",  x: 0,   y: 0,    w: grW,  h: frontH });
+  rooms.push({ type: "kitchen", label: "Kitchen",     x: grW, y: 0,    w: kitW, h: kitH   });
+  rooms.push({ type: "dining",  label: "Dining Room", x: grW, y: kitH, w: kitW, h: frontH - kitH });
+  _bedroomWing(rooms, W, D, frontH, backH, beds, baths);
+}
+
+/** Craftsman: entry/mudroom + great room + kitchen nook, bedroom wing back. */
+function _buildCraftsman(rooms, W, D, beds, baths) {
+  const frontH  = Math.round(D * 0.42);
+  const backH   = D - frontH;
+  const entryW  = Math.min(8, Math.max(5, Math.round(W * 0.13)));
+  const grW     = Math.round((W - entryW) * 0.56);
+  const kitW    = W - entryW - grW;
+  const kitH    = Math.round(frontH * 0.62);
+  rooms.push({ type: "entry",   label: "Mudroom",      x: 0,             y: 0,    w: entryW, h: frontH });
+  rooms.push({ type: "living",  label: "Great Room",   x: entryW,        y: 0,    w: grW,    h: frontH });
+  rooms.push({ type: "kitchen", label: "Kitchen",      x: entryW + grW,  y: 0,    w: kitW,   h: kitH   });
+  rooms.push({ type: "dining",  label: "Breakfast Nook", x: entryW + grW, y: kitH, w: kitW,  h: frontH - kitH });
+  _bedroomWing(rooms, W, D, frontH, backH, beds, baths);
+}
+
+/** Colonial: formal front + kitchen/family middle + bedroom wing back. */
+function _buildColonial(rooms, W, D, beds, baths) {
+  const frontH = Math.round(D * 0.26);
+  const midH   = Math.round(D * 0.36);
+  const backH  = D - frontH - midH;
+  const foyerW = Math.min(8, Math.round(W * 0.13));
+  const flivW  = Math.round((W - foyerW) * 0.54);
+  const fdingW = W - foyerW - flivW;
+  rooms.push({ type: "entry",   label: "Foyer",         x: 0,               y: 0, w: foyerW, h: frontH });
+  rooms.push({ type: "living",  label: "Formal Living", x: foyerW,          y: 0, w: flivW,  h: frontH });
+  rooms.push({ type: "dining",  label: "Formal Dining", x: foyerW + flivW,  y: 0, w: fdingW, h: frontH });
+  const kitW = Math.round(W * 0.44);
+  rooms.push({ type: "kitchen", label: "Kitchen",     x: 0,    y: frontH, w: kitW,     h: midH });
+  rooms.push({ type: "living",  label: "Family Room", x: kitW, y: frontH, w: W - kitW, h: midH });
+  _bedroomWing(rooms, W, D, frontH + midH, backH, beds, baths);
+}
+
+/** Modern: open-concept left zone (living/kitchen/dining), bedroom corridor right. */
+function _buildModern(rooms, W, D, beds, baths) {
+  const openW = Math.round(W * 0.5);
+  const bedW  = W - openW;
+  const livH  = Math.round(D * 0.44);
+  const kitH  = Math.round(D * 0.31);
+  const dinH  = D - livH - kitH;
+  rooms.push({ type: "living",  label: "Living Room", x: 0, y: 0,            w: openW, h: livH });
+  rooms.push({ type: "kitchen", label: "Kitchen",     x: 0, y: livH,         w: openW, h: kitH });
+  rooms.push({ type: "dining",  label: "Dining",      x: 0, y: livH + kitH,  w: openW, h: dinH });
+  _bedroomColumn(rooms, openW, 0, bedW, D, beds, baths);
+}
+
+/** Mediterranean: hallway spine, living core left, bedroom corridor right. */
+function _buildMediterranean(rooms, W, D, beds, baths) {
+  const hallW  = Math.max(4, Math.round(W * 0.08));
+  const hallX  = Math.round(W * 0.45);
+  const leftW  = hallX;
+  const rightX = hallX + hallW;
+  const rightW = W - rightX;
+  rooms.push({ type: "hallway", label: "Hall", x: hallX, y: 0, w: hallW, h: D,
+    bearing: [true, false, true, false] });
+  const kitH  = Math.round(D * 0.32);
+  const livH  = Math.round(D * 0.40);
+  const dinH  = D - kitH - livH;
+  rooms.push({ type: "kitchen", label: "Kitchen",     x: 0, y: 0,          w: leftW, h: kitH });
+  rooms.push({ type: "living",  label: "Living Room", x: 0, y: kitH,       w: leftW, h: livH });
+  rooms.push({ type: "dining",  label: "Dining Room", x: 0, y: kitH + livH, w: leftW, h: dinH });
+  _bedroomColumn(rooms, rightX, 0, rightW, D, beds, baths);
+}
+
 /**
- * Generate a tile-perfect floor plan with zero gaps and zero overlaps.
- * The layout scales proportionally to the requested square footage.
+ * Bedroom wing — horizontal back strip used by Ranch / Craftsman / Colonial.
+ * Master suite on the left, hallway in the center, secondary rooms on the right.
+ */
+function _bedroomWing(rooms, totalW, totalD, startY, wingH, beds, baths) {
+  const masterW      = Math.round(totalW * 0.38);
+  const hallW        = Math.max(3, Math.min(5, Math.round(totalW * 0.07)));
+  const rightW       = totalW - masterW - hallW;
+  const rightX       = masterW + hallW;
+  const masterBedH   = Math.round(wingH * 0.65);
+  const masterSuiteH = wingH - masterBedH;
+  rooms.push({ type: "bedroom",  label: "Master Bedroom",  x: 0,       y: startY,               w: masterW, h: masterBedH   });
+  const closetW = Math.round(masterW * 0.5);
+  const mbathW  = masterW - closetW;
+  rooms.push({ type: "closet",   label: "Walk-in Closet",  x: 0,       y: startY + masterBedH,  w: closetW, h: masterSuiteH });
+  rooms.push({ type: "bathroom", label: "Master Bath",     x: closetW, y: startY + masterBedH,  w: mbathW,  h: masterSuiteH });
+  rooms.push({ type: "hallway",  label: "Hallway", x: masterW, y: startY, w: hallW, h: wingH });
+  _placeSecondaryRooms(rooms, rightX, startY, rightW, wingH, Math.max(0, beds - 1), Math.max(0, baths - 1));
+}
+
+/**
+ * Bedroom column — vertical strip used by Modern / Mediterranean.
+ * Master suite at the top, hallway break, secondary rooms below.
+ */
+function _bedroomColumn(rooms, startX, startY, colW, colH, beds, baths) {
+  const masterH      = Math.round(colH * 0.42);
+  const masterBedH   = Math.round(masterH * 0.65);
+  const masterSuiteH = masterH - masterBedH;
+  rooms.push({ type: "bedroom",  label: "Master Bedroom", x: startX,           y: startY,               w: colW,      h: masterBedH   });
+  const closetW = Math.round(colW * 0.45);
+  const mbathW  = colW - closetW;
+  rooms.push({ type: "closet",   label: "Walk-in Closet", x: startX,           y: startY + masterBedH,  w: closetW,   h: masterSuiteH });
+  rooms.push({ type: "bathroom", label: "Master Bath",    x: startX + closetW, y: startY + masterBedH,  w: mbathW,    h: masterSuiteH });
+  const hallH     = Math.max(3, Math.min(5, Math.round(colH * 0.06)));
+  const secStartY = startY + masterH + hallH;
+  const secH      = colH - masterH - hallH;
+  rooms.push({ type: "hallway", label: "Hall", x: startX, y: startY + masterH, w: colW, h: hallH,
+    bearing: [false, true, false, true] });
+  _placeSecondaryRooms(rooms, startX, secStartY, colW, secH, Math.max(0, beds - 1), Math.max(0, baths - 1));
+}
+
+/**
+ * Fill a rectangle with secondary bedrooms, shared bathrooms, and laundry.
+ * Uses two columns when the zone is wide enough and rooms would be cramped
+ * in a single stack.
+ */
+function _placeSecondaryRooms(rooms, x, y, w, h, secBeds, secBaths) {
+  if (secBeds === 0 && secBaths === 0) {
+    rooms.push({ type: "laundry", label: "Laundry", x, y, w, h });
+    return;
+  }
+  const totalItems  = secBeds + secBaths + 1; // +1 for laundry
+  const singleColH  = h / totalItems;
+  const useTwoCols  = w >= 18 && singleColH < 9 && secBeds > 1;
+
+  if (useTwoCols) {
+    const bedColW  = Math.round(w * 0.58);
+    const utilColW = w - bedColW;
+    // Left: secondary bedrooms stacked evenly
+    if (secBeds > 0) {
+      const bedH = Math.round(h / secBeds);
+      for (let i = 0; i < secBeds; i++) {
+        const slotH = i === secBeds - 1 ? (y + h) - (y + i * bedH) : bedH;
+        rooms.push({ type: "bedroom", label: `Bedroom ${i + 2}`, x, y: y + i * bedH, w: bedColW, h: slotH });
+      }
+    }
+    // Right: baths + laundry
+    const utilItems = [];
+    for (let i = 0; i < secBaths; i++) {
+      utilItems.push({ type: "bathroom", label: secBaths === 1 ? "Bathroom" : `Bath ${i + 2}`, weight: 1 });
+    }
+    utilItems.push({ type: "laundry", label: "Laundry", weight: 0.75 });
+    const totalWt = utilItems.reduce((s, it) => s + it.weight, 0);
+    let curY = y;
+    utilItems.forEach((item, idx) => {
+      const itemH = idx === utilItems.length - 1 ? (y + h) - curY : Math.round((item.weight / totalWt) * h);
+      rooms.push({ type: item.type, label: item.label, x: x + bedColW, y: curY, w: utilColW, h: itemH });
+      curY += itemH;
+    });
+  } else {
+    // Single column — interleave bed/bath pairs, laundry at bottom
+    const items = [];
+    const bedsQ  = Array.from({ length: secBeds },  (_, i) => ({ type: "bedroom",  label: `Bedroom ${i + 2}`, weight: 1.5 }));
+    const bathsQ = Array.from({ length: secBaths }, (_, i) => ({ type: "bathroom", label: secBaths <= 1 ? "Bathroom" : `Bath ${i + 2}`, weight: 0.85 }));
+    const maxLen = Math.max(bedsQ.length, bathsQ.length);
+    for (let i = 0; i < maxLen; i++) {
+      if (i < bedsQ.length)  items.push(bedsQ[i]);
+      if (i < bathsQ.length) items.push(bathsQ[i]);
+    }
+    items.push({ type: "laundry", label: "Laundry", weight: 0.75 });
+    const totalWt = items.reduce((s, it) => s + it.weight, 0);
+    let curY = y;
+    items.forEach((item, idx) => {
+      const itemH = idx === items.length - 1
+        ? (y + h) - curY
+        : Math.max(6, Math.round((item.weight / totalWt) * h));
+      rooms.push({ type: item.type, label: item.label, x, y: curY, w, h: itemH });
+      curY += itemH;
+    });
+  }
+}
+
+/**
+ * Generate a tile-perfect floor plan from user preferences.
+ * Style drives the room arrangement; bedrooms/bathrooms are distributed
+ * proportionally so each gets adequate space.
  * Every cell in the bounding box is covered by exactly one room.
  */
 function generateLocalFloorPlan(params) {
   const { targetSF, bedrooms, bathrooms, stories, style, garage } = params;
-
   const storyArea = Math.round(targetSF / (stories || 1));
 
-  // Compute footprint — maintain ~1.5:1 aspect ratio
-  const ratio = 1.5;
-  const rawD = Math.round(Math.sqrt(storyArea / ratio));
-  const rawW = Math.round(storyArea / rawD);
-  // Adjust so W * D == storyArea exactly
-  const depth = rawD;
-  const width = Math.round(storyArea / depth);
+  // Style-specific aspect ratio (width : depth)
+  const ASPECT = { Ranch: 1.75, Colonial: 1.15, Modern: 1.35, Craftsman: 1.5, Mediterranean: 1.05 };
+  const ratio = ASPECT[style] || 1.5;
+  const depth = Math.max(20, Math.round(Math.sqrt(storyArea / ratio)));
+  const width = Math.max(20, Math.round(storyArea / depth));
 
   const hasGarage = garage && garage !== "None" && garage !== "Detached";
-  const garageW = hasGarage ? Math.min(20, Math.round(width * 0.33)) : 0;
-  const mainW = width - garageW;
+  const garageW   = hasGarage ? Math.min(24, Math.max(14, Math.round(width * 0.28))) : 0;
+  const mainW     = width - garageW;
 
-  // ── Proportional room sizing (fills 100% of footprint) ──
   const rooms = [];
 
-  // Front row height = ~50% of depth
-  const frontH = Math.round(depth * 0.5);
-  const backH = depth - frontH;
+  // Dispatch to style-specific layout builder
+  switch (style) {
+    case "Colonial":      _buildColonial(rooms, mainW, depth, bedrooms, bathrooms);     break;
+    case "Modern":        _buildModern(rooms, mainW, depth, bedrooms, bathrooms);       break;
+    case "Mediterranean": _buildMediterranean(rooms, mainW, depth, bedrooms, bathrooms); break;
+    case "Craftsman":     _buildCraftsman(rooms, mainW, depth, bedrooms, bathrooms);    break;
+    default:              _buildRanch(rooms, mainW, depth, bedrooms, bathrooms);        break;
+  }
 
-  // Front-left: Great Room
-  const grW = Math.round(mainW * 0.5);
-  rooms.push({ type: "living", label: "Great Room", x: 0, y: 0, w: grW, h: frontH });
-
-  // Front-center: Kitchen + Entry stacked on left, Dining + Powder on right
-  const centerW = mainW - grW;
-  const entryW = Math.min(6, Math.max(4, Math.round(centerW * 0.3)));
-  const kitW = centerW - entryW;
-  const kitH = Math.round(frontH * 0.6);
-  const dinH = frontH - kitH;
-  const entryH = Math.round(frontH * 0.5);
-  const pwdrH = frontH - entryH;
-  rooms.push({ type: "kitchen", label: "Kitchen", x: grW, y: 0, w: kitW, h: kitH });
-  rooms.push({ type: "dining", label: "Dining Room", x: grW, y: kitH, w: kitW, h: dinH });
-  rooms.push({ type: "entry", label: "Entry", x: grW + kitW, y: 0, w: entryW, h: entryH });
-  rooms.push({ type: "bathroom", label: "Powder Room", x: grW + kitW, y: entryH, w: entryW, h: pwdrH });
-
-  // Front-right: Garage (if attached)
+  // Attached garage: front bay + office/storage behind
   if (hasGarage) {
-    rooms.push({ type: "garage", label: garage === "3-car" ? "3-Car Garage" : "2-Car Garage", x: mainW, y: 0, w: garageW, h: frontH });
+    const gFrontH = Math.round(depth * 0.5);
+    rooms.push({ type: "garage", label: garage === "3-car" ? "3-Car Garage" : "2-Car Garage",
+      x: mainW, y: 0,         w: garageW, h: gFrontH          });
+    rooms.push({ type: "office", label: "Home Office",
+      x: mainW, y: gFrontH,   w: garageW, h: depth - gFrontH  });
   }
 
-  // ── Back row: Master + Hallway + Bedrooms + Baths ──
-  const masterW = Math.round(mainW * 0.38);
-  const hallW = 4;
-  const rightW = mainW - masterW - hallW;
-
-  // Master suite
-  const masterBedH = Math.round(backH * 0.7);
-  const masterBathH = backH - masterBedH;
-  rooms.push({ type: "bedroom", label: "Master Bedroom", x: 0, y: frontH, w: masterW, h: masterBedH });
-
-  // Master bath + closet
-  const closetW = Math.round(masterW * 0.55);
-  const mbathW = masterW - closetW;
-  rooms.push({ type: "closet", label: "Walk-in Closet", x: 0, y: frontH + masterBedH, w: closetW, h: masterBathH });
-  rooms.push({ type: "bathroom", label: "Master Bath", x: closetW, y: frontH + masterBedH, w: mbathW, h: masterBathH });
-
-  // Center hallway
-  rooms.push({ type: "hallway", label: "Hallway", x: masterW, y: frontH, w: hallW, h: backH });
-
-  // Right side: bedrooms + utility rooms
-  const rightX = masterW + hallW;
-  const extraBeds = Math.max(1, bedrooms - 1); // master already placed
-  const extraBaths = Math.max(1, bathrooms - 1.5); // master bath + powder already placed
-  const totalRightSlots = extraBeds + Math.ceil(extraBaths);
-
-  // Split right zone into bedroom column + utility column
-  const bedColW = Math.round(rightW * 0.55);
-  const utilColW = rightW - bedColW;
-
-  // Bedrooms stacked in left column
-  const bedSlotH = Math.round(backH / Math.max(1, extraBeds));
-  for (let i = 0; i < extraBeds; i++) {
-    const slotY = frontH + i * bedSlotH;
-    const slotH = i === extraBeds - 1 ? (depth - slotY) : bedSlotH; // last one fills remainder
-    rooms.push({ type: "bedroom", label: `Bedroom ${i + 2}`, x: rightX, y: slotY, w: bedColW, h: slotH });
-  }
-
-  // Utility column: bathroom + laundry (or office)
-  const utilX = rightX + bedColW;
-  const bathH = Math.round(backH * 0.5);
-  const utilH = backH - bathH;
-  rooms.push({ type: "bathroom", label: "Bathroom", x: utilX, y: frontH, w: utilColW, h: bathH });
-  rooms.push({ type: "laundry", label: "Laundry", x: utilX, y: frontH + bathH, w: utilColW, h: utilH });
-
-  // If garage is attached, fill the back-right behind it
-  if (hasGarage) {
-    rooms.push({ type: "office", label: "Home Office", x: mainW, y: frontH, w: garageW, h: backH });
-  }
-
-  // Detached garage
+  // Detached garage sits off to the side of the main footprint
   if (garage === "Detached") {
-    rooms.push({ type: "garage", label: "Detached Garage", x: width + 8, y: 0, w: 22, h: 22, bearing: [true, true, true, true] });
+    rooms.push({ type: "garage", label: "Detached Garage",
+      x: width + 8, y: 0, w: 22, h: 22, bearing: [true, true, true, true] });
   }
 
-  // Auto-place stairs for multi-story
-  if (stories > 1) {
-    placeStairs(rooms, width, depth);
-  }
+  if (stories > 1) placeStairs(rooms, width, depth);
 
-  // Windows and user doors start empty — only elements the user drops onto
-  // the canvas end up in plan.windows / plan.doors. Garage doors are the one
-  // automatic exception (every garage needs a large overhead door).
-  const doors = generateGarageDoors(rooms, width, depth);
-  const windows = [];
-  const score = Math.round((0.82 + Math.random() * 0.15) * 100) / 100;
-
+  const doors   = generateGarageDoors(rooms, width, depth);
+  const score   = Math.round((0.82 + Math.random() * 0.15) * 100) / 100;
   return {
     id: `local-${Date.now()}`,
-    width,
-    depth,
-    rooms,
-    doors,
-    windows,
-    totalSF: rooms.reduce((s, r) => s + r.w * r.h, 0),
-    score,
-    stories,
-    style,
+    width, depth, rooms, doors, windows: [],
+    totalSF: rooms.reduce((s, r) => s + (r.w || 0) * (r.h || 0), 0),
+    score, stories, style,
   };
 }
 
@@ -2328,7 +2438,7 @@ export default function FloorPlanEditor() {
   /* Drop handler — place a library block onto the floor plan */
   const BLOCK_SIZES = {
     // Structural elements
-    door: { w: 4, h: 2 }, glazing: { w: 4, h: 0.5 }, window: { w: 3.125, h: 2 },
+    door: { w: 2, h: 4 }, glazing: { w: 2, h: 0.5 }, window: { w: 2.5, h: 2.5 },
     stair: { w: 6, h: 9 }, garage: { w: 14, h: 12 },
     // Living room furniture
     sofa: { w: 4.5, h: 4 }, tv: { w: 3, h: 2.5 },
@@ -2993,28 +3103,7 @@ export default function FloorPlanEditor() {
           <div style={{ flex: 1 }} />
           {activePlan && (
             <>
-              <button
-                onClick={() => navigate("/preview3d")}
-                style={{
-                  padding: "6px 14px", borderRadius: 6,
-                  border: "1px solid #2a3548",
-                  background: "transparent",
-                  color: colors.text,
-                  fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
-                  cursor: "pointer", marginRight: 8,
-                  display: "flex", alignItems: "center", gap: 6,
-                  transition: "all 0.2s",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.accent; e.currentTarget.style.color = colors.accent; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#2a3548"; e.currentTarget.style.color = colors.text; }}
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M7 1L1 4v6l6 3 6-3V4L7 1z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-                  <path d="M1 4l6 3 6-3M7 7v6" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-                </svg>
-                View in 3D
-              </button>
-              <button onClick={handleExportDxf} disabled={exportingDxf || !activePlan} style={{
+<button onClick={handleExportDxf} disabled={exportingDxf || !activePlan} style={{
                 padding: "6px 14px", borderRadius: 6,
                 border: "1px solid #2a3548",
                 background: "transparent",

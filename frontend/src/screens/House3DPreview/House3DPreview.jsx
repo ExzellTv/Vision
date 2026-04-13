@@ -42,39 +42,6 @@ const COLOR_SWATCHES = [
   { name: "Charcoal",       hex: "#3A3E45" },
 ];
 
-// Homeowner-friendly style presets that combine colors, roof type, and materials
-// Four main home styles — picking one updates wall color, roof color, and
-// roof type together. Colors are sampled from the most common US exterior palettes.
-const STYLE_PRESETS = [
-  {
-    key: "modern",
-    label: "Modern",
-    wallColor: "#F5F0E8",
-    roofColor: "#3A3E45",
-    roofType: "flat",
-  },
-  {
-    key: "traditional",
-    label: "Traditional",
-    wallColor: "#D4B896",
-    roofColor: "#3A3E45",
-    roofType: "gable",
-  },
-  {
-    key: "craftsman",
-    label: "Craftsman",
-    wallColor: "#B2A898",
-    roofColor: "#4a5568",
-    roofType: "gable",
-  },
-  {
-    key: "coastal",
-    label: "Coastal",
-    wallColor: "#C8CDD4",
-    roofColor: "#5a6570",
-    roofType: "hip",
-  },
-];
 
 // Shared uppercase label used for each section header in the right panel.
 function SectionLabel({ children }) {
@@ -101,17 +68,11 @@ export default function House3DPreview() {
   const [roofType, setRoofType] = useState("gable");
   const [wallMaterial, setWallMaterial] = useState("vinyl");
   const [roofMaterial, setRoofMaterial] = useState("asphaltShingle");
-  const [selectedStyle, setSelectedStyle] = useState(null);
-
-  // Apply style preset
-  const applyStylePreset = (preset) => {
-    setSelectedStyle(preset.key);
-    setWallColor(preset.wallColor);
-    setRoofColor(preset.roofColor);
-    setRoofType(preset.roofType);
-  };
   const [wallColor, setWallColor] = useState("#e8e2da");
   const [roofColor, setRoofColor] = useState("#3a3a3a");
+  // Cutaway view: hide the roof (and upper floors optionally) to peek inside.
+  const [showRoof, setShowRoof] = useState(true);
+  const [focusedStory, setFocusedStory] = useState(null); // null = all stories
   // Environment + drag-to-edit were previously user-toggleable. Both now
   // default on/off so the right panel stays focused on style + color.
 
@@ -155,7 +116,13 @@ export default function House3DPreview() {
   // storyPlans is the full multi-story array (one plan per story); House3D
   // renders each story stacked via PlanHouse.
   const floorPlan = project.floorPlan;
-  const storyPlans = project.storyPlans;
+  const allStoryPlans = project.storyPlans;
+  // When the user isolates a single floor, pass only that plan so PlanHouse
+  // renders just the interior of that story at ground level.
+  const storyPlans = (focusedStory !== null && Array.isArray(allStoryPlans))
+    ? [allStoryPlans[focusedStory]].filter(Boolean)
+    : allStoryPlans;
+  const storyCount = Array.isArray(allStoryPlans) ? allStoryPlans.length : stories;
 
   return (
     <div
@@ -179,6 +146,7 @@ export default function House3DPreview() {
           roofMaterial={roofMaterial}
           wallColor={wallColor}
           roofColor={roofColor}
+          showRoof={showRoof}
           showGround
           showSky
           interactive={false}
@@ -235,6 +203,90 @@ export default function House3DPreview() {
             <span>•</span>
             <span>{totalSF.toLocaleString()} SF</span>
           </div>
+        </div>
+
+        {/* View Controls — cutaway roof + per-floor isolation */}
+        <div
+          style={{
+            position: "absolute",
+            top: 16,
+            right: 16,
+            background: "rgba(13, 17, 23, 0.85)",
+            backdropFilter: "blur(10px)",
+            border: "1px solid #2a3548",
+            borderRadius: 10,
+            padding: "10px 12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            minWidth: 180,
+          }}
+        >
+          <button
+            onClick={() => setShowRoof((v) => !v)}
+            style={{
+              padding: "7px 10px",
+              background: showRoof ? "transparent" : `${colors.accent}15`,
+              border: `1px solid ${showRoof ? "#2a3548" : colors.accent}`,
+              borderRadius: 6,
+              color: showRoof ? colors.text : colors.accent,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M1 6L7 1l6 5v1H1V6z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+              <path d="M2 7v5h10V7" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+            </svg>
+            {showRoof ? "Remove Roof" : "Show Roof"}
+          </button>
+
+          {storyCount > 1 && (
+            <div>
+              <div style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
+                textTransform: "uppercase", color: colors.textDim, marginBottom: 6,
+              }}>
+                View Floor
+              </div>
+              <div style={{ display: "flex", gap: 4 }}>
+                <button
+                  onClick={() => setFocusedStory(null)}
+                  style={{
+                    flex: 1, padding: "6px 4px",
+                    background: focusedStory === null ? `${colors.accent}15` : "transparent",
+                    border: `1px solid ${focusedStory === null ? colors.accent : "#2a3548"}`,
+                    borderRadius: 5,
+                    color: focusedStory === null ? colors.accent : colors.text,
+                    fontSize: 11, fontWeight: 600, cursor: "pointer",
+                  }}
+                >
+                  All
+                </button>
+                {Array.from({ length: storyCount }, (_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setFocusedStory(i)}
+                    style={{
+                      flex: 1, padding: "6px 4px",
+                      background: focusedStory === i ? `${colors.accent}15` : "transparent",
+                      border: `1px solid ${focusedStory === i ? colors.accent : "#2a3548"}`,
+                      borderRadius: 5,
+                      color: focusedStory === i ? colors.accent : colors.text,
+                      fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    }}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Navigation Hint */}
@@ -316,60 +368,6 @@ export default function House3DPreview() {
             scrollbarColor: "#2a3548 transparent",
           }}
         >
-          {/* Style Presets — minimal horizontal chips with twin color swatches */}
-          {isHomeowner && (
-            <div style={{ marginBottom: 20 }}>
-              <SectionLabel>Style</SectionLabel>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {STYLE_PRESETS.map((preset) => {
-                  const active = selectedStyle === preset.key;
-                  return (
-                    <button
-                      key={preset.key}
-                      onClick={() => applyStylePreset(preset)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 12,
-                        padding: "10px 12px",
-                        background: active ? `${colors.accent}10` : "transparent",
-                        border: `1px solid ${active ? colors.accent : "#1f2937"}`,
-                        borderRadius: 8,
-                        cursor: "pointer",
-                        textAlign: "left",
-                        transition: "border-color 0.12s, background 0.12s",
-                      }}
-                    >
-                      <div style={{ display: "flex", flexShrink: 0 }}>
-                        <div style={{
-                          width: 16, height: 22,
-                          background: preset.wallColor,
-                          borderRadius: "3px 0 0 3px",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                        }} />
-                        <div style={{
-                          width: 16, height: 22,
-                          background: preset.roofColor,
-                          borderRadius: "0 3px 3px 0",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          borderLeft: "none",
-                        }} />
-                      </div>
-                      <span style={{
-                        fontSize: 13,
-                        fontWeight: active ? 600 : 500,
-                        color: active ? colors.accent : colors.textBright,
-                        letterSpacing: "-0.1px",
-                      }}>
-                        {preset.label}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
           {/* Roof Type - Builder only */}
           {isBuilder && (
             <div style={{ marginBottom: 24 }}>
