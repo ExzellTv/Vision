@@ -37,6 +37,11 @@ class FloorplanUpdateRequest(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+class DXFExportRequest(BaseModel):
+    floor_plan: dict[str, Any]
+    project_name: str = "Vision Project"
+
+
 # ===========================================================================
 # Structural
 # ===========================================================================

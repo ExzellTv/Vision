@@ -23,3 +23,5 @@ python-jose[cryptography]==3.3.0
 google-generativeai>=0.8.0
 # Model serialisation (explicit pin; ships with scikit-learn)
 joblib>=1.4.0
+# DXF floor plan export
+ezdxf>=1.3.0
