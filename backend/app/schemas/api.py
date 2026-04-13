@@ -42,6 +42,11 @@ class DXFExportRequest(BaseModel):
     project_name: str = "Vision Project"
 
 
+class DXFExportAllRequest(BaseModel):
+    story_plans: list[dict[str, Any]]
+    project_name: str = "Vision Project"
+
+
 # ===========================================================================
 # Structural
 # ===========================================================================

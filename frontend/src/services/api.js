@@ -33,6 +33,22 @@ export const floorplanApi = {
   generate: (params) => request("/floorplan/generate", { method: "POST", body: JSON.stringify(params) }),
   get: (id) => request(`/floorplan/${id}`),
   update: (id, data) => request(`/floorplan/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  exportDxfAll: async (storyPlans, projectName = "Vision Project") => {
+    const headers = { "Content-Type": "application/json" };
+    if (_getToken) {
+      try {
+        const token = await _getToken();
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+      } catch (_) {}
+    }
+    const res = await fetch(`${BASE}/floorplan/export/dxf-all`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ story_plans: storyPlans, project_name: projectName }),
+    });
+    if (!res.ok) throw new Error(`DXF export failed: ${res.status}`);
+    return res.blob();
+  },
   exportDxf: async (floorPlan, projectName = "Vision Project") => {
     const headers = { "Content-Type": "application/json" };
     if (_getToken) {
