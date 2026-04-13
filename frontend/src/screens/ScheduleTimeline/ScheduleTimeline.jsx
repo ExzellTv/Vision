@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import * as THREE from "three";
 import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
+import { useUserType } from "../../context/UserTypeContext";
 import { projectsApi } from "../../services/api";
 import { BUILD_COST_PSF } from "../FeasibilityDashboard/valuationEngine";
 import StatusBadge from "../../components/shared/StatusBadge";
@@ -432,6 +433,7 @@ function exportGanttPDF({ schedule, projectStart, totalWeeks, projectName, start
 /* ─── Main Component ─── */
 function ScheduleTimelineInner() {
   const project        = useProject();
+  const { isHomeowner } = useUserType();
   const canvasRef      = useRef(null);
   const sceneRef       = useRef(null);
   const layerGroupsRef = useRef([]);
@@ -832,6 +834,11 @@ function ScheduleTimelineInner() {
                 status={activePhase ? "active" : completedPhases.length === schedule.length ? "complete" : "planned"}
                 size="lg"
               />
+              {isHomeowner && (
+                <span style={{ fontFamily: fonts.label, fontSize: 9, color: colors.textDim, background: colors.cardBorder, border: `1px solid ${colors.panelBorder}`, borderRadius: 4, padding: "2px 7px", letterSpacing: "0.5px" }}>
+                  VIEW ONLY
+                </span>
+              )}
             </div>
             <p style={{ fontFamily: fonts.label, fontSize: 12, color: colors.textDim, margin: "3px 0 0" }}>
               {projectName} · {stories} {stories === 1 ? "Story" : "Stories"} · {totalSF.toLocaleString()} SF
@@ -839,17 +846,23 @@ function ScheduleTimelineInner() {
           </div>
 
           <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
-            {/* Project start date picker */}
+            {/* Project start date picker — builder only; homeowner sees static label */}
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.6px" }}>
                 Start Date
               </span>
-              <input
-                type="date"
-                value={startDateStr}
-                onChange={(e) => e.target.value && setStartDateStr(e.target.value)}
-                style={{ background: colors.panel, border: `1px solid ${colors.panelBorder}`, borderRadius: 6, color: colors.text, fontFamily: fonts.data, fontSize: 11, padding: "4px 8px", outline: "none", cursor: "pointer" }}
-              />
+              {isHomeowner ? (
+                <span style={{ fontFamily: fonts.data, fontSize: 11, fontWeight: 700, color: colors.text, padding: "4px 8px", background: colors.cardBorder, borderRadius: 6 }}>
+                  {startDateStr}
+                </span>
+              ) : (
+                <input
+                  type="date"
+                  value={startDateStr}
+                  onChange={(e) => e.target.value && setStartDateStr(e.target.value)}
+                  style={{ background: colors.panel, border: `1px solid ${colors.panelBorder}`, borderRadius: 6, color: colors.text, fontFamily: fonts.data, fontSize: 11, padding: "4px 8px", outline: "none", cursor: "pointer" }}
+                />
+              )}
             </div>
             {/* Estimated completion */}
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -860,23 +873,25 @@ function ScheduleTimelineInner() {
                 {completionDate ? fmtDateFull(completionDate) : "—"}
               </span>
             </div>
-            <button
-              onClick={() => navigate("/preview3d")}
-              title="View client's 3D model"
-              style={{
-                padding: "5px 14px", borderRadius: 6, fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
-                cursor: "pointer", transition: "all 0.2s ease", flexShrink: 0,
-                background: "linear-gradient(135deg,#0891b2,#0e7490)",
-                border: "1px solid rgba(8,145,178,0.5)",
-                color: "#fff", display: "flex", alignItems: "center", gap: 5,
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M6 1L11 4v4L6 11 1 8V4L6 1Z" stroke="#fff" strokeWidth="1.4" strokeLinejoin="round" fill="none"/>
-                <path d="M6 1v10M1 4l5 3 5-3" stroke="#fff" strokeWidth="1.1" strokeLinecap="round" opacity="0.7"/>
-              </svg>
-              View Client's Model
-            </button>
+            {!isHomeowner && (
+              <button
+                onClick={() => navigate("/preview3d")}
+                title="View client's 3D model"
+                style={{
+                  padding: "5px 14px", borderRadius: 6, fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
+                  cursor: "pointer", transition: "all 0.2s ease", flexShrink: 0,
+                  background: "linear-gradient(135deg,#0891b2,#0e7490)",
+                  border: "1px solid rgba(8,145,178,0.5)",
+                  color: "#fff", display: "flex", alignItems: "center", gap: 5,
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M6 1L11 4v4L6 11 1 8V4L6 1Z" stroke="#fff" strokeWidth="1.4" strokeLinejoin="round" fill="none"/>
+                  <path d="M6 1v10M1 4l5 3 5-3" stroke="#fff" strokeWidth="1.1" strokeLinecap="round" opacity="0.7"/>
+                </svg>
+                View Client's Model
+              </button>
+            )}
             <button
               onClick={() => exportGanttPDF({ schedule, projectStart, totalWeeks, projectName, startDateStr, totalSF, stories, totalCost, completionDate, overallPct, bc })}
               style={{
@@ -893,18 +908,20 @@ function ScheduleTimelineInner() {
               </svg>
               Export PDF
             </button>
-            <button
-              onClick={handleSave} disabled={saving}
-              style={{
-                padding: "5px 14px", borderRadius: 6, fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
-                cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, transition: "all 0.2s ease", flexShrink: 0,
-                background: saveStatus === "ok" ? colors.successDim : saveStatus === "err" ? colors.dangerDim : "linear-gradient(135deg,#2563eb,#1d4ed8)",
-                border: `1px solid ${saveStatus === "ok" ? colors.success : saveStatus === "err" ? colors.danger : "transparent"}`,
-                color: saveStatus === "ok" ? colors.success : saveStatus === "err" ? colors.danger : "#fff",
-              }}
-            >
-              {saving ? "Saving…" : saveStatus === "ok" ? "✓ Saved" : saveStatus === "err" ? "Failed" : "Save"}
-            </button>
+            {!isHomeowner && (
+              <button
+                onClick={handleSave} disabled={saving}
+                style={{
+                  padding: "5px 14px", borderRadius: 6, fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
+                  cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, transition: "all 0.2s ease", flexShrink: 0,
+                  background: saveStatus === "ok" ? colors.successDim : saveStatus === "err" ? colors.dangerDim : "linear-gradient(135deg,#2563eb,#1d4ed8)",
+                  border: `1px solid ${saveStatus === "ok" ? colors.success : saveStatus === "err" ? colors.danger : "transparent"}`,
+                  color: saveStatus === "ok" ? colors.success : saveStatus === "err" ? colors.danger : "#fff",
+                }}
+              >
+                {saving ? "Saving…" : saveStatus === "ok" ? "✓ Saved" : saveStatus === "err" ? "Failed" : "Save"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -1002,24 +1019,26 @@ function ScheduleTimelineInner() {
               return (
                 <div key={ph.id}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: noteOpenId === ph.id ? 0 : 7, padding: "4px 6px", borderRadius: 6, background: isDone ? "rgba(46,213,115,0.04)" : "transparent", border: isDone ? "1px solid rgba(46,213,115,0.12)" : "1px solid transparent", transition: "all 0.2s" }}>
-                  {/* Mark-done checkbox */}
-                  <button
-                    onClick={() => toggleManualDone(ph.id)}
-                    title={isDone ? "Mark as not done" : "Mark as done"}
-                    style={{
-                      width: 18, height: 18, borderRadius: 4, flexShrink: 0, cursor: "pointer",
-                      border: `2px solid ${isDone ? colors.success : colors.cardBorder}`,
-                      background: isDone ? colors.successDim : "transparent",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      transition: "all 0.15s", padding: 0,
-                    }}
-                  >
-                    {isDone && (
-                      <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                        <path d="M1 4L3.5 6.5L9 1" stroke={colors.success} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    )}
-                  </button>
+                  {/* Mark-done checkbox — builder only */}
+                  {!isHomeowner && (
+                    <button
+                      onClick={() => toggleManualDone(ph.id)}
+                      title={isDone ? "Mark as not done" : "Mark as done"}
+                      style={{
+                        width: 18, height: 18, borderRadius: 4, flexShrink: 0, cursor: "pointer",
+                        border: `2px solid ${isDone ? colors.success : colors.cardBorder}`,
+                        background: isDone ? colors.successDim : "transparent",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        transition: "all 0.15s", padding: 0,
+                      }}
+                    >
+                      {isDone && (
+                        <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                          <path d="M1 4L3.5 6.5L9 1" stroke={colors.success} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                    </button>
+                  )}
                   {/* Category colour stripe */}
                   <div style={{ width: 3, height: 26, borderRadius: 2, flexShrink: 0, background: catCol, opacity: ph.status === "planned" ? 0.4 : 1 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -1042,22 +1061,44 @@ function ScheduleTimelineInner() {
                     <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, flexShrink: 0 }}>{fmtCost(ph.cost)}</span>
                   )}
                   <StatusBadge status={ph.status} />
-                  {/* Three-dot note button */}
-                  <div style={{ position: "relative", flexShrink: 0 }}>
+                  {/* Note indicator for homeowners — clickable dot toggles note view */}
+                  {isHomeowner && phaseNotes[ph.id] && (
                     <button
-                      onClick={() => openNote(ph)}
-                      title={phaseNotes[ph.id] ? "View/edit delay note" : "Add delay note"}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: colors.textDim, display: "flex", alignItems: "center", gap: 2, borderRadius: 4, transition: "background 0.15s" }}
+                      onClick={() => setNoteOpenId(noteOpenId === ph.id ? null : ph.id)}
+                      title={noteOpenId === ph.id ? "Hide builder note" : "View builder note"}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", display: "flex", alignItems: "center", gap: 3, borderRadius: 4, flexShrink: 0 }}
                     >
-                      <span style={{ fontFamily: fonts.data, fontSize: 13, letterSpacing: 1, lineHeight: 1, color: noteOpenId === ph.id ? colors.accent : colors.textDim }}>⋯</span>
-                      {phaseNotes[ph.id] && (
-                        <span style={{ width: 5, height: 5, borderRadius: "50%", background: colors.warn, display: "inline-block", marginLeft: 1, flexShrink: 0 }} />
-                      )}
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: noteOpenId === ph.id ? colors.accent : colors.warn, display: "inline-block", transition: "background 0.15s" }} />
+                      <span style={{ fontFamily: fonts.label, fontSize: 9, color: noteOpenId === ph.id ? colors.accent : colors.warn, letterSpacing: "0.3px" }}>
+                        {noteOpenId === ph.id ? "Hide" : "Note"}
+                      </span>
                     </button>
-                  </div>
+                  )}
+                  {/* Three-dot note button — builder only */}
+                  {!isHomeowner && (
+                    <div style={{ position: "relative", flexShrink: 0 }}>
+                      <button
+                        onClick={() => openNote(ph)}
+                        title={phaseNotes[ph.id] ? "View/edit delay note" : "Add delay note"}
+                        style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: colors.textDim, display: "flex", alignItems: "center", gap: 2, borderRadius: 4, transition: "background 0.15s" }}
+                      >
+                        <span style={{ fontFamily: fonts.data, fontSize: 13, letterSpacing: 1, lineHeight: 1, color: noteOpenId === ph.id ? colors.accent : colors.textDim }}>⋯</span>
+                        {phaseNotes[ph.id] && (
+                          <span style={{ width: 5, height: 5, borderRadius: "50%", background: colors.warn, display: "inline-block", marginLeft: 1, flexShrink: 0 }} />
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
-                {/* Inline note popover */}
-                {noteOpenId === ph.id && (
+                {/* Read-only note display — homeowner view, toggleable */}
+                {isHomeowner && phaseNotes[ph.id] && noteOpenId === ph.id && (
+                  <div style={{ margin: "0 0 7px 28px", padding: "10px 12px", borderRadius: "0 0 8px 8px", background: "rgba(20,24,36,0.97)", border: `1px solid ${colors.warn}44`, borderTop: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>
+                    <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 700, color: colors.warn, textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: 6 }}>Builder Note</span>
+                    <p style={{ margin: 0, fontFamily: fonts.label, fontSize: 10, color: colors.textBright, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{phaseNotes[ph.id]}</p>
+                  </div>
+                )}
+                {/* Inline note popover — builder edit */}
+                {!isHomeowner && noteOpenId === ph.id && (
                   <div style={{ margin: "0 0 7px 28px", padding: "10px 12px", borderRadius: "0 0 8px 8px", background: "rgba(20,24,36,0.97)", border: `1px solid ${colors.warn}44`, borderTop: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
                       <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 700, color: colors.warn, textTransform: "uppercase", letterSpacing: "0.8px" }}>Delay Note</span>
@@ -1118,7 +1159,7 @@ function ScheduleTimelineInner() {
             <span style={{ fontFamily: fonts.label, fontSize: 11, fontWeight: 700, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px" }}>
               Timeline
             </span>
-            {Object.keys(durationOverrides).length > 0 && (
+            {!isHomeowner && Object.keys(durationOverrides).length > 0 && (
               <button
                 onClick={resetDurationOverrides}
                 title="Reset all duration edits to original schedule"
@@ -1154,14 +1195,16 @@ function ScheduleTimelineInner() {
             const isDone    = ph.status === "complete";
             return (
               <div key={ph.id} style={{ display: "flex", alignItems: "center", gap: 6, height: 22 }}>
-                {/* Checkbox */}
-                <button
-                  onClick={() => toggleManualDone(ph.id)}
-                  style={{ width: 14, height: 14, flexShrink: 0, borderRadius: 3, border: `1.5px solid ${isDone ? colors.success : colors.cardBorder}`, background: isDone ? colors.successDim : "transparent", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}
-                  title={isDone ? "Mark undone" : "Mark done"}
-                >
-                  {isDone && <svg width="8" height="6" viewBox="0 0 8 6" fill="none"><path d="M1 3L3 5L7 1" stroke={colors.success} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                </button>
+                {/* Checkbox — builder only */}
+                {!isHomeowner && (
+                  <button
+                    onClick={() => toggleManualDone(ph.id)}
+                    style={{ width: 14, height: 14, flexShrink: 0, borderRadius: 3, border: `1.5px solid ${isDone ? colors.success : colors.cardBorder}`, background: isDone ? colors.successDim : "transparent", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}
+                    title={isDone ? "Mark undone" : "Mark done"}
+                  >
+                    {isDone && <svg width="8" height="6" viewBox="0 0 8 6" fill="none"><path d="M1 3L3 5L7 1" stroke={colors.success} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  </button>
+                )}
                 {/* Activity ID */}
                 <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, width: 20, flexShrink: 0, textAlign: "right" }}>
                   A{String(ph.id).padStart(2, "0")}
@@ -1188,9 +1231,11 @@ function ScheduleTimelineInner() {
                     <div style={{ position: "absolute", left: `${todayPct}%`, top: -4, bottom: -4, width: 2, background: colors.warn, borderRadius: 1, opacity: 0.9, pointerEvents: "none" }} />
                   )}
                 </div>
-                {/* Duration — inline editable */}
+                {/* Duration — inline editable for builders, static for homeowners */}
                 <div style={{ width: 54, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2 }}>
-                  {editingPhaseId === ph.id ? (
+                  {isHomeowner ? (
+                    <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim }}>{ph.durationWeeks}w</span>
+                  ) : editingPhaseId === ph.id ? (
                     <>
                       <input
                         type="number" min={1} max={52}
