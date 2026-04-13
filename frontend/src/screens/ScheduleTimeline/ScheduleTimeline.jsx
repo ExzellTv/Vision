@@ -104,26 +104,29 @@ const fmtCost = (v) => {
 };
 
 /* ─── Build schedule from project layer materials ─── */
-function buildSchedule(startDate, materials) {
+function buildSchedule(startDate, materials, durationOverrides = {}) {
   let cursor = new Date(startDate);
   return LAYER_PHASE_CONFIG.map((cfg, i) => {
+    const phId = i + 1;
     // null layerIdx = no material layer (permits, MEP, carpentry, etc.)
     const mat = cfg.layerIdx != null ? materials?.[cfg.layerIdx] : null;
+    const dur = durationOverrides[phId] ?? cfg.durationWeeks;
     const start = new Date(cursor);
-    const end = addWeeks(cursor, cfg.durationWeeks);
+    const end = addWeeks(cursor, dur);
     cursor = new Date(end);
     let status;
     if (TODAY >= end) status = "complete";
     else if (TODAY >= start) status = "active";
     else status = "planned";
     return {
-      id: i + 1,
+      id: phId,
       name: cfg.name,
       category: cfg.category,
       layerColor: cfg.layerIdx != null ? MATERIALS_DATA[cfg.layerIdx]?.color ?? null : null,
       material: mat?.material || "—",
       cost: mat?.cost ?? 0,
-      durationWeeks: cfg.durationWeeks,
+      durationWeeks: dur,
+      configDurationWeeks: cfg.durationWeeks,
       startDate: start,
       endDate: end,
       status,
@@ -404,6 +407,11 @@ function ScheduleTimelineInner() {
   const [manualDone,   setManualDone]   = useState(
     () => new Set(saved?.manualDone || [])
   );
+  const [durationOverrides, setDurationOverrides] = useState(
+    () => saved?.durationOverrides || {}
+  );
+  const [editingPhaseId, setEditingPhaseId] = useState(null);
+  const [editingValue,   setEditingValue]   = useState("");
 
   const projectName = project.projectName || "New Project";
   const stories     = project.stories     || 1;
@@ -412,17 +420,25 @@ function ScheduleTimelineInner() {
   const bc = project.buildingContext || {};
 
   const scheduleBase = useMemo(
-    () => buildSchedule(new Date(startDateStr), project.materials),
-    [startDateStr, project.materials],
+    () => buildSchedule(new Date(startDateStr), project.materials, durationOverrides),
+    [startDateStr, project.materials, durationOverrides],
   );
   // Apply manual overrides on top of date-derived status
-  const schedule = useMemo(() =>
-    scheduleBase.map(ph => manualDone.has(ph.id)
-      ? { ...ph, status: "complete" }
-      : ph
-    ),
-    [scheduleBase, manualDone],
-  );
+  const schedule = useMemo(() => {
+    // Pass 1: apply manual done overrides
+    const withDone = scheduleBase.map(ph =>
+      manualDone.has(ph.id) ? { ...ph, status: "complete" } : ph
+    );
+    // Pass 2: ensure the first non-complete phase is "active", not "planned"
+    let promoted = false;
+    return withDone.map(ph => {
+      if (!promoted && ph.status !== "complete") {
+        promoted = true;
+        return ph.status === "planned" ? { ...ph, status: "active" } : ph;
+      }
+      return ph;
+    });
+  }, [scheduleBase, manualDone]);
 
   const toggleManualDone = useCallback((phId) => {
     setManualDone(prev => {
@@ -430,6 +446,29 @@ function ScheduleTimelineInner() {
       if (next.has(phId)) next.delete(phId); else next.add(phId);
       return next;
     });
+  }, []);
+
+  const startEditDuration = useCallback((ph) => {
+    setEditingPhaseId(ph.id);
+    setEditingValue(String(ph.durationWeeks));
+  }, []);
+
+  const commitEditDuration = useCallback((phId) => {
+    const val = parseInt(editingValue, 10);
+    if (!isNaN(val) && val >= 1 && val <= 52) {
+      const configDur = LAYER_PHASE_CONFIG[phId - 1].durationWeeks;
+      setDurationOverrides(prev => {
+        const next = { ...prev };
+        if (val === configDur) { delete next[phId]; } else { next[phId] = val; }
+        return next;
+      });
+    }
+    setEditingPhaseId(null);
+    setEditingValue("");
+  }, [editingValue]);
+
+  const resetDurationOverrides = useCallback(() => {
+    setDurationOverrides({});
   }, []);
   const projectStart   = useMemo(() => schedule[0]?.startDate ?? TODAY, [schedule]);
   const completionDate = useMemo(() => schedule[schedule.length - 1]?.endDate, [schedule]);
@@ -452,7 +491,10 @@ function ScheduleTimelineInner() {
     : 0;
   const cumulativeCost  = completedPhases.reduce((s, p) => s + p.cost, 0)
     + (activePhase ? activePhase.cost * activeFrac : 0);
-  const overallPct      = totalWeeks > 0 ? Math.min(100, Math.round((todayWeek / totalWeeks) * 100)) : 0;
+  const totalDur   = schedule.reduce((s, p) => s + p.durationWeeks, 0);
+  const doneDur    = completedPhases.reduce((s, p) => s + p.durationWeeks, 0)
+                   + (activePhase ? activePhase.durationWeeks * activeFrac : 0);
+  const overallPct = totalDur > 0 ? Math.min(100, Math.round((doneDur / totalDur) * 100)) : 0;
 
   const sliderDate = useMemo(() => fmtDate(addWeeks(projectStart, timeSlider)), [projectStart, timeSlider]);
   const sliderPhase = useMemo(() => {
@@ -618,6 +660,7 @@ function ScheduleTimelineInner() {
         startDate: startDateStr,
         totalWeeks,
         manualDone: [...manualDone],
+        durationOverrides,
         phases: schedule.map((p) => ({
           id: p.id,
           name: p.name,
@@ -652,7 +695,7 @@ function ScheduleTimelineInner() {
       setSaveStatus("ok"); setTimeout(() => setSaveStatus(null), 2500);
     } catch (_) { setSaveStatus("err"); setTimeout(() => setSaveStatus(null), 2500); }
     finally { setSaving(false); }
-  }, [projectName, project, schedule, startDateStr, totalWeeks, manualDone]);
+  }, [projectName, project, schedule, startDateStr, totalWeeks, manualDone, durationOverrides]);
 
   // Slider track styles
   useEffect(() => {
@@ -913,9 +956,20 @@ function ScheduleTimelineInner() {
       {/* ── Bottom — Gantt Timeline ── */}
       <div style={{ ...card, margin: "8px 20px 12px", flexShrink: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <span style={{ fontFamily: fonts.label, fontSize: 11, fontWeight: 700, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px" }}>
-            Timeline
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontFamily: fonts.label, fontSize: 11, fontWeight: 700, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px" }}>
+              Timeline
+            </span>
+            {Object.keys(durationOverrides).length > 0 && (
+              <button
+                onClick={resetDurationOverrides}
+                title="Reset all duration edits to original schedule"
+                style={{ fontFamily: fonts.label, fontSize: 9, color: colors.warn, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 4, padding: "2px 7px", cursor: "pointer", letterSpacing: "0.4px" }}
+              >
+                Reset Schedule Edits
+              </button>
+            )}
+          </div>
           <span style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim }}>
             {fmtDateFull(projectStart)} → {completionDate ? fmtDateFull(completionDate) : "—"} · {Math.round(totalWeeks)} wks
           </span>
@@ -976,10 +1030,43 @@ function ScheduleTimelineInner() {
                     <div style={{ position: "absolute", left: `${todayPct}%`, top: -4, bottom: -4, width: 2, background: colors.warn, borderRadius: 1, opacity: 0.9, pointerEvents: "none" }} />
                   )}
                 </div>
-                {/* Duration badge */}
-                <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, width: 22, flexShrink: 0, textAlign: "right" }}>
-                  {ph.durationWeeks}w
-                </span>
+                {/* Duration — inline editable */}
+                <div style={{ width: 54, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2 }}>
+                  {editingPhaseId === ph.id ? (
+                    <>
+                      <input
+                        type="number" min={1} max={52}
+                        value={editingValue}
+                        autoFocus
+                        onChange={(e) => setEditingValue(e.target.value)}
+                        onBlur={() => commitEditDuration(ph.id)}
+                        onKeyDown={(e) => { if (e.key === "Enter") commitEditDuration(ph.id); if (e.key === "Escape") { setEditingPhaseId(null); setEditingValue(""); } }}
+                        style={{ width: 30, fontFamily: fonts.data, fontSize: 9, color: colors.textBright, background: colors.cardBorder, border: `1px solid ${colors.accent}`, borderRadius: 3, padding: "1px 3px", outline: "none", textAlign: "center" }}
+                      />
+                      <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim }}>w</span>
+                    </>
+                  ) : (
+                    <>
+                      {ph.durationWeeks !== ph.configDurationWeeks && (
+                        <span style={{ fontFamily: fonts.data, fontSize: 8, color: ph.durationWeeks > ph.configDurationWeeks ? colors.warn : colors.success, marginRight: 2 }}>
+                          {ph.durationWeeks > ph.configDurationWeeks ? `+${ph.durationWeeks - ph.configDurationWeeks}` : `${ph.durationWeeks - ph.configDurationWeeks}`}
+                        </span>
+                      )}
+                      <span style={{ fontFamily: fonts.data, fontSize: 9, color: ph.durationWeeks !== ph.configDurationWeeks ? colors.warn : colors.textDim }}>
+                        {ph.durationWeeks}w
+                      </span>
+                      <button
+                        onClick={() => startEditDuration(ph)}
+                        title="Edit phase duration"
+                        style={{ background: "none", border: "none", cursor: "pointer", padding: "0 0 0 2px", color: colors.textDim, display: "flex", alignItems: "center", opacity: 0.5, lineHeight: 1 }}
+                      >
+                        <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+                          <path d="M7 1L9 3L3 9H1V7L7 1Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </button>
+                    </>
+                  )}
+                </div>
                 {/* Date range */}
                 <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, width: 90, flexShrink: 0, textAlign: "right", whiteSpace: "nowrap" }}>
                   {fmtDate(ph.startDate)}–{fmtDate(ph.endDate)}
