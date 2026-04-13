@@ -3,7 +3,7 @@ import { useNavigate, useLocation, useBlocker } from "react-router-dom";
 import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
-import { projectsApi } from "../../services/api";
+import { projectsApi, floorplanApi } from "../../services/api";
 import { useStructuralValidation, ValidationPanel, ValidationBadge } from "../../hooks/useStructuralValidation.jsx";
 
 /* ───────────────────────── Constants ───────────────────────── */
@@ -2523,6 +2523,39 @@ export default function FloorPlanEditor() {
     navigate(isHomeowner ? "/preview3d" : "/edit");
   };
 
+  const [exportingDxf, setExportingDxf] = useState(false);
+  const handleExportDxf = async () => {
+    const plan = activePlan;
+    if (!plan) return;
+    // Build the floor plan payload using current placed rooms if available
+    const editedRooms = placedItems.filter((item) => item.isRoom);
+    const rooms = editedRooms.length > 0 ? editedRooms : plan.rooms;
+    const exportPlan = {
+      ...plan,
+      rooms,
+      width: plan.width,
+      depth: plan.depth,
+      doors: plan.doors || [],
+      windows: plan.windows || [],
+    };
+    setExportingDxf(true);
+    try {
+      const blob = await floorplanApi.exportDxf(exportPlan, project.projectName || "Vision Project");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = (project.projectName || "floor_plan").replace(/\s+/g, "_") + ".dxf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("DXF export failed:", err);
+    } finally {
+      setExportingDxf(false);
+    }
+  };
+
   const setP = (key) => (e) => {
     let val = e.target.value;
     if (e.target.type === "checkbox") val = e.target.checked;
@@ -2967,6 +3000,24 @@ export default function FloorPlanEditor() {
                   <path d="M1 4l6 3 6-3M7 7v6" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
                 </svg>
                 View in 3D
+              </button>
+              <button onClick={handleExportDxf} disabled={exportingDxf || !activePlan} style={{
+                padding: "6px 14px", borderRadius: 6,
+                border: "1px solid #2a3548",
+                background: "transparent",
+                color: exportingDxf ? "#4a8a99" : colors.text,
+                fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
+                cursor: (exportingDxf || !activePlan) ? "default" : "pointer",
+                letterSpacing: "0.3px", display: "flex", alignItems: "center", gap: 5,
+                transition: "all 0.2s",
+              }}
+                onMouseEnter={(e) => { if (!exportingDxf && activePlan) { e.currentTarget.style.borderColor = "#2ed573"; e.currentTarget.style.color = "#2ed573"; } }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#2a3548"; e.currentTarget.style.color = colors.text; }}
+              >
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                  <path d="M2 9.5v1.5h9V9.5M6.5 1v7M4 6l2.5 2.5L9 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                {exportingDxf ? "Exporting…" : "Export DXF"}
               </button>
               <button onClick={handleSaveToEdit} disabled={saving} style={{
                 padding: "6px 18px", borderRadius: 6, border: "none",

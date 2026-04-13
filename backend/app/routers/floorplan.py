@@ -1,15 +1,19 @@
 """
-Floor Plan Router — generate, import, CRUD, and versioning.
+Floor Plan Router — generate, import, CRUD, versioning, and DXF export.
 """
 
 from fastapi import APIRouter, UploadFile, File
+from fastapi.responses import StreamingResponse
+import io
 
 from app.schemas.api import (
     FloorplanGenerateRequest,
     FloorplanGenerateResponse,
     FloorplanUpdateRequest,
+    DXFExportRequest,
 )
 from app.services import floorplan_service
+from app.services.dxf_export import generate_dxf
 
 router = APIRouter()
 
@@ -29,6 +33,18 @@ def generate_floorplan(req: FloorplanGenerateRequest) -> dict:
         "open_plan": req.openFloorPlan,
     })
     return result
+
+
+@router.post("/export/dxf")
+def export_dxf(req: DXFExportRequest) -> StreamingResponse:
+    """Export a floor plan as a professional DXF file for CAD tools."""
+    dxf_bytes = generate_dxf(req.floor_plan, req.project_name)
+    filename = req.project_name.replace(" ", "_") + "_floor_plan.dxf"
+    return StreamingResponse(
+        iter([dxf_bytes]),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/import")
