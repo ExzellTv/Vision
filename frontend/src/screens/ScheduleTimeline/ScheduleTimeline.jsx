@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, Component } from "react";
+import { useNavigate } from "react-router-dom";
 import * as THREE from "three";
 import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { projectsApi } from "../../services/api";
+import { BUILD_COST_PSF } from "../FeasibilityDashboard/valuationEngine";
 import StatusBadge from "../../components/shared/StatusBadge";
 
 import {
@@ -103,12 +105,51 @@ const fmtCost = (v) => {
   return `$${Math.round(v).toLocaleString()}`;
 };
 
+/* ─── Industry-standard CPM phase cost percentages (14 phases, sums to 100) ─── */
+const PHASE_COST_PCT = [
+  3,   // Permitting & Site Prep
+  4,   // Excavation & Grading
+  10,  // Foundation
+  14,  // Structural Framing
+  7,   // Roofing & Sheathing
+  4,   // Exterior Sheathing & Wrap
+  13,  // Rough MEP
+  4,   // Insulation
+  6,   // Drywall
+  8,   // Exterior Cladding & Siding
+  6,   // Interior Finish Carpentry
+  5,   // Paint & Interior Finish
+  10,  // Fixtures, Trim & Final MEP
+  6,   // Final Inspection & Punch List
+];
+
+/* ─── Material cost multipliers relative to each layer's baseline option ─── */
+// Derived from MATERIALS_DATA cost ratios so upgrades shift costs proportionally
+const MATERIAL_MULTIPLIERS = [
+  [1.00, 1.18],                    // Layer 0 — Foundation: Slab, Pier & Beam
+  [1.00, 1.17, 1.29, 1.08],        // Layer 1 — Framing: Wood, Steel, LVL, CMU
+  [1.00, 1.56, 2.44],              // Layer 2 — Sheathing: OSB, ZIP, SIP
+  [1.00, 1.83, 2.83],              // Layer 3 — Insulation: Fiberglass, Open-Cell, Closed-Cell
+  [1.00, 1.14, 1.36],              // Layer 4 — Drywall: Standard, MR, Acoustic
+  [1.00, 1.50, 2.38, 3.25],        // Layer 5 — Cladding: Vinyl, Fiber Cement, Brick, Stone
+  [1.00, 1.57, 1.14, 0.79],        // Layer 6 — Roof: Gable-Asphalt, Metal, Hip-Asphalt, TPO
+  [1.00],                          // Layer 7 — Color Palette: no cost impact
+];
+
+function getMaterialMultiplier(layerIdx, materials) {
+  const matIdx = materials?.[layerIdx]?.materialIndex ?? 0;
+  return MATERIAL_MULTIPLIERS[layerIdx]?.[matIdx] ?? 1.0;
+}
+
 /* ─── Build schedule from project layer materials ─── */
-function buildSchedule(startDate, materials, durationOverrides = {}) {
+function buildSchedule(startDate, materials, durationOverrides = {}, totalSF = 2200, stories = 1) {
+  // SF-based construction cost: $185/SF baseline, +12% per additional story
+  const storyMult = 1 + Math.max(0, stories - 1) * 0.12;
+  const totalBuildCost = Math.round(BUILD_COST_PSF * totalSF * storyMult);
+
   let cursor = new Date(startDate);
   return LAYER_PHASE_CONFIG.map((cfg, i) => {
     const phId = i + 1;
-    // null layerIdx = no material layer (permits, MEP, carpentry, etc.)
     const mat = cfg.layerIdx != null ? materials?.[cfg.layerIdx] : null;
     const dur = durationOverrides[phId] ?? cfg.durationWeeks;
     const start = new Date(cursor);
@@ -118,13 +159,18 @@ function buildSchedule(startDate, materials, durationOverrides = {}) {
     if (TODAY >= end) status = "complete";
     else if (TODAY >= start) status = "active";
     else status = "planned";
+
+    // Phase cost = % slice of total build cost × material upgrade multiplier (if applicable)
+    const matMult = cfg.layerIdx != null ? getMaterialMultiplier(cfg.layerIdx, materials) : 1.0;
+    const cost = Math.round(totalBuildCost * (PHASE_COST_PCT[i] / 100) * matMult);
+
     return {
       id: phId,
       name: cfg.name,
       category: cfg.category,
       layerColor: cfg.layerIdx != null ? MATERIALS_DATA[cfg.layerIdx]?.color ?? null : null,
       material: mat?.material || "—",
-      cost: mat?.cost ?? 0,
+      cost,
       durationWeeks: dur,
       configDurationWeeks: cfg.durationWeeks,
       startDate: start,
@@ -324,7 +370,7 @@ function exportGanttPDF({ schedule, projectStart, totalWeeks, projectName, start
       <div class="value">${Math.round(totalWeeks)}<span style="font-size:9pt;font-weight:400"> wks</span></div>
     </div>
     <div class="metric">
-      <div class="label">Total Cost</div>
+      <div class="label">Est. Construction Cost</div>
       <div class="value" style="color:#0369a1">${fmtC(totalCost)}</div>
       <div class="sub">${fmtC(costPerSF)}/SF</div>
     </div>
@@ -425,8 +471,8 @@ function ScheduleTimelineInner() {
   const bc = project.buildingContext || {};
 
   const scheduleBase = useMemo(
-    () => buildSchedule(new Date(startDateStr), project.materials, durationOverrides),
-    [startDateStr, project.materials, durationOverrides],
+    () => buildSchedule(new Date(startDateStr), project.materials, durationOverrides, totalSF, stories),
+    [startDateStr, project.materials, durationOverrides, totalSF, stories],
   );
   // Apply manual overrides on top of date-derived status
   const schedule = useMemo(() => {
@@ -542,13 +588,19 @@ function ScheduleTimelineInner() {
     if (!project.projectId) return;
     projectsApi.get(project.projectId)
       .then((doc) => {
+        // Restore schedule fields (notes, overrides, manual done)
         const s = doc?.schedule;
-        if (!s) return;
-        if (s.startDate)         setStartDateStr(s.startDate);
-        if (s.manualDone)        setManualDone(new Set(s.manualDone));
-        if (s.durationOverrides) setDurationOverrides(s.durationOverrides);
-        if (s.phaseNotes)        setPhaseNotes(s.phaseNotes);
-        project.setSavedSchedule(s);
+        if (s) {
+          if (s.startDate)         setStartDateStr(s.startDate);
+          if (s.manualDone)        setManualDone(new Set(s.manualDone));
+          if (s.durationOverrides) setDurationOverrides(s.durationOverrides);
+          if (s.phaseNotes)        setPhaseNotes(s.phaseNotes);
+          project.setSavedSchedule(s);
+        }
+        // Sync floor plan + materials so "View Client's Model" renders the correct project
+        if (doc?.story_plans?.length > 0) project.setStoryPlans(doc.story_plans);
+        else if (doc?.floor_plan)          project.setFloorPlan(doc.floor_plan);
+        if (doc?.materials?.length > 0)    project.setMaterials(doc.materials);
       })
       .catch(() => { /* network unavailable — silently keep existing state */ });
   }, [project.projectId]); // eslint-disable-line
@@ -760,6 +812,7 @@ function ScheduleTimelineInner() {
     document.head.appendChild(s);
   }, []);
 
+  const navigate  = useNavigate();
   const sliderPct = totalWeeks > 0 ? (timeSlider / totalWeeks) * 100 : 0;
   const sliderBg  = `linear-gradient(to right,${colors.accent} 0%,${colors.accent} ${sliderPct}%,${colors.panelBorder} ${sliderPct}%,${colors.panelBorder} 100%)`;
 
@@ -807,6 +860,23 @@ function ScheduleTimelineInner() {
                 {completionDate ? fmtDateFull(completionDate) : "—"}
               </span>
             </div>
+            <button
+              onClick={() => navigate("/preview3d")}
+              title="View client's 3D model"
+              style={{
+                padding: "5px 14px", borderRadius: 6, fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
+                cursor: "pointer", transition: "all 0.2s ease", flexShrink: 0,
+                background: "linear-gradient(135deg,#0891b2,#0e7490)",
+                border: "1px solid rgba(8,145,178,0.5)",
+                color: "#fff", display: "flex", alignItems: "center", gap: 5,
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M6 1L11 4v4L6 11 1 8V4L6 1Z" stroke="#fff" strokeWidth="1.4" strokeLinejoin="round" fill="none"/>
+                <path d="M6 1v10M1 4l5 3 5-3" stroke="#fff" strokeWidth="1.1" strokeLinecap="round" opacity="0.7"/>
+              </svg>
+              View Client's Model
+            </button>
             <button
               onClick={() => exportGanttPDF({ schedule, projectStart, totalWeeks, projectName, startDateStr, totalSF, stories, totalCost, completionDate, overallPct, bc })}
               style={{
@@ -893,7 +963,7 @@ function ScheduleTimelineInner() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>
                 <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: 4 }}>
-                  Total Project Cost
+                  Est. Construction Cost
                 </span>
                 <span style={{ fontFamily: fonts.data, fontSize: 26, fontWeight: 700, color: colors.textBright, lineHeight: 1 }}>
                   {fmtCost(totalCost)}
