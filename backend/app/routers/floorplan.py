@@ -5,12 +5,14 @@ Floor Plan Router — generate, import, CRUD, versioning, and DXF export.
 from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import StreamingResponse
 import io
+import zipfile
 
 from app.schemas.api import (
     FloorplanGenerateRequest,
     FloorplanGenerateResponse,
     FloorplanUpdateRequest,
     DXFExportRequest,
+    DXFExportAllRequest,
 )
 from app.services import floorplan_service
 from app.services.dxf_export import generate_dxf
@@ -44,6 +46,26 @@ def export_dxf(req: DXFExportRequest) -> StreamingResponse:
         iter([dxf_bytes]),
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/export/dxf-all")
+def export_dxf_all(req: DXFExportAllRequest) -> StreamingResponse:
+    """Export all story floor plans as DXF files bundled in a single zip."""
+    total = len(req.story_plans)
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for i, plan in enumerate(req.story_plans):
+            floor_label = f"Floor {i + 1} of {total}" if total > 1 else ""
+            dxf_bytes = generate_dxf(plan, req.project_name, floor_label)
+            dxf_filename = f"Floor_{i + 1}.dxf"
+            zf.writestr(dxf_filename, dxf_bytes)
+    zip_buf.seek(0)
+    zip_filename = req.project_name.replace(" ", "_") + "_floor_plans.zip"
+    return StreamingResponse(
+        iter([zip_buf.read()]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'},
     )
 
 

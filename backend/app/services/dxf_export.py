@@ -36,7 +36,7 @@ LAYERS = {
 # Public API
 # ---------------------------------------------------------------------------
 
-def generate_dxf(floor_plan: dict, project_name: str = "Vision Project") -> bytes:
+def generate_dxf(floor_plan: dict, project_name: str = "Vision Project", floor_label: str = "") -> bytes:
     """
     Convert a Vision floor plan dict to DXF bytes.
 
@@ -92,7 +92,7 @@ def generate_dxf(floor_plan: dict, project_name: str = "Vision Project") -> byte
     _draw_overall_dims(msp, fp_w, fp_d)
 
     # 6. Title block
-    _draw_title_block(msp, fp_w, fp_d, project_name)
+    _draw_title_block(msp, fp_w, fp_d, project_name, floor_label)
 
     return _to_bytes(doc)
 
@@ -259,7 +259,7 @@ def _draw_overall_dims(msp, fp_w, fp_d):
 # Title block
 # ---------------------------------------------------------------------------
 
-def _draw_title_block(msp, fp_w, fp_d, project_name: str):
+def _draw_title_block(msp, fp_w, fp_d, project_name: str, floor_label: str = ""):
     tb_h = 4.0
     tb_y = -8.0  # below dim line
     tb_x = 0.0
@@ -277,14 +277,22 @@ def _draw_title_block(msp, fp_w, fp_d, project_name: str):
     div_x = tb_x + tb_w * 0.55
     msp.add_line((div_x, tb_y), (div_x, tb_y + tb_h), dxfattribs={"layer": "TITLEBLOCK"})
 
-    # Project name
+    # Project name (with optional floor label below)
     msp.add_text(
         project_name,
         dxfattribs={"layer": "TITLEBLOCK", "height": 0.9},
     ).set_placement(
-        (tb_x + div_x / 2, tb_y + tb_h / 2),
+        (tb_x + div_x / 2, tb_y + tb_h / 2 + (0.5 if floor_label else 0)),
         align=ezdxf.enums.TextEntityAlignment.MIDDLE_CENTER,
     )
+    if floor_label:
+        msp.add_text(
+            floor_label,
+            dxfattribs={"layer": "TITLEBLOCK", "height": 0.65},
+        ).set_placement(
+            (tb_x + div_x / 2, tb_y + tb_h / 2 - 0.6),
+            align=ezdxf.enums.TextEntityAlignment.MIDDLE_CENTER,
+        )
 
     # Right side info
     today = date.today().strftime("%Y-%m-%d")

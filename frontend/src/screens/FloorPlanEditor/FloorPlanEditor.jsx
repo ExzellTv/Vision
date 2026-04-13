@@ -2525,26 +2525,29 @@ export default function FloorPlanEditor() {
 
   const [exportingDxf, setExportingDxf] = useState(false);
   const handleExportDxf = async () => {
-    const plan = activePlan;
-    if (!plan) return;
-    // Build the floor plan payload using current placed rooms if available
-    const editedRooms = placedItems.filter((item) => item.isRoom);
-    const rooms = editedRooms.length > 0 ? editedRooms : plan.rooms;
-    const exportPlan = {
-      ...plan,
-      rooms,
-      width: plan.width,
-      depth: plan.depth,
-      doors: plan.doors || [],
-      windows: plan.windows || [],
-    };
+    if (!activePlan) return;
+    // Flush current story's canvas edits into the ref before collecting all floors
+    floorItemsRef.current[activeStory] = placedItems;
+    // Build one export plan per story — all floors already in memory
+    const storyExports = allStoryVariants
+      .map((svs, si) => {
+        const plan = svs[activeVariantPerStory[si] ?? 0];
+        if (!plan) return null;
+        const allItems = floorItemsRef.current[si] || [];
+        const editedRooms = allItems.filter((item) => item.isRoom);
+        const rooms = editedRooms.length > 0 ? editedRooms : plan.rooms;
+        return { ...plan, rooms, doors: plan.doors || [], windows: plan.windows || [] };
+      })
+      .filter(Boolean);
+    if (storyExports.length === 0) return;
     setExportingDxf(true);
     try {
-      const blob = await floorplanApi.exportDxf(exportPlan, project.projectName || "Vision Project");
+      const projectName = project.projectName || "Vision Project";
+      const blob = await floorplanApi.exportDxfAll(storyExports, projectName);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = (project.projectName || "floor_plan").replace(/\s+/g, "_") + ".dxf";
+      a.download = projectName.replace(/\s+/g, "_") + "_floor_plans.zip";
       document.body.appendChild(a);
       a.click();
       a.remove();
