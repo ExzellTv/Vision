@@ -678,8 +678,16 @@ export function buildHouseGeometry(plan, options = {}) {
     includeRoof = true,
     partialRoofRects = null,
     sharedCenter = null,
+    wallColor = null,
+    roofColor = null,
   } = options;
   const center = sharedCenter || computeCenter(plan.rooms);
+
+  // Materials are module-level singletons for PBR texture reuse. Only one
+  // house is rendered at a time, so mutating the shared color here is safe
+  // and keeps the texture/normal maps intact.
+  if (wallColor) mat.exteriorWall.color.set(wallColor);
+  if (roofColor) mat.roof.color.set(roofColor);
 
   return [
     ...(includeFoundation ? buildFoundation(plan, center) : []),
@@ -718,20 +726,20 @@ export function computeSharedCenter(stories) {
 }
 
 /**
- * Dispose all geometry + materials to prevent memory leaks.
+ * Dispose per-instance geometry to prevent GPU memory leaks.
+ *
+ * Materials are module-level singletons (shared by every story, every render)
+ * so we intentionally do NOT dispose them here — doing so would break the
+ * textures on subsequent renders (story 2 would lose its plaster/roof maps
+ * after story 1 is torn down on re-render). The shared materials live for
+ * the lifetime of the module.
  */
 export function disposeHouseGeometry(items) {
   items.forEach(({ mesh }) => {
     if (mesh.geometry) mesh.geometry.dispose();
-    if (mesh.material) {
-      if (Array.isArray(mesh.material)) mesh.material.forEach(m => m.dispose());
-      else mesh.material.dispose();
-    }
-    // Dispose children for groups
     if (mesh.children) {
-      mesh.children.forEach(child => {
+      mesh.children.forEach((child) => {
         if (child.geometry) child.geometry.dispose();
-        if (child.material) child.material.dispose();
       });
     }
   });

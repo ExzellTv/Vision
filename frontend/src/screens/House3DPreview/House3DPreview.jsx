@@ -32,72 +32,47 @@ const ROOF_MATERIALS = [
   { key: "slate", label: "Slate", color: "#4a5568" },
 ];
 
+// Most common residential exterior colors (white, cream, beige, gray family).
 const COLOR_SWATCHES = [
-  { name: "Classic White", hex: "#F5F0E8" },
-  { name: "Light Gray", hex: "#C8CDD4" },
-  { name: "Charcoal", hex: "#3A3E45" },
-  { name: "Navy Blue", hex: "#1D3461" },
-  { name: "Sage Green", hex: "#7A9E87" },
-  { name: "Warm Beige", hex: "#D4B896" },
-  { name: "Terracotta", hex: "#C4622D" },
-  { name: "Cream", hex: "#FFFDD0" },
+  { name: "Classic White",  hex: "#F5F0E8" },
+  { name: "Cream",          hex: "#EFE6D2" },
+  { name: "Warm Beige",     hex: "#D4B896" },
+  { name: "Greige",         hex: "#B2A898" },
+  { name: "Light Gray",     hex: "#C8CDD4" },
+  { name: "Charcoal",       hex: "#3A3E45" },
 ];
 
 // Homeowner-friendly style presets that combine colors, roof type, and materials
+// Four main home styles — picking one updates wall color, roof color, and
+// roof type together. Colors are sampled from the most common US exterior palettes.
 const STYLE_PRESETS = [
   {
     key: "modern",
-    label: "Modern Minimalist",
-    description: "Clean lines with a contemporary feel",
+    label: "Modern",
     wallColor: "#F5F0E8",
-    roofColor: "#3a3a3a",
+    roofColor: "#3A3E45",
     roofType: "flat",
-    icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
   },
   {
     key: "traditional",
-    label: "Classic Traditional",
-    description: "Timeless elegance with warm tones",
+    label: "Traditional",
     wallColor: "#D4B896",
-    roofColor: "#3a3a3a",
+    roofColor: "#3A3E45",
     roofType: "gable",
-    icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
   },
   {
     key: "craftsman",
-    label: "Cozy Craftsman",
-    description: "Warm wood tones with character",
-    wallColor: "#8b6f47",
+    label: "Craftsman",
+    wallColor: "#B2A898",
     roofColor: "#4a5568",
     roofType: "gable",
-    icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
   },
   {
     key: "coastal",
-    label: "Coastal Retreat",
-    description: "Light and airy beach house vibes",
+    label: "Coastal",
     wallColor: "#C8CDD4",
     roofColor: "#5a6570",
     roofType: "hip",
-    icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
-  },
-  {
-    key: "mediterranean",
-    label: "Mediterranean",
-    description: "Warm terracotta with tile roof",
-    wallColor: "#f5f0e8",
-    roofColor: "#8b4513",
-    roofType: "hip",
-    icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
-  },
-  {
-    key: "bold",
-    label: "Bold Statement",
-    description: "Make an impression with deep tones",
-    wallColor: "#1D3461",
-    roofColor: "#3a3a3a",
-    roofType: "gable",
-    icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
   },
 ];
 
@@ -152,15 +127,6 @@ export default function House3DPreview() {
     if (!canvas) return null;
     return canvas.toDataURL("image/png");
   }, []);
-
-  const handleExportScreenshot = useCallback(() => {
-    const dataUrl = captureScreenshot();
-    if (!dataUrl) return;
-    const link = document.createElement("a");
-    link.download = "house-render.png";
-    link.href = dataUrl;
-    link.click();
-  }, [captureScreenshot]);
 
   const handleAiRender = useCallback(async () => {
     const screenshot = captureScreenshot();
@@ -287,26 +253,6 @@ export default function House3DPreview() {
           Drag to rotate • Scroll to zoom
         </div>
 
-        {/* Export Screenshot button */}
-        <button
-          onClick={handleExportScreenshot}
-          style={{
-            position: "absolute", top: 16, right: 16,
-            padding: "8px 14px",
-            background: "rgba(13,17,23,0.85)", backdropFilter: "blur(8px)",
-            border: `1px solid ${colors.cardBorder}`, borderRadius: 8,
-            color: "#fff", fontSize: 11, fontWeight: 600, fontFamily: fonts.label,
-            cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
-            transition: "background 0.15s", zIndex: 10,
-          }}
-          onMouseEnter={e => e.currentTarget.style.background = "rgba(13,17,23,0.95)"}
-          onMouseLeave={e => e.currentTarget.style.background = "rgba(13,17,23,0.85)"}
-        >
-          <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-            <path d="M7 1v8M4 6l3 3 3-3M2 11h10" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          Export Screenshot
-        </button>
       </div>
 
       {/* Right Sidebar - Controls */}

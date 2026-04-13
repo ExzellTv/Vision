@@ -2328,7 +2328,7 @@ export default function FloorPlanEditor() {
   /* Drop handler — place a library block onto the floor plan */
   const BLOCK_SIZES = {
     // Structural elements
-    door: { w: 2, h: 2 }, glazing: { w: 4, h: 0.5 }, window: { w: 2.5, h: 2 },
+    door: { w: 4, h: 2 }, glazing: { w: 4, h: 0.5 }, window: { w: 3.125, h: 2 },
     stair: { w: 6, h: 9 }, garage: { w: 14, h: 12 },
     // Living room furniture
     sofa: { w: 4.5, h: 4 }, tv: { w: 3, h: 2.5 },
@@ -2464,6 +2464,16 @@ export default function FloorPlanEditor() {
         // openings at those positions (not just the drag-drop preview boxes).
         const { doors: placedDoors, windows: placedWindows } =
           extractOpeningsFromPlacedItems(allItems, { minX, maxX, minY, maxY });
+        // Auto-add a garage door for any garage room that doesn't already
+        // have one (handles user-dropped garages from the catalog as well
+        // as auto-generated garages whose plan.doors was lost during edit).
+        const existingGarageDoors = new Set(
+          [...(plan.doors || []), ...placedDoors]
+            .filter((d) => d.isGarageDoor)
+            .map((d) => d.id)
+        );
+        const generatedGarageDoors = generateGarageDoors(rooms, bboxW, bboxD)
+          .filter((d) => !existingGarageDoors.has(d.id));
         return {
           ...plan,
           rooms,
@@ -2471,7 +2481,7 @@ export default function FloorPlanEditor() {
           placed_items: allItems,
           width: bboxW,
           depth: bboxD,
-          doors: [...(plan.doors || []), ...placedDoors],
+          doors: [...(plan.doors || []), ...placedDoors, ...generatedGarageDoors],
           windows: [...(plan.windows || []), ...placedWindows],
         };
       })

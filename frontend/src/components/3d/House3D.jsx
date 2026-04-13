@@ -814,7 +814,12 @@ function Scene({
       {/* House — prefer the plan-driven geometry when the floor plan has rooms.
           Falls back to the parametric HouseCSG box when no plan is available. */}
       {planIsRenderable(houseProps.floorPlan, houseProps.storyPlans) ? (
-        <PlanHouse plan={houseProps.floorPlan} stories={houseProps.storyPlans} />
+        <PlanHouse
+          plan={houseProps.floorPlan}
+          stories={houseProps.storyPlans}
+          wallColor={houseProps.wallColor}
+          roofColor={houseProps.roofColor}
+        />
       ) : (
         <HouseCSG {...houseProps} />
       )}

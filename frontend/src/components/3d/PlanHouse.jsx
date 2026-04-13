@@ -34,7 +34,7 @@ function coerceAndValidate(rawPlan) {
   return result.success ? result.data : coerced;
 }
 
-export default function PlanHouse({ plan, stories }) {
+export default function PlanHouse({ plan, stories, wallColor, roofColor }) {
   // Normalize into an array of valid story plans. `stories` wins if provided.
   const validStories = useMemo(() => {
     const raw = Array.isArray(stories) && stories.length > 0 ? stories : (plan ? [plan] : []);
@@ -60,13 +60,15 @@ export default function PlanHouse({ plan, stories }) {
           includeRoof: i === top,
           partialRoofRects,
           sharedCenter,
+          wallColor,
+          roofColor,
         });
       } catch (err) {
         if (import.meta.env.DEV) console.warn("[Vision] buildHouseGeometry failed:", err);
         return [];
       }
     });
-  }, [validStories]);
+  }, [validStories, wallColor, roofColor]);
 
   // Dispose geometry on plan change / unmount to avoid GPU memory leaks.
   useEffect(() => {
