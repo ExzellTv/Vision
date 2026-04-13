@@ -49,6 +49,24 @@ export const OpeningSchema = z.object({
   isExterior: z.boolean().default(true),
 });
 
+// ── Placed item schema ───────────────────────────────────────────────────────
+// Items the user drops onto the 2D canvas (furniture + structural blocks).
+// Kept loose — catalog types evolve, and 3D rendering has its own fallbacks.
+export const PlacedItemSchema = z.object({
+  id: z.union([z.string(), z.number()]).optional(),
+  type: z.string(),
+  x: z.number(),
+  y: z.number(),
+  w: z.number().positive(),
+  h: z.number().positive(),
+  isRoom: z.boolean().optional(),
+  isCustom: z.boolean().optional(),
+  label: z.string().optional(),
+  blockId: z.string().optional(),
+  category: z.string().optional(),
+  customColor: z.string().optional(),
+}).passthrough();
+
 // ── Complete floor plan schema ───────────────────────────────────────────────
 export const FloorPlanSchema = z.object({
   id: z.string(),
@@ -61,6 +79,7 @@ export const FloorPlanSchema = z.object({
   walls: z.array(WallSchema).default([]),
   windows: z.array(OpeningSchema).default([]),
   doors: z.array(OpeningSchema).default([]),
+  placed_items: z.array(PlacedItemSchema).default([]),
   score: z.number().min(0).max(1).optional(),
   style: z.string().optional(),
   perimeter: z.number().optional(),
@@ -124,6 +143,9 @@ export function coerceVisionFloorPlan(fp) {
       side: d.side || "bottom",
       isExterior: d.isExterior !== false,
     })),
+    // Preserve user-dropped items (furniture + custom blocks) so the 3D
+    // scene can render what the user placed on the 2D canvas.
+    placed_items: fp.placed_items || fp.placedItems || [],
     score: fp.score,
     style: fp.style,
     perimeter: fp.perimeter,

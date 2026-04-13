@@ -24,7 +24,23 @@
       "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} projects'\\); [print\\(f'  - {p[\\\\\"name\\\\\"]}'\\) for p in d[:5]]\")",
       "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} projects'\\); print\\(d[0]['name'] if d else 'none'\\)\")",
       "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(type\\(d\\).__name__, len\\(d\\)\\); print\\(json.dumps\\(d, default=str\\)[:300]\\)\")",
-      "Bash(node -e ':*)"
+      "Bash(node -e ':*)",
+      "Read(//c/Users/exzell/AppData/Local/Temp/claude/c--Users-exzell-Documents-GitHub-BFI-Vision/d3b2aa60-96f4-44e3-9b35-ef80b77b29e0/tasks/**)",
+      "WebFetch(domain:docs.smplrspace.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(node -e \"const p = require\\('./package.json'\\); console.log\\('smplr-loader:', p.dependencies['@smplrspace/smplr-loader']\\); console.log\\('html2canvas:', p.dependencies['html2canvas']\\);\")",
+      "Bash(npm run:*)",
+      "WebFetch(domain:api.smplrspace.com)",
+      "Bash(ls -la /c/Users/exzell/Documents/GitHub/BFI/Vision/backend/.env*)",
+      "WebFetch(domain:app.smplrspace.com)",
+      "Bash(python -c \"from app.main import app; print\\('OK routes:'\\); [print\\(' ', r.path\\) for r in app.routes if '/api/smplr' in getattr\\(r, 'path', ''\\)]\")",
+      "WebSearch",
+      "WebFetch(domain:developers.archilogic.com)",
+      "Bash(node -e \"console.log\\('postprocessing:', require\\('./package.json'\\).dependencies['@react-three/postprocessing']\\)\")",
+      "Bash(curl -sI \"https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_plaster_wall/painted_plaster_wall_diff_1k.jpg\")",
+      "Bash(curl -sI \"https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/roof_tiles_14/roof_tiles_14_diff_1k.jpg\")",
+      "Bash(curl -sI -H \"Origin: http://localhost:5173\" \"https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_plaster_wall/painted_plaster_wall_diff_1k.jpg\")"
     ]
   }
 }

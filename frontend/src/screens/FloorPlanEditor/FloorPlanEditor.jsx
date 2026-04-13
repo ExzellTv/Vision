@@ -696,8 +696,11 @@ function generateLocalFloorPlan(params) {
     placeStairs(rooms, width, depth);
   }
 
-  const doors = generateDoors(rooms, garage);
-  const windows = rooms.flatMap((room) => generateWindowsForRoom(room, width, depth));
+  // Windows and doors start empty — only elements the user drops onto the
+  // canvas end up in plan.windows / plan.doors, so the 3D house only shows
+  // what the user placed.
+  const doors = [];
+  const windows = [];
   const score = Math.round((0.82 + Math.random() * 0.15) * 100) / 100;
 
   return {
@@ -793,7 +796,7 @@ function generateUpperFloorPlan(params, refPlan) {
   return {
     id: `upper-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     width, depth, rooms, doors: [],
-    windows: rooms.flatMap((r) => generateWindowsForRoom(r, width, depth)),
+    windows: [], // user-placed only — see note above
     totalSF: rooms.reduce((s, r) => s + r.w * r.h, 0),
     score: Math.round((0.7 + Math.random() * 0.25) * 100) / 100,
     stories, style,

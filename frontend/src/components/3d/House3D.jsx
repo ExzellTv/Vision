@@ -8,8 +8,17 @@ import {
   PerspectiveCamera,
   Sky,
   PivotControls,
+  SoftShadows,
+  AccumulativeShadows,
+  RandomizedLight,
+  BakeShadows,
 } from "@react-three/drei";
 import { Geometry, Base, Subtraction, Addition } from "@react-three/csg";
+import { EffectComposer, SSAO, Bloom, Vignette, SMAA } from "@react-three/postprocessing";
+import { BlendFunction } from "postprocessing";
+import { Suspense } from "react";
+import { useTextureSet } from "../../lib/pbrTextures";
+import PlanHouse, { planIsRenderable } from "./PlanHouse";
 
 /**
  * House3D - Modern CSG-based 3D house using React Three Fiber
@@ -350,15 +359,18 @@ function HouseCSG({
     : (Math.min(width, depth) / 2) * pitchRatio;
   const roofHeight = roofType === "hip" ? hipRoofHeight : gableRoofHeight;
 
-  // Wall material
-  const wallMaterial = useMemo(() => (
-    <meshStandardMaterial
+  // Wall material — textured (Polyhaven stucco), tinted by wallColor.
+  // Suspense is wrapped around the whole Canvas content via <Ground>, but
+  // we still wrap this material render in a null-safe pattern below.
+  const wallMaterial = (
+    <TexturedMaterial
+      textureSet="exteriorWall"
       color={wallColor}
-      roughness={0.7}
+      roughness={0.85}
       metalness={0}
       envMapIntensity={envMapIntensity}
     />
-  ), [wallColor, envMapIntensity]);
+  );
 
   // Create roof geometries based on type and dimensions
   const gableRoofGeo = useMemo(
@@ -519,7 +531,7 @@ function HouseCSG({
           receiveShadow
           castShadow
         >
-          <meshStandardMaterial color={roofColor} roughness={0.85} />
+          <TexturedMaterial textureSet="roof" color={roofColor} roughness={0.85} />
         </mesh>
       )}
 
@@ -531,7 +543,7 @@ function HouseCSG({
           receiveShadow
           castShadow
         >
-          <meshStandardMaterial color={roofColor} roughness={0.85} />
+          <TexturedMaterial textureSet="roof" color={roofColor} roughness={0.85} />
         </mesh>
       )}
 
@@ -633,14 +645,43 @@ function HouseCSG({
   );
 }
 
+// ─── Textured material wrapper — loads Polyhaven PBR maps under Suspense ────
+
+function TexturedMaterialInner({ textureSet, ...rest }) {
+  const maps = useTextureSet(textureSet);
+  return <meshStandardMaterial attach="material" {...maps} {...rest} />;
+}
+
+function TexturedMaterial({ textureSet, ...rest }) {
+  return (
+    <Suspense fallback={<meshStandardMaterial attach="material" {...rest} />}>
+      <TexturedMaterialInner textureSet={textureSet} {...rest} />
+    </Suspense>
+  );
+}
+
 // ─── Ground Plane ────────────────────────────────────────────────────────────
 
-function Ground({ size = 50 }) {
+function TexturedGround({ size }) {
+  const maps = useTextureSet("grass");
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
       <planeGeometry args={[size, size]} />
-      <meshStandardMaterial color="#3d5c3d" roughness={0.9} />
+      <meshStandardMaterial {...maps} color="#cfd9b9" roughness={0.95} />
     </mesh>
+  );
+}
+
+function Ground({ size = 50 }) {
+  return (
+    <Suspense fallback={
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
+        <planeGeometry args={[size, size]} />
+        <meshStandardMaterial color="#3d5c3d" roughness={0.9} />
+      </mesh>
+    }>
+      <TexturedGround size={size} />
+    </Suspense>
   );
 }
 
@@ -723,26 +764,34 @@ function Scene({
         target={[0, targetHeight, 0]}
       />
 
-      {/* Lighting */}
-      <ambientLight intensity={0.4} />
+      {/* ── Soft shadows (PCSS-style) — single call per scene ── */}
+      <SoftShadows size={24} samples={16} focus={0.7} />
+
+      {/* ── Lighting — warm key + cool fill + sky hemisphere ── */}
+      <hemisphereLight args={["#cfe7ff", "#3b2a1a", 0.55]} />
+      <ambientLight intensity={0.18} />
       <directionalLight
-        position={[10, 15, 10]}
-        intensity={1.5}
+        position={[14, 20, 10]}
+        intensity={2.2}
+        color="#fff3df"
         castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-camera-far={50}
-        shadow-camera-left={-10}
-        shadow-camera-right={10}
-        shadow-camera-top={10}
-        shadow-camera-bottom={-10}
+        shadow-mapSize={[4096, 4096]}
+        shadow-bias={-0.0002}
+        shadow-normalBias={0.02}
+        shadow-camera-far={60}
+        shadow-camera-left={-maxDimension}
+        shadow-camera-right={maxDimension}
+        shadow-camera-top={maxDimension}
+        shadow-camera-bottom={-maxDimension}
       />
-      <directionalLight position={[-5, 8, -5]} intensity={0.3} />
+      {/* Rim light for edge separation */}
+      <directionalLight position={[-8, 10, -6]} intensity={0.35} color="#b4c6ff" />
 
-      {/* Sky */}
-      {showSky && <Sky sunPosition={[100, 20, 100]} />}
+      {/* Sky — backdrop when not using env ground-projection */}
+      {showSky && <Sky sunPosition={[100, 20, 100]} turbidity={6} rayleigh={0.9} mieCoefficient={0.005} />}
 
-      {/* Environment for reflections */}
-      <Environment preset="city" />
+      {/* Image-based lighting — "sunset" gives warmer architectural reflections than "city" */}
+      <Environment preset="sunset" />
 
       {/* Ground */}
       {showGround && <Ground />}
@@ -750,17 +799,48 @@ function Scene({
       {/* Grass decorations */}
       {showGrass && <GrassPatches />}
 
-      {/* Contact Shadows */}
+      {/* Contact shadow under the house — grounds it visually */}
       <ContactShadows
-        position={[0, 0, 0]}
-        opacity={0.5}
-        scale={20}
-        blur={2}
-        far={5}
+        position={[0, 0.005, 0]}
+        opacity={0.75}
+        scale={Math.max(30, maxDimension * 3)}
+        blur={2.4}
+        far={8}
+        resolution={1024}
       />
 
-      {/* House */}
-      <HouseCSG {...houseProps} />
+      {/* House — prefer the plan-driven geometry when the floor plan has rooms.
+          Falls back to the parametric HouseCSG box when no plan is available. */}
+      {planIsRenderable(houseProps.floorPlan) ? (
+        <PlanHouse plan={houseProps.floorPlan} />
+      ) : (
+        <HouseCSG {...houseProps} />
+      )}
+
+      {/* ── Post-processing — subtle SSAO + soft bloom + vignette ── */}
+      <EffectComposer multisampling={0} disableNormalPass>
+        <SSAO
+          blendFunction={BlendFunction.MULTIPLY}
+          samples={16}
+          rings={4}
+          distanceThreshold={0.6}
+          distanceFalloff={0.15}
+          rangeThreshold={0.01}
+          rangeFalloff={0.005}
+          luminanceInfluence={0.7}
+          radius={4}
+          bias={0.035}
+          intensity={18}
+        />
+        <Bloom
+          intensity={0.35}
+          luminanceThreshold={0.85}
+          luminanceSmoothing={0.2}
+          mipmapBlur
+        />
+        <Vignette eskil={false} offset={0.2} darkness={0.55} />
+        <SMAA />
+      </EffectComposer>
     </>
   );
 }
@@ -1008,17 +1088,22 @@ export default function House3D({
     planWindows,
     planDoors,
     planRooms,
+    // Raw plan — Scene uses this to decide between PlanHouse (plan-driven)
+    // and HouseCSG (parametric) rendering.
+    floorPlan,
   };
 
   return (
     <div style={{ width: "100%", height: "100%", background: "#87CEEB", ...style }} className={className}>
       <Canvas
-        shadows
+        shadows="soft"
         gl={{
           preserveDrawingBuffer: true,
           antialias: true,
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.2,
+          toneMappingExposure: 1.05,
+          outputColorSpace: THREE.SRGBColorSpace,
+          powerPreference: "high-performance",
         }}
         dpr={[1, 2]}
       >

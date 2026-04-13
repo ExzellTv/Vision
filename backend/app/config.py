@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     materials_api_key: str = ""
     cesium_ion_token: str = ""
 
+    # Smplrspace (floor plan embed)
+    # SMPLRSPACE_CLIENT_TOKEN: the "pub_..." publishable token — echoed to the
+    #   frontend as a fallback when no private API key is configured.
+    # SMPLRSPACE_API_KEY: the private organization API key (keep server-side).
+    # SMPLRSPACE_TOKEN_URL: endpoint that mints session tokens (configurable —
+    #   Smplrspace's exact path is org-specific; update after checking your
+    #   Smplrspace dashboard under Settings → Developer → API).
+    smplrspace_client_token: str = ""
+    smplrspace_api_key: str = ""
+    smplrspace_token_url: str = "https://api.smplrspace.com/v1/user-tokens"
+    smplrspace_api_base: str = "https://api.smplrspace.com/v1"
+
     @property
     def mongodb_uri(self) -> str:
         """Alias — routers that use mongodb_uri get the same value as mongodb_url."""

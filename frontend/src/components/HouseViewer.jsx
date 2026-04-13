@@ -1,118 +1,168 @@
 /**
- * HouseViewer — Top-level component tying 3D model + photorealistic AI render.
+ * HouseViewer — Smplrspace floor plan + AI photorealistic render.
  *
- * Layout: split-panel (3D left, render result right) on desktop,
- *         stacked on mobile.
+ * Left/top: FloorPlanViewer (interactive Smplrspace 2D/3D, read-only).
+ * Right/bottom: MyArchitectAI render of the captured view.
  *
- * Flow: floor plan JSON → validate → HouseScene (interactive 3D)
- *       → "Generate Render" → screenshot → MyArchitectAI → result
+ * To edit the floor plan, users navigate in-app to /develop (FloorPlanEditor).
+ * Smplrspace's JS SDK is viewer-only and their hosted editor lives behind
+ * Auth0, which refuses iframe embedding — so everything stays native.
  */
-import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { colors, fonts, radii, card } from "../theme/tokens";
-import { coerceVisionFloorPlan, validateFloorPlan } from "../lib/floorPlanSchema";
 import { renderWithAI, RENDER_STYLES } from "../lib/myArchitectAI";
-import HouseScene from "./HouseScene";
+import FloorPlanViewer from "./FloorPlanViewer";
 
-export default function HouseViewer({ floorPlanJson }) {
-  const sceneRef = useRef();
+export default function HouseViewer({ spaceId, clientToken }) {
+  const resolvedSpaceId = spaceId || import.meta.env.VITE_SMPLR_SPACE_ID || "";
+  const resolvedToken = clientToken || import.meta.env.VITE_SMPLR_CLIENT_TOKEN || "";
+
+  const navigate = useNavigate();
+  const viewerRef = useRef(null);
+  const [isNarrow, setIsNarrow] = useState(
+    typeof window !== "undefined" ? window.innerWidth < 900 : false
+  );
+  const [cameraMode, setCameraMode] = useState("3d"); // "2d" | "3d"
   const [style, setStyle] = useState("modern exterior");
   const [rendering, setRendering] = useState(false);
   const [renderResult, setRenderResult] = useState(null);
   const [error, setError] = useState(null);
 
-  // Validate + coerce floor plan
-  const plan = useMemo(() => {
-    if (!floorPlanJson) return null;
-    const coerced = coerceVisionFloorPlan(floorPlanJson);
-    if (!coerced) return null;
-    const result = validateFloorPlan(coerced);
-    if (result.success) {
-      if (import.meta.env.DEV) {
-        console.log("[Vision] Floor plan schema:", JSON.stringify(result.data, null, 2));
-      }
-      return result.data;
-    }
-    // Use coerced even if validation is partial
-    console.warn("[Vision] Using coerced plan despite validation issues");
-    return coerced;
-  }, [floorPlanJson]);
+  useEffect(() => {
+    const onResize = () => setIsNarrow(window.innerWidth < 900);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const handleGenerateRender = useCallback(async () => {
-    if (!sceneRef.current) return;
+    if (!viewerRef.current) return;
     setRendering(true);
     setError(null);
     setRenderResult(null);
-
     try {
-      const screenshot = sceneRef.current.captureScreenshot(1024, 1024);
+      const screenshot = await viewerRef.current.captureScreenshot();
       if (!screenshot) throw new Error("Failed to capture screenshot");
-
       const result = await renderWithAI(screenshot, style);
       setRenderResult(result);
     } catch (err) {
-      setError(err.message || "Render failed");
+      setError(err?.message || "Render failed");
     } finally {
       setRendering(false);
     }
   }, [style]);
 
-  if (!plan) {
-    return (
-      <div style={{
-        height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
-        background: colors.bg, color: colors.textDim, fontFamily: fonts.label, fontSize: 14,
-      }}>
-        No floor plan data available.
-      </div>
-    );
-  }
+  const goToEditor = useCallback(() => {
+    navigate("/develop");
+  }, [navigate]);
+
+  const configMissing = !resolvedSpaceId || !resolvedToken;
 
   return (
     <div style={{
-      display: "flex", height: "100%", width: "100%",
+      display: "flex",
+      flexDirection: isNarrow ? "column" : "row",
+      height: "100%", width: "100%",
       background: colors.bg, fontFamily: fonts.label, overflow: "hidden",
-      flexDirection: "row",
     }}>
+      {/* ── Floor plan viewer ── */}
+      <div style={{
+        flex: isNarrow ? "1 1 55%" : "1 1 60%",
+        position: "relative",
+        minHeight: isNarrow ? 320 : 500,
+        borderBottom: isNarrow ? `1px solid ${colors.panelBorder}` : "none",
+      }}>
+        {configMissing ? (
+          <ConfigMissing
+            missingToken={!resolvedToken}
+            missingSpace={!resolvedSpaceId}
+          />
+        ) : (
+          <FloorPlanViewer
+            ref={viewerRef}
+            spaceId={resolvedSpaceId}
+            clientToken={resolvedToken}
+            cameraMode={cameraMode}
+          />
+        )}
 
-      {/* ── Left: Interactive 3D Model ── */}
-      <div style={{ flex: "1 1 60%", position: "relative", minHeight: 400 }}>
-        <HouseScene ref={sceneRef} plan={plan} />
-
-        {/* Info overlay */}
+        {/* 2D / 3D camera toggle — top-left */}
         <div style={{
-          position: "absolute", top: 12, left: 12,
+          position: "absolute", top: 12, left: 12, zIndex: 20,
+          display: "flex", gap: 4, padding: 4,
           background: "rgba(13,17,23,0.85)", backdropFilter: "blur(8px)",
           border: `1px solid ${colors.cardBorder}`, borderRadius: 8,
-          padding: "10px 14px", zIndex: 10,
         }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: colors.textBright }}>
-            {plan.style || "Floor Plan"} — {plan.totalSF?.toLocaleString()} SF
-          </div>
-          <div style={{ fontSize: 11, color: colors.textDim, marginTop: 2 }}>
-            {plan.rooms?.length} rooms | {Math.round(plan.width)}' x {Math.round(plan.depth)}' | {plan.stories} story
-          </div>
+          {[
+            { key: "2d", label: "2D" },
+            { key: "3d", label: "3D" },
+          ].map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => setCameraMode(opt.key)}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 6,
+                border: "none",
+                background: cameraMode === opt.key ? colors.accentDim : "transparent",
+                color: cameraMode === opt.key ? colors.accent : colors.text,
+                fontSize: 11, fontWeight: 600, fontFamily: fonts.label,
+                cursor: "pointer",
+                letterSpacing: "0.3px",
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
+
+        {/* Edit Floor Plan — navigates in-app to /develop */}
+        {!configMissing && (
+          <button
+            onClick={goToEditor}
+            style={{
+              position: "absolute", top: 12, right: 12, zIndex: 20,
+              padding: "8px 14px",
+              background: "rgba(13,17,23,0.85)",
+              backdropFilter: "blur(8px)",
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: 8,
+              color: colors.textBright,
+              fontSize: 11, fontWeight: 600, fontFamily: fonts.label,
+              cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+              letterSpacing: "0.3px",
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M1 9.5 2 11l1.5-.5L10 4 8 2 1.5 8.5 1 9.5Z"
+                    stroke="currentColor" strokeWidth="1.2"
+                    strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+            Edit Floor Plan
+          </button>
+        )}
       </div>
 
-      {/* ── Right: AI Render Panel ── */}
+      {/* ── AI render panel ── */}
       <div style={{
-        flex: "0 0 40%", minWidth: 320, maxWidth: 500,
-        borderLeft: `1px solid ${colors.panelBorder}`,
-        background: colors.panel, padding: "20px",
+        flex: isNarrow ? "1 1 45%" : "0 0 40%",
+        minWidth: isNarrow ? undefined : 320,
+        maxWidth: isNarrow ? undefined : 500,
+        borderLeft: isNarrow ? "none" : `1px solid ${colors.panelBorder}`,
+        background: colors.panel, padding: 20,
         display: "flex", flexDirection: "column", gap: 16,
         overflowY: "auto",
       }}>
-        {/* Header */}
         <div>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: colors.textBright }}>
             AI Photorealistic Render
           </h3>
           <p style={{ margin: "4px 0 0", fontSize: 12, color: colors.textDim }}>
-            Capture the 3D view and transform it into a photorealistic visualization.
+            Orient the floor plan, then generate a photorealistic exterior.
           </p>
         </div>
 
-        {/* Style selector */}
         <div>
           <label style={{
             display: "block", fontSize: 10, fontWeight: 600, color: colors.textDim,
@@ -120,59 +170,43 @@ export default function HouseViewer({ floorPlanJson }) {
           }}>
             Architectural Style
           </label>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {RENDER_STYLES.map(s => (
-              <button
-                key={s.key}
-                onClick={() => setStyle(s.key)}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: 6,
-                  border: `1px solid ${style === s.key ? colors.accent : colors.cardBorder}`,
-                  background: style === s.key ? colors.accentDim : "transparent",
-                  color: style === s.key ? colors.accent : colors.text,
-                  fontSize: 11, fontWeight: 500, fontFamily: fonts.label,
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                }}
-              >
-                {s.label}
-              </button>
+          <select
+            value={style}
+            onChange={(e) => setStyle(e.target.value)}
+            style={{
+              width: "100%", padding: "8px 10px",
+              background: colors.cardSurface,
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: radii.md,
+              color: colors.text, fontSize: 13, fontFamily: fonts.label,
+              cursor: "pointer",
+            }}
+          >
+            {RENDER_STYLES.map((s) => (
+              <option key={s.key} value={s.key}>{s.label}</option>
             ))}
-          </div>
+          </select>
         </div>
 
-        {/* Generate button */}
         <button
           onClick={handleGenerateRender}
-          disabled={rendering}
+          disabled={rendering || configMissing}
           style={{
             padding: "12px 0",
-            background: rendering
+            background: rendering || configMissing
               ? colors.cardSurface
               : `linear-gradient(135deg, ${colors.accent}, #0099cc)`,
             border: "none",
             borderRadius: radii.md,
-            color: rendering ? colors.textDim : colors.bg,
+            color: rendering || configMissing ? colors.textDim : colors.bg,
             fontSize: 13, fontWeight: 700, fontFamily: fonts.label,
-            cursor: rendering ? "not-allowed" : "pointer",
+            cursor: rendering || configMissing ? "not-allowed" : "pointer",
             letterSpacing: "0.3px",
-            transition: "box-shadow 0.2s",
           }}
-          onMouseEnter={e => !rendering && (e.currentTarget.style.boxShadow = `0 4px 20px rgba(0,212,255,0.3)`)}
-          onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
         >
-          {rendering ? (
-            <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <svg width="14" height="14" viewBox="0 0 14 14" style={{ animation: "spin 1s linear infinite" }}>
-                <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="2" fill="none" strokeDasharray="20" strokeDashoffset="5" />
-              </svg>
-              Rendering...
-            </span>
-          ) : "Generate Photorealistic Render"}
+          {rendering ? "Rendering…" : "Generate Render"}
         </button>
 
-        {/* Error state */}
         {error && (
           <div style={{
             ...card, padding: "12px 16px",
@@ -198,8 +232,9 @@ export default function HouseViewer({ floorPlanJson }) {
           </div>
         )}
 
-        {/* Render result */}
-        {renderResult && (
+        {rendering && <RenderSkeleton />}
+
+        {renderResult && !rendering && (
           <div style={{ ...card, padding: 0, overflow: "hidden" }}>
             {renderResult.demo && (
               <div style={{
@@ -214,15 +249,11 @@ export default function HouseViewer({ floorPlanJson }) {
             <img
               src={renderResult.url}
               alt="AI Photorealistic Render"
-              style={{
-                width: "100%", height: "auto", display: "block",
-                filter: renderResult.demo ? "saturate(1.2) contrast(1.05)" : "none",
-              }}
+              style={{ width: "100%", height: "auto", display: "block" }}
             />
           </div>
         )}
 
-        {/* Placeholder when no render yet */}
         {!renderResult && !rendering && !error && (
           <div style={{
             ...card, padding: "40px 20px",
@@ -232,30 +263,62 @@ export default function HouseViewer({ floorPlanJson }) {
           }}>
             <svg width="40" height="40" viewBox="0 0 40 40" fill="none" opacity="0.3">
               <rect x="4" y="4" width="32" height="32" rx="4" stroke={colors.textDim} strokeWidth="2" />
-              <circle cx="14" cy="16" r="4" stroke={colors.textDim} strokeWidth="1.5" />
               <path d="M4 30l10-8 6 5 6-10 10 13" stroke={colors.textDim} strokeWidth="1.5" strokeLinejoin="round" />
             </svg>
             <span style={{ fontSize: 12, color: colors.textDim }}>
-              Rotate the 3D model to your desired angle, then click Generate.
+              Rotate the floor plan to your desired angle, then click Generate.
             </span>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
 
-        {/* Loading skeleton */}
-        {rendering && (
-          <div style={{
-            ...card, padding: 0, overflow: "hidden",
-            height: 280, position: "relative",
-          }}>
-            <div style={{
-              position: "absolute", inset: 0,
-              background: `linear-gradient(110deg, ${colors.cardSurface} 8%, ${colors.surfaceHover} 18%, ${colors.cardSurface} 33%)`,
-              backgroundSize: "200% 100%",
-              animation: "shimmer 1.5s infinite",
-            }} />
-            <style>{`@keyframes shimmer { to { background-position: -200% 0; } } @keyframes spin { to { transform: rotate(360deg); } }`}</style>
-          </div>
-        )}
+function RenderSkeleton() {
+  return (
+    <div style={{
+      ...card, padding: 0, overflow: "hidden",
+      height: 280, position: "relative",
+    }}>
+      <div style={{
+        position: "absolute", inset: 0,
+        background: `linear-gradient(110deg, ${colors.cardSurface} 8%, ${colors.surfaceHover} 18%, ${colors.cardSurface} 33%)`,
+        backgroundSize: "200% 100%",
+        animation: "hv-shimmer 1.5s infinite",
+      }} />
+      <style>{`@keyframes hv-shimmer { to { background-position: -200% 0; } }`}</style>
+    </div>
+  );
+}
+
+function ConfigMissing({ missingToken, missingSpace }) {
+  const missing = [
+    missingToken && "VITE_SMPLR_CLIENT_TOKEN",
+    missingSpace && "VITE_SMPLR_SPACE_ID",
+  ].filter(Boolean);
+
+  return (
+    <div style={{
+      height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 24,
+    }}>
+      <div style={{
+        maxWidth: 420, padding: 20,
+        border: `1px solid ${colors.warn}`,
+        borderRadius: radii.md,
+        background: colors.warnDim,
+        fontFamily: fonts.label,
+      }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: colors.warn, marginBottom: 6 }}>
+          Smplrspace configuration missing
+        </div>
+        <div style={{ fontSize: 12, color: colors.text, lineHeight: 1.5 }}>
+          Set the following in <code style={{ color: colors.accent }}>frontend/.env</code>:
+          <ul style={{ margin: "8px 0 0 18px", padding: 0 }}>
+            {missing.map((v) => <li key={v} style={{ fontFamily: fonts.data }}>{v}</li>)}
+          </ul>
+        </div>
       </div>
     </div>
   );
