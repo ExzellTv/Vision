@@ -169,8 +169,11 @@ export default function House3DPreview() {
   const stories = project.stories || project.generateParams?.stories || 1;
   const totalSF = project.totalSF || (width * depth * stories);
 
-  // Get the full floor plan with rooms, windows, and doors
+  // Get the full floor plan with rooms, windows, and doors.
+  // storyPlans is the full multi-story array (one plan per story); House3D
+  // renders each story stacked via PlanHouse.
   const floorPlan = project.floorPlan;
+  const storyPlans = project.storyPlans;
 
   return (
     <div
@@ -198,6 +201,7 @@ export default function House3DPreview() {
           showSky={showEnvironment}
           interactive={editMode}
           floorPlan={floorPlan}
+          storyPlans={storyPlans}
           style={{ width: "100%", height: "100%" }}
         />
 

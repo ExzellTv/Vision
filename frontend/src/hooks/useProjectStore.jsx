@@ -8,6 +8,41 @@ import { DEMO_PROJECT } from "../data/demoProject";
  */
 const ProjectContext = createContext(null);
 
+/* ── localStorage persistence ─────────────────────────────────────────────── */
+const PERSIST_KEY = "vision:project:v1";
+
+function readPersistedProject() {
+  try {
+    const raw = localStorage.getItem(PERSIST_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Must have at least a floor plan with rooms to count as a real saved project.
+    if (!parsed?.floorPlan?.rooms?.length) return null;
+    return parsed;
+  } catch (err) {
+    if (import.meta.env.DEV) console.warn("[Vision] Failed to read persisted project:", err);
+    return null;
+  }
+}
+
+function writePersistedProject(project) {
+  try {
+    // Don't overwrite storage with empty state (happens briefly during resetProject).
+    if (!project?.floorPlan?.rooms?.length) return;
+    localStorage.setItem(PERSIST_KEY, JSON.stringify(project));
+  } catch (err) {
+    if (import.meta.env.DEV) console.warn("[Vision] Failed to persist project:", err);
+  }
+}
+
+function clearPersistedProject() {
+  try {
+    localStorage.removeItem(PERSIST_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 /* ── Normalize API variant to canvas format ── */
 function normalizeVariant(v, params) {
   if (!v) return v;
@@ -123,22 +158,43 @@ export function ProjectProvider({ children }) {
     setBuildingContextRaw((prev) => ({ ...prev, ...updates }));
   }, []);
 
-  /* Auto-load demo project on first mount so gallery visitors see a house immediately */
+  /* Auto-load on first mount:
+   *   1. If user has a persisted plan in localStorage → restore it.
+   *   2. Otherwise → load the demo project so gallery visitors see a house. */
   useEffect(() => {
     if (demoLoaded) return;
     setDemoLoaded(true);
-    const d = DEMO_PROJECT;
-    setProjectName(d.projectName);
-    setFloorPlanRaw(d.floorPlan);
-    setStoryPlansRaw(d.storyPlans);
-    setGenerateParams(d.generateParams);
-    setMaterials(d.materials);
-    setBuildingContextRaw({ ...DEFAULT_BUILDING_CONTEXT, ...d.buildingContext });
-    setMaxStep(5); // unlock all steps
+
+    const saved = readPersistedProject();
+    const src = saved || DEMO_PROJECT;
+
+    setProjectName(src.projectName || "New Project");
+    setFloorPlanRaw(src.floorPlan || null);
+    setStoryPlansRaw(src.storyPlans || []);
+    setGenerateParams(src.generateParams || null);
+    setMaterials(src.materials || []);
+    setBuildingContextRaw({ ...DEFAULT_BUILDING_CONTEXT, ...(src.buildingContext || {}) });
+    setMaxStep(src === DEMO_PROJECT ? 5 : (src.maxStep ?? 5));
   }, [demoLoaded]);
+
+  /* Persist user's plan whenever it changes — so hard-refresh doesn't revert
+   * to the demo. Skips until the first mount has loaded initial state. */
+  useEffect(() => {
+    if (!demoLoaded) return;
+    writePersistedProject({
+      projectName,
+      floorPlan,
+      storyPlans,
+      generateParams,
+      materials,
+      buildingContext,
+      maxStep,
+    });
+  }, [demoLoaded, projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep]);
 
   /* Reset entire project state for a clean "new project" flow */
   const resetProject = useCallback(() => {
+    clearPersistedProject();
     setProjectName("New Project");
     setFloorPlanRaw(null);
     setAllVariantsRaw([]);

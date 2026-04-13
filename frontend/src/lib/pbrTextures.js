@@ -34,7 +34,7 @@ export const TEXTURE_SETS = {
   roof:         { ...polyhaven("roof_tiles_14"),         repeat: [6, 6] },
   floor:        { ...polyhaven("wood_planks_grey"),      repeat: [4, 4] },
   slab:         { ...polyhaven("concrete_floor_worn_001"), repeat: [4, 4] },
-  grass:        { ...polyhaven("aerial_grass_rock"),     repeat: [8, 8] },
+  grass:        { ...polyhaven("sparse_grass"),          repeat: [10, 10] },
 };
 
 const _loader = new THREE.TextureLoader();

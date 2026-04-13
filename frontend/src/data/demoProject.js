@@ -38,29 +38,32 @@ const fpWidth = 60;
 const fpDepth = 40;
 
 // ── Exterior windows (no overlaps with doors, verified) ──────────────────────
+// Schema convention: y=0 is top (north), y=fpDepth is bottom (south).
+// side "top"    → wall at y=0          side "bottom" → wall at y=fpDepth
+// side "left"   → wall at x=0          side "right"  → wall at x=fpWidth
 const windows = [
-  // Front wall (side "bottom")
-  { x: 8,  y: 0,       width: 5, height: 4, side: "bottom" },   // Great Room left
-  { x: 16, y: 0,       width: 4, height: 4, side: "bottom" },   // Great Room right
-  { x: 25, y: 0,       width: 4, height: 4, side: "bottom" },   // Kitchen
-  // Back wall (side "top") — patio door at 2-8, so windows start after 8
-  { x: 10, y: fpDepth,  width: 5, height: 4, side: "top" },     // Master Bedroom
-  { x: 24, y: fpDepth,  width: 5, height: 4, side: "top" },     // Bedroom 2
-  { x: 32, y: fpDepth,  width: 4, height: 4, side: "top" },     // Bedroom 3
-  { x: 52, y: fpDepth,  width: 5, height: 4, side: "top" },     // Office
-  // Left wall (side "left")
+  // Front wall (y=0, side="top") — entry + garage door are on this wall
+  { x: 8,  y: 0,       width: 5, height: 4, side: "top" },      // Great Room left
+  { x: 16, y: 0,       width: 4, height: 4, side: "top" },      // Great Room right
+  { x: 25, y: 0,       width: 4, height: 4, side: "top" },      // Kitchen
+  // Back wall (y=fpDepth, side="bottom") — patio door is on this wall
+  { x: 10, y: fpDepth, width: 5, height: 4, side: "bottom" },   // Master Bedroom
+  { x: 24, y: fpDepth, width: 5, height: 4, side: "bottom" },   // Bedroom 2
+  { x: 32, y: fpDepth, width: 4, height: 4, side: "bottom" },   // Bedroom 3
+  { x: 52, y: fpDepth, width: 5, height: 4, side: "bottom" },   // Office
+  // Left wall
   { x: 0,  y: 8,       width: 5, height: 4, side: "left" },     // Great Room
   { x: 0,  y: 26,      width: 5, height: 4, side: "left" },     // Master
-  // Right wall (side "right")
+  // Right wall
   { x: fpWidth, y: 8,  width: 5, height: 3, side: "right" },    // Garage
   { x: fpWidth, y: 28, width: 5, height: 4, side: "right" },    // Office
 ];
 
 // ── Exterior doors (no overlaps with windows, verified) ──────────────────────
 const doors = [
-  { x: 36, y: 0,       width: 3.5, side: "bottom", isExterior: true },  // Front door (entry at 34-40)
-  { x: 48, y: 0,       width: 9,   side: "bottom", isExterior: true },  // Garage door (garage at 40-60)
-  { x: 3,  y: fpDepth, width: 6,   side: "top",    isExterior: true },  // Back patio slider
+  { x: 36, y: 0,       width: 3.5, side: "top",    isExterior: true },  // Front door (entry at 34-40)
+  { x: 48, y: 0,       width: 9,   side: "top",    isExterior: true },  // Garage door (garage at 40-60)
+  { x: 3,  y: fpDepth, width: 6,   side: "bottom", isExterior: true },  // Back patio slider
 ];
 
 // ── Materials (7-layer system) ───────────────────────────────────────────────

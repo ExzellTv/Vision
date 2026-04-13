@@ -276,12 +276,15 @@ export default function FloorPlanDraw({ onSave }) {
     return [makeStory(project.floorPlan)];
   };
 
-  const [numStories,    setNumStoriesRaw] = useState(() => project.storyPlans?.length || project.generateParams?.stories || 1);
+  const [numStories,    setNumStoriesRaw] = useState(
+    () => Math.min(2, project.storyPlans?.length || project.generateParams?.stories || 1)
+  );
   const [storyData,     setStoryData]     = useState(initStories);
   const [currentStory,  setCurrentStory]  = useState(0);
 
-  // When numStories changes, grow/shrink storyData
-  const setNumStories = (n) => {
+  // When numStories changes, grow/shrink storyData. Hard-capped at 2.
+  const setNumStories = (rawN) => {
+    const n = Math.min(2, Math.max(1, rawN));
     setNumStoriesRaw(n);
     setStoryData((prev) => {
       const copy = [...prev];
@@ -724,7 +727,7 @@ export default function FloorPlanDraw({ onSave }) {
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "1.4px", textTransform: "uppercase",
             color: accent, fontFamily: fonts.data, marginBottom: 8 }}>Stories</div>
           <div style={{ display: "flex", gap: 4 }}>
-            {[1, 2, 3].map((n) => (
+            {[1, 2].map((n) => (
               <button key={n} onClick={() => setNumStories(n)} style={{
                 flex: 1, padding: "6px 0", borderRadius: radii.sm,
                 border: `1px solid ${numStories === n ? accent : bdColor}`,

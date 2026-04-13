@@ -334,7 +334,7 @@ export default function DemoLandingPage() {
           base: { background: C.lightText, color: C.lightBg },
           hoverShadow: "0 8px 28px rgba(15,23,42,0.2)",
         }}
-        onClick={() => { setHomeowner(); navigate("/preview3d"); }}
+        onClick={() => { setHomeowner(); navigate("/dashboard"); }}
       />
 
       {/* Right — Builder */}

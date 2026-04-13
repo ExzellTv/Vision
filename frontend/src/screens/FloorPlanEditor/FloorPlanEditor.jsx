@@ -563,6 +563,106 @@ function generateDoors(rooms, garage) {
   return doors;
 }
 
+/**
+ * Extract user-placed doors/windows from the placed_items array and convert
+ * them into the OpeningSchema shape that the 3D renderer expects:
+ *   { type, x, y, width, height, side, sillHeight? }
+ *
+ * Side is inferred from the item's proximity to the footprint bounding box
+ * edge. If an opening isn't near any exterior wall (e.g. user dropped it
+ * inside a room), it's skipped rather than placed on a guessed wall.
+ */
+function extractOpeningsFromPlacedItems(placedItems, bbox) {
+  const doors = [];
+  const windows = [];
+  const TOL = 2.0; // feet — snap tolerance for inferring which wall
+
+  (placedItems || []).forEach((item) => {
+    if (!item || item.isRoom) return;
+    const isDoor = item.type === "door";
+    const isWindow = item.type === "window" || item.type === "glazing";
+    if (!isDoor && !isWindow) return;
+
+    const centerX = item.x + item.w / 2;
+    const centerY = item.y + item.h / 2;
+
+    const distTop    = Math.abs(item.y - bbox.minY);
+    const distBottom = Math.abs((item.y + item.h) - bbox.maxY);
+    const distLeft   = Math.abs(item.x - bbox.minX);
+    const distRight  = Math.abs((item.x + item.w) - bbox.maxX);
+    const minDist    = Math.min(distTop, distBottom, distLeft, distRight);
+    if (minDist > TOL) return;
+
+    let side, x, y, width;
+    if (minDist === distTop) {
+      side = "top";    x = centerX;     y = bbox.minY; width = item.w;
+    } else if (minDist === distBottom) {
+      side = "bottom"; x = centerX;     y = bbox.maxY; width = item.w;
+    } else if (minDist === distLeft) {
+      side = "left";   x = bbox.minX;   y = centerY;   width = item.h;
+    } else {
+      side = "right";  x = bbox.maxX;   y = centerY;   width = item.h;
+    }
+
+    const opening = {
+      id: String(item.id ?? `${item.type}-${x}-${y}`),
+      type: isDoor ? "door" : "window",
+      x, y, width,
+      height: isDoor ? 7 : 4,
+      side,
+      ...(isWindow ? { sillHeight: 3 } : {}),
+      isExterior: true,
+    };
+    if (isDoor) doors.push(opening);
+    else windows.push(opening);
+  });
+
+  return { doors, windows };
+}
+
+/**
+ * Auto-generate a large garage door on the exterior wall of each garage room.
+ * Typical double-car garage door: 16' wide × 8' tall.
+ * Width clamps to (room's wall-parallel dim − 2' for jambs) so it always fits.
+ */
+function generateGarageDoors(rooms, bboxW, bboxD) {
+  const doors = [];
+  rooms.filter(r => r.type === "garage").forEach((room, i) => {
+    const distTop    = room.y;
+    const distBottom = bboxD - (room.y + room.h);
+    const distLeft   = room.x;
+    const distRight  = bboxW - (room.x + room.w);
+    const minDist    = Math.min(distTop, distBottom, distLeft, distRight);
+
+    // Garage door runs almost the full wall length — leaves a 2 ft gap on each
+    // side (4 ft total) between the door and the perpendicular walls so the
+    // corners still read as solid wall.
+    const SIDE_MARGIN = 2; // feet per side
+    let side, x, y, width;
+    if (minDist === distTop) {
+      side = "top";    x = room.x + room.w / 2; y = 0;     width = room.w - SIDE_MARGIN * 2;
+    } else if (minDist === distBottom) {
+      side = "bottom"; x = room.x + room.w / 2; y = bboxD; width = room.w - SIDE_MARGIN * 2;
+    } else if (minDist === distLeft) {
+      side = "left";   x = 0;     y = room.y + room.h / 2; width = room.h - SIDE_MARGIN * 2;
+    } else {
+      side = "right";  x = bboxW; y = room.y + room.h / 2; width = room.h - SIDE_MARGIN * 2;
+    }
+
+    doors.push({
+      id: `garage-door-${i}`,
+      type: "door",
+      x, y,
+      width: Math.max(8, width),
+      height: 8, // standard garage-door height
+      side,
+      isExterior: true,
+      isGarageDoor: true,
+    });
+  });
+  return doors;
+}
+
 function generateWindowsForRoom(room, width, depth) {
   const SKIP_TYPES = new Set(["garage", "hallway", "closet"]);
   if (SKIP_TYPES.has(room.type)) return [];
@@ -696,10 +796,10 @@ function generateLocalFloorPlan(params) {
     placeStairs(rooms, width, depth);
   }
 
-  // Windows and doors start empty — only elements the user drops onto the
-  // canvas end up in plan.windows / plan.doors, so the 3D house only shows
-  // what the user placed.
-  const doors = [];
+  // Windows and user doors start empty — only elements the user drops onto
+  // the canvas end up in plan.windows / plan.doors. Garage doors are the one
+  // automatic exception (every garage needs a large overhead door).
+  const doors = generateGarageDoors(rooms, width, depth);
   const windows = [];
   const score = Math.round((0.82 + Math.random() * 0.15) * 100) / 100;
 
@@ -1664,6 +1764,12 @@ export default function FloorPlanEditor() {
     }
   }, [activePlan]);
 
+  /* Also sync params to the store whenever they change (e.g. SF slider moves),
+   * so values survive navigation to the 3D model and back. */
+  useEffect(() => {
+    project.setGenerateParams(params);
+  }, [params]);
+
   /* Build preset layout on mount from project params */
   const hasAutoGenerated = useRef(false);
   useEffect(() => {
@@ -2354,7 +2460,20 @@ export default function FloorPlanEditor() {
         });
         const bboxW = rooms.length > 0 ? Math.round((maxX - minX) * 10) / 10 : plan.width;
         const bboxD = rooms.length > 0 ? Math.round((maxY - minY) * 10) / 10 : plan.depth;
-        return { ...plan, rooms, totalSF, placed_items: allItems, width: bboxW, depth: bboxD, doors: plan.doors || [], windows: plan.windows || [] };
+        // Extract doors/windows the user placed so the 3D house cuts real
+        // openings at those positions (not just the drag-drop preview boxes).
+        const { doors: placedDoors, windows: placedWindows } =
+          extractOpeningsFromPlacedItems(allItems, { minX, maxX, minY, maxY });
+        return {
+          ...plan,
+          rooms,
+          totalSF,
+          placed_items: allItems,
+          width: bboxW,
+          depth: bboxD,
+          doors: [...(plan.doors || []), ...placedDoors],
+          windows: [...(plan.windows || []), ...placedWindows],
+        };
       })
       .filter(Boolean);
 

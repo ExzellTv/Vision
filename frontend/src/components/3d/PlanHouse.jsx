@@ -1,63 +1,99 @@
 /**
- * PlanHouse — renders a 3D house from the user's actual floor plan JSON.
+ * PlanHouse — renders a 3D house from the user's actual floor plan JSON,
+ * with optional multi-story stacking.
  *
- * Bridges the pure-Three.js geometry builder (src/lib/buildHouseGeometry.js)
- * into React Three Fiber. Unlike the parametric HouseCSG path, this component:
- *   - Reads the validated plan (rooms, walls, windows, doors)
- *   - Produces per-room floor slabs, interior walls at real room boundaries,
- *     exterior walls with true window/door cutouts (not painted-on frames)
- *   - Places window panes (glass transmission material) inside the cutouts
- *   - Updates automatically when the plan changes
+ * Single-story flow: pass `plan`.
+ * Multi-story flow:  pass `stories` (array of per-story floor plans). Each
+ *                    story is rendered at y = i * STORY_HEIGHT_WORLD.
  *
- * Open-source lineage: the wall-cutout approach follows react-planner's
- * "hole" pattern and blueprint3d's wall-segment split. We keep the
- * geometry build in vanilla Three.js so it's testable in isolation.
+ * Multi-story details:
+ *   - All stories share the same origin, computed from the combined bounding
+ *     box of every story's rooms, so an upper story that is smaller or offset
+ *     stays in its actual plan position instead of being re-centered.
+ *   - Foundation is emitted only on story 0.
+ *   - Topmost story gets the gable roof (via buildRoof).
+ *   - Any lower story emits a flat partial roof over rectangles NOT covered
+ *     by the story above — so if upstairs is smaller, the exposed downstairs
+ *     ceiling still has a roof.
  */
 import { useEffect, useMemo } from "react";
 import { coerceVisionFloorPlan, validateFloorPlan } from "../../lib/floorPlanSchema";
-import { buildHouseGeometry, disposeHouseGeometry } from "../../lib/buildHouseGeometry";
+import {
+  buildHouseGeometry,
+  disposeHouseGeometry,
+  computeSharedCenter,
+  computeUncoveredByUpperStory,
+  STORY_HEIGHT_WORLD,
+} from "../../lib/buildHouseGeometry";
 
-export default function PlanHouse({ plan }) {
-  // Validate + coerce incoming plan. Returns null if unusable; caller
-  // should render a fallback in that case.
-  const validPlan = useMemo(() => {
-    if (!plan) return null;
-    const coerced = coerceVisionFloorPlan(plan);
-    if (!coerced || !coerced.rooms || coerced.rooms.length === 0) return null;
-    const result = validateFloorPlan(coerced);
-    return result.success ? result.data : coerced;
-  }, [plan]);
+function coerceAndValidate(rawPlan) {
+  if (!rawPlan) return null;
+  const coerced = coerceVisionFloorPlan(rawPlan);
+  if (!coerced || !coerced.rooms || coerced.rooms.length === 0) return null;
+  const result = validateFloorPlan(coerced);
+  return result.success ? result.data : coerced;
+}
 
-  // Build geometry once per plan. Dispose on change / unmount to avoid
-  // GPU memory leaks (geometry + materials both released).
-  const items = useMemo(() => {
-    if (!validPlan) return [];
-    try {
-      return buildHouseGeometry(validPlan);
-    } catch (err) {
-      if (import.meta.env.DEV) console.warn("[Vision] buildHouseGeometry failed:", err);
-      return [];
-    }
-  }, [validPlan]);
+export default function PlanHouse({ plan, stories }) {
+  // Normalize into an array of valid story plans. `stories` wins if provided.
+  const validStories = useMemo(() => {
+    const raw = Array.isArray(stories) && stories.length > 0 ? stories : (plan ? [plan] : []);
+    return raw.map(coerceAndValidate).filter(Boolean);
+  }, [plan, stories]);
 
+  // Build geometry once per story. A shared center keeps every story aligned
+  // to the same origin so offsets between stories survive into the 3D view.
+  const storyItems = useMemo(() => {
+    if (validStories.length === 0) return [];
+    const sharedCenter = computeSharedCenter(validStories);
+    const top = validStories.length - 1;
+
+    return validStories.map((story, i) => {
+      const nextStory = i < top ? validStories[i + 1] : null;
+      const partialRoofRects = nextStory
+        ? computeUncoveredByUpperStory(story.rooms, nextStory.rooms)
+        : null;
+
+      try {
+        return buildHouseGeometry(story, {
+          includeFoundation: i === 0,
+          includeRoof: i === top,
+          partialRoofRects,
+          sharedCenter,
+        });
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn("[Vision] buildHouseGeometry failed:", err);
+        return [];
+      }
+    });
+  }, [validStories]);
+
+  // Dispose geometry on plan change / unmount to avoid GPU memory leaks.
   useEffect(() => {
-    return () => disposeHouseGeometry(items);
-  }, [items]);
+    return () => storyItems.forEach((items) => disposeHouseGeometry(items));
+  }, [storyItems]);
 
-  if (!validPlan || items.length === 0) return null;
+  if (validStories.length === 0 || storyItems.length === 0) return null;
 
   return (
-    <group>
-      {items.map((item) => (
-        <primitive key={item.name} object={item.mesh} />
+    <>
+      {storyItems.map((items, storyIdx) => (
+        <group key={storyIdx} position={[0, storyIdx * STORY_HEIGHT_WORLD, 0]}>
+          {items.map((item) => (
+            <primitive key={item.name} object={item.mesh} />
+          ))}
+        </group>
       ))}
-    </group>
+    </>
   );
 }
 
-/** Whether a given plan object has enough structure to drive PlanHouse. */
-export function planIsRenderable(plan) {
-  if (!plan) return false;
-  const coerced = coerceVisionFloorPlan(plan);
-  return !!(coerced && coerced.rooms && coerced.rooms.length > 0);
+/** Whether a given plan (or story list) has enough structure to drive PlanHouse. */
+export function planIsRenderable(plan, stories) {
+  const list = Array.isArray(stories) && stories.length > 0 ? stories : [plan];
+  return list.some((p) => {
+    if (!p) return false;
+    const coerced = coerceVisionFloorPlan(p);
+    return !!(coerced && coerced.rooms && coerced.rooms.length > 0);
+  });
 }

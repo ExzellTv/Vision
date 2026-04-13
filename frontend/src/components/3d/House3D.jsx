@@ -667,7 +667,9 @@ function TexturedGround({ size }) {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
       <planeGeometry args={[size, size]} />
-      <meshStandardMaterial {...maps} color="#cfd9b9" roughness={0.95} />
+      {/* Muted sage tint — keeps the sparse grass texture but prevents it
+          from reading as loud or saturated against the house. */}
+      <meshStandardMaterial {...maps} color="#b8c0a8" roughness={0.95} />
     </mesh>
   );
 }
@@ -811,8 +813,8 @@ function Scene({
 
       {/* House — prefer the plan-driven geometry when the floor plan has rooms.
           Falls back to the parametric HouseCSG box when no plan is available. */}
-      {planIsRenderable(houseProps.floorPlan) ? (
-        <PlanHouse plan={houseProps.floorPlan} />
+      {planIsRenderable(houseProps.floorPlan, houseProps.storyPlans) ? (
+        <PlanHouse plan={houseProps.floorPlan} stories={houseProps.storyPlans} />
       ) : (
         <HouseCSG {...houseProps} />
       )}
@@ -1037,6 +1039,7 @@ export default function House3D({
   showGrass = false,
   interactive = false,
   floorPlan = null,
+  storyPlans = null,
   style = {},
   className = "",
 }) {
@@ -1088,9 +1091,11 @@ export default function House3D({
     planWindows,
     planDoors,
     planRooms,
-    // Raw plan — Scene uses this to decide between PlanHouse (plan-driven)
-    // and HouseCSG (parametric) rendering.
+    // Raw plan(s) — Scene uses these to decide between PlanHouse (plan-driven)
+    // and HouseCSG (parametric) rendering. storyPlans is the full multi-story
+    // array when available; floorPlan is the single active story.
     floorPlan,
+    storyPlans,
   };
 
   return (

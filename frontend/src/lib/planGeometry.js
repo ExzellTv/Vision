@@ -253,6 +253,40 @@ export function edgeSharing(rect, allRects) {
 }
 
 /**
+ * Axis-aligned rectangle difference — returns the parts of A that are NOT
+ * covered by B, as up to 4 sub-rectangles (top/bottom/left/right strips).
+ *   A, B: { x, y, w, h }
+ */
+export function rectMinusRect(A, B) {
+  const ax1 = A.x, ay1 = A.y, ax2 = A.x + A.w, ay2 = A.y + A.h;
+  const bx1 = B.x, by1 = B.y, bx2 = B.x + B.w, by2 = B.y + B.h;
+
+  const ox1 = Math.max(ax1, bx1);
+  const oy1 = Math.max(ay1, by1);
+  const ox2 = Math.min(ax2, bx2);
+  const oy2 = Math.min(ay2, by2);
+  if (ox1 >= ox2 - EPS || oy1 >= oy2 - EPS) return [{ ...A }]; // no overlap
+
+  const out = [];
+  if (oy1 > ay1 + EPS) out.push({ x: ax1, y: ay1, w: A.w,       h: oy1 - ay1 });
+  if (oy2 < ay2 - EPS) out.push({ x: ax1, y: oy2, w: A.w,       h: ay2 - oy2 });
+  if (ox1 > ax1 + EPS) out.push({ x: ax1, y: oy1, w: ox1 - ax1, h: oy2 - oy1 });
+  if (ox2 < ax2 - EPS) out.push({ x: ox2, y: oy1, w: ax2 - ox2, h: oy2 - oy1 });
+  return out;
+}
+
+/** Subtract one rect set from another. `setA` minus each rect in `setB`. */
+export function rectSetDifference(setA, setB) {
+  let remaining = setA.map((r) => ({ ...r }));
+  for (const b of setB) {
+    const next = [];
+    for (const a of remaining) next.push(...rectMinusRect(a, b));
+    remaining = next;
+  }
+  return remaining;
+}
+
+/**
  * For a cross-gable roof (a rect whose ridge was rotated 90° to face a
  * neighbor), compute how far to extend each of its sides *past* the shared
  * edge. Result: the gable's tip sits on the neighbor's ridge line, so the

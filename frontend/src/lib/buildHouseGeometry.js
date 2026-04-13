@@ -15,7 +15,7 @@
  */
 import * as THREE from "three";
 import { loadTextureSetAsync, applyTexturesToMaterial } from "./pbrTextures";
-import { classifyWalls, findWallForOpening, decomposeFootprintRects, edgeSharing } from "./planGeometry";
+import { classifyWalls, findWallForOpening, decomposeFootprintRects, edgeSharing, rectSetDifference } from "./planGeometry";
 
 const S = 0.1;          // feet → world units
 const WALL_THICK = 0.065; // 0.65 ft ≈ 8" in world units
@@ -621,24 +621,100 @@ function buildFurniture(plan, center) {
   return meshes;
 }
 
+// ── Partial roof (flat) for multi-story uncovered areas ──────────────────────
+// When the upper story doesn't fully cover the lower one, the exposed parts of
+// the lower ceiling need a roof. A thin flat slab sitting on top of the lower
+// walls does the job — simple and reads correctly at demo zoom levels.
+function buildPartialRoofs(rects, center, overhang = 0.15) {
+  if (!rects || rects.length === 0) return [];
+  const thickness = 0.03;
+  const baseY = SLAB_H + WALL_H; // top of lower-story walls
+  const meshes = [];
+  rects.forEach((rect, i) => {
+    if (rect.w <= 0 || rect.h <= 0) return;
+    const geo = new THREE.BoxGeometry(
+      ftToWorld(rect.w) + overhang * 2,
+      thickness,
+      ftToWorld(rect.h) + overhang * 2,
+    );
+    const mesh = new THREE.Mesh(geo, mat.roof);
+    const cxPlan = rect.x + rect.w / 2;
+    const cyPlan = rect.y + rect.h / 2;
+    mesh.position.set(
+      ftToWorld(cxPlan - center.cx),
+      baseY + thickness / 2,
+      -ftToWorld(cyPlan - center.cy),
+    );
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    meshes.push({ mesh, name: `partial-roof-${i}`, layer: "roof" });
+  });
+  return meshes;
+}
+
 // ── Main export ──────────────────────────────────────────────────────────────
+// Vertical offset between stories in world units — matches the wall height.
+// Story N is rendered at y = N * STORY_HEIGHT_WORLD by PlanHouse.
+export const STORY_HEIGHT_WORLD = WALL_H;
+
 /**
  * Build all Three.js geometry from a validated floor plan.
  * Returns an array of { mesh: THREE.Mesh|Group, name: string, layer: string }.
+ *
+ * Options (used by multi-story rendering):
+ *   includeFoundation — set false on stories above 1 (they sit on lower walls).
+ *   includeRoof       — set false on every story except the topmost.
+ *   partialRoofRects  — rectangles (in plan coords) where a flat roof should be
+ *                       emitted on top of this story's walls. Used on a lower
+ *                       story for areas NOT covered by the story above.
+ *   sharedCenter      — override the computed plan center. Passed in by
+ *                       PlanHouse so every story shares the same origin and
+ *                       story-2 sits in its real plan position (not re-centered
+ *                       on story-2's own rooms).
  */
-export function buildHouseGeometry(plan) {
-  const center = computeCenter(plan.rooms);
+export function buildHouseGeometry(plan, options = {}) {
+  const {
+    includeFoundation = true,
+    includeRoof = true,
+    partialRoofRects = null,
+    sharedCenter = null,
+  } = options;
+  const center = sharedCenter || computeCenter(plan.rooms);
 
   return [
-    ...buildFoundation(plan, center),
+    ...(includeFoundation ? buildFoundation(plan, center) : []),
     ...buildFloors(plan, center),
     ...buildExteriorWalls(plan, center),
     ...buildInteriorWalls(plan, center),
     ...buildWindowFrames(plan, center),
     ...buildDoorFrames(plan, center),
-    ...buildRoof(plan, center),
+    ...(includeRoof ? buildRoof(plan, center) : []),
+    ...(partialRoofRects ? buildPartialRoofs(partialRoofRects, center) : []),
     ...buildFurniture(plan, center),
   ];
+}
+
+/**
+ * Given two sets of rooms (a lower story and an upper story), compute the
+ * rectangles on the lower story that are NOT covered by the upper — these
+ * need a flat roof. Exposed here so PlanHouse can pass it as an option.
+ */
+export function computeUncoveredByUpperStory(lowerRooms, upperRooms) {
+  const lowerRects = decomposeFootprintRects(lowerRooms || []);
+  const upperRects = decomposeFootprintRects(upperRooms || []);
+  if (upperRects.length === 0) return lowerRects;
+  return rectSetDifference(lowerRects, upperRects);
+}
+
+/**
+ * Shared center across multiple stories' rooms — so every story uses the same
+ * origin in 3D and an upper story that's smaller/offset stays in its actual
+ * plan position relative to the lower story.
+ */
+export function computeSharedCenter(stories) {
+  const allRooms = (stories || []).flatMap((s) => (s && s.rooms) || []);
+  if (allRooms.length === 0) return null;
+  return computeCenter(allRooms);
 }
 
 /**
