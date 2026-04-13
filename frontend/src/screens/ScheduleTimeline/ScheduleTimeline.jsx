@@ -412,6 +412,11 @@ function ScheduleTimelineInner() {
   );
   const [editingPhaseId, setEditingPhaseId] = useState(null);
   const [editingValue,   setEditingValue]   = useState("");
+  const [phaseNotes,     setPhaseNotes]     = useState(
+    () => saved?.phaseNotes || {}
+  );
+  const [noteOpenId,     setNoteOpenId]     = useState(null);
+  const [noteDraft,      setNoteDraft]      = useState("");
 
   const projectName = project.projectName || "New Project";
   const stories     = project.stories     || 1;
@@ -470,6 +475,33 @@ function ScheduleTimelineInner() {
   const resetDurationOverrides = useCallback(() => {
     setDurationOverrides({});
   }, []);
+
+  const openNote = useCallback((ph) => {
+    if (noteOpenId === ph.id) {
+      setNoteOpenId(null);
+      setNoteDraft("");
+    } else {
+      setNoteOpenId(ph.id);
+      setNoteDraft(phaseNotes[ph.id] || "");
+    }
+  }, [noteOpenId, phaseNotes]);
+
+  const saveNote = useCallback((phId) => {
+    setPhaseNotes(prev => {
+      const next = { ...prev };
+      if (noteDraft.trim()) { next[phId] = noteDraft.trim(); }
+      else { delete next[phId]; }
+      return next;
+    });
+    setNoteOpenId(null);
+    setNoteDraft("");
+  }, [noteDraft]);
+
+  const clearNote = useCallback((phId) => {
+    setPhaseNotes(prev => { const n = { ...prev }; delete n[phId]; return n; });
+    setNoteOpenId(null);
+    setNoteDraft("");
+  }, []);
   const projectStart   = useMemo(() => schedule[0]?.startDate ?? TODAY, [schedule]);
   const completionDate = useMemo(() => schedule[schedule.length - 1]?.endDate, [schedule]);
   const totalWeeks     = useMemo(
@@ -504,6 +536,22 @@ function ScheduleTimelineInner() {
       return timeSlider >= sw && timeSlider < ew;
     })?.name ?? (timeSlider >= totalWeeks ? "Complete" : schedule[0]?.name ?? "");
   }, [timeSlider, schedule, projectStart, totalWeeks]);
+
+  // Fetch schedule from MongoDB on mount so notes/overrides/done persist per-project across reloads
+  useEffect(() => {
+    if (!project.projectId) return;
+    projectsApi.get(project.projectId)
+      .then((doc) => {
+        const s = doc?.schedule;
+        if (!s) return;
+        if (s.startDate)         setStartDateStr(s.startDate);
+        if (s.manualDone)        setManualDone(new Set(s.manualDone));
+        if (s.durationOverrides) setDurationOverrides(s.durationOverrides);
+        if (s.phaseNotes)        setPhaseNotes(s.phaseNotes);
+        project.setSavedSchedule(s);
+      })
+      .catch(() => { /* network unavailable — silently keep existing state */ });
+  }, [project.projectId]); // eslint-disable-line
 
   // Re-init slider to today when start date changes
   useEffect(() => {
@@ -661,6 +709,7 @@ function ScheduleTimelineInner() {
         totalWeeks,
         manualDone: [...manualDone],
         durationOverrides,
+        phaseNotes,
         phases: schedule.map((p) => ({
           id: p.id,
           name: p.name,
@@ -695,7 +744,7 @@ function ScheduleTimelineInner() {
       setSaveStatus("ok"); setTimeout(() => setSaveStatus(null), 2500);
     } catch (_) { setSaveStatus("err"); setTimeout(() => setSaveStatus(null), 2500); }
     finally { setSaving(false); }
-  }, [projectName, project, schedule, startDateStr, totalWeeks, manualDone, durationOverrides]);
+  }, [projectName, project, schedule, startDateStr, totalWeeks, manualDone, durationOverrides, phaseNotes]);
 
   // Slider track styles
   useEffect(() => {
@@ -881,7 +930,8 @@ function ScheduleTimelineInner() {
               const isDone = ph.status === "complete";
               const isManual = manualDone.has(ph.id);
               return (
-                <div key={ph.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7, padding: "4px 6px", borderRadius: 6, background: isDone ? "rgba(46,213,115,0.04)" : "transparent", border: isDone ? "1px solid rgba(46,213,115,0.12)" : "1px solid transparent", transition: "all 0.2s" }}>
+                <div key={ph.id}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: noteOpenId === ph.id ? 0 : 7, padding: "4px 6px", borderRadius: 6, background: isDone ? "rgba(46,213,115,0.04)" : "transparent", border: isDone ? "1px solid rgba(46,213,115,0.12)" : "1px solid transparent", transition: "all 0.2s" }}>
                   {/* Mark-done checkbox */}
                   <button
                     onClick={() => toggleManualDone(ph.id)}
@@ -922,6 +972,44 @@ function ScheduleTimelineInner() {
                     <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, flexShrink: 0 }}>{fmtCost(ph.cost)}</span>
                   )}
                   <StatusBadge status={ph.status} />
+                  {/* Three-dot note button */}
+                  <div style={{ position: "relative", flexShrink: 0 }}>
+                    <button
+                      onClick={() => openNote(ph)}
+                      title={phaseNotes[ph.id] ? "View/edit delay note" : "Add delay note"}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: colors.textDim, display: "flex", alignItems: "center", gap: 2, borderRadius: 4, transition: "background 0.15s" }}
+                    >
+                      <span style={{ fontFamily: fonts.data, fontSize: 13, letterSpacing: 1, lineHeight: 1, color: noteOpenId === ph.id ? colors.accent : colors.textDim }}>⋯</span>
+                      {phaseNotes[ph.id] && (
+                        <span style={{ width: 5, height: 5, borderRadius: "50%", background: colors.warn, display: "inline-block", marginLeft: 1, flexShrink: 0 }} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                {/* Inline note popover */}
+                {noteOpenId === ph.id && (
+                  <div style={{ margin: "0 0 7px 28px", padding: "10px 12px", borderRadius: "0 0 8px 8px", background: "rgba(20,24,36,0.97)", border: `1px solid ${colors.warn}44`, borderTop: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+                      <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 700, color: colors.warn, textTransform: "uppercase", letterSpacing: "0.8px" }}>Delay Note</span>
+                      <button onClick={() => { setNoteOpenId(null); setNoteDraft(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: colors.textDim, fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
+                    </div>
+                    <textarea
+                      autoFocus
+                      rows={3}
+                      value={noteDraft}
+                      onChange={(e) => setNoteDraft(e.target.value)}
+                      placeholder="e.g. Concrete delayed by rain — pushed 2 weeks…"
+                      style={{ width: "100%", boxSizing: "border-box", fontFamily: fonts.label, fontSize: 10, color: colors.textBright, background: colors.cardBorder, border: `1px solid ${colors.panelBorder}`, borderRadius: 5, padding: "6px 8px", resize: "vertical", outline: "none", lineHeight: 1.5 }}
+                    />
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 7 }}>
+                      {phaseNotes[ph.id] && (
+                        <button onClick={() => clearNote(ph.id)} style={{ fontFamily: fonts.label, fontSize: 9, color: colors.danger, background: "transparent", border: `1px solid ${colors.danger}44`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Clear</button>
+                      )}
+                      <button onClick={() => { setNoteOpenId(null); setNoteDraft(""); }} style={{ fontFamily: fonts.label, fontSize: 9, color: colors.textDim, background: "transparent", border: `1px solid ${colors.cardBorder}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Cancel</button>
+                      <button onClick={() => saveNote(ph.id)} style={{ fontFamily: fonts.label, fontSize: 9, color: "#000", background: colors.accent, border: "none", borderRadius: 4, padding: "3px 10px", cursor: "pointer", fontWeight: 600 }}>Save</button>
+                    </div>
+                  </div>
+                )}
                 </div>
               );
             })}
