@@ -101,6 +101,22 @@ const STYLE_PRESETS = [
   },
 ];
 
+// Shared uppercase label used for each section header in the right panel.
+function SectionLabel({ children }) {
+  return (
+    <div style={{
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.14em",
+      textTransform: "uppercase",
+      color: colors.textDim,
+      marginBottom: 10,
+    }}>
+      {children}
+    </div>
+  );
+}
+
 export default function House3DPreview() {
   const navigate = useNavigate();
   const project = useProject();
@@ -121,8 +137,8 @@ export default function House3DPreview() {
   };
   const [wallColor, setWallColor] = useState("#e8e2da");
   const [roofColor, setRoofColor] = useState("#3a3a3a");
-  const [showEnvironment, setShowEnvironment] = useState(true);
-  const [editMode, setEditMode] = useState(false);
+  // Environment + drag-to-edit were previously user-toggleable. Both now
+  // default on/off so the right panel stays focused on style + color.
 
   // Screenshot + AI render state
   const viewportRef = useRef(null);
@@ -197,9 +213,9 @@ export default function House3DPreview() {
           roofMaterial={roofMaterial}
           wallColor={wallColor}
           roofColor={roofColor}
-          showGround={showEnvironment}
-          showSky={showEnvironment}
-          interactive={editMode}
+          showGround
+          showSky
+          interactive={false}
           floorPlan={floorPlan}
           storyPlans={storyPlans}
           style={{ width: "100%", height: "100%" }}
@@ -354,82 +370,56 @@ export default function House3DPreview() {
             scrollbarColor: "#2a3548 transparent",
           }}
         >
-          {/* Style Presets - Homeowner friendly (compact grid) */}
+          {/* Style Presets — minimal horizontal chips with twin color swatches */}
           {isHomeowner && (
-            <div style={{ marginBottom: 16 }}>
-              <div
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  color: colors.textDim,
-                  marginBottom: 8,
-                }}
-              >
-                Choose Your Style
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                {STYLE_PRESETS.map((preset) => (
-                  <button
-                    key={preset.key}
-                    onClick={() => applyStylePreset(preset)}
-                    style={{
-                      position: "relative",
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "10px 8px",
-                      background: selectedStyle === preset.key ? `${colors.accent}15` : "rgba(26,34,54,0.4)",
-                      border: `1px solid ${selectedStyle === preset.key ? colors.accent : "#2a3548"}`,
-                      borderRadius: 8,
-                      cursor: "pointer",
-                      textAlign: "center",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    {/* Color preview - small house icon */}
-                    <div style={{ display: "flex", alignItems: "flex-end", gap: 0 }}>
-                      <div
-                        style={{
-                          width: 20,
-                          height: 24,
-                          background: preset.wallColor,
-                          border: "1px solid rgba(255,255,255,0.15)",
-                          borderRadius: "2px 2px 0 0",
-                        }}
-                      />
-                      <div
-                        style={{
-                          width: 0,
-                          height: 0,
-                          borderLeft: "12px solid transparent",
-                          borderRight: "12px solid transparent",
-                          borderBottom: `10px solid ${preset.roofColor}`,
-                          marginBottom: 24,
-                          marginLeft: -22,
-                        }}
-                      />
-                    </div>
-                    <div
+            <div style={{ marginBottom: 20 }}>
+              <SectionLabel>Style</SectionLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {STYLE_PRESETS.map((preset) => {
+                  const active = selectedStyle === preset.key;
+                  return (
+                    <button
+                      key={preset.key}
+                      onClick={() => applyStylePreset(preset)}
                       style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: selectedStyle === preset.key ? colors.accent : colors.textBright,
-                        lineHeight: 1.2,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "10px 12px",
+                        background: active ? `${colors.accent}10` : "transparent",
+                        border: `1px solid ${active ? colors.accent : "#1f2937"}`,
+                        borderRadius: 8,
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "border-color 0.12s, background 0.12s",
                       }}
                     >
-                      {preset.label}
-                    </div>
-                    {selectedStyle === preset.key && (
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ position: "absolute", top: 4, right: 4 }}>
-                        <circle cx="8" cy="8" r="8" fill={colors.accent} />
-                        <path d="M5 8l2 2 4-4" stroke="#0d1117" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                  </button>
-                ))}
+                      <div style={{ display: "flex", flexShrink: 0 }}>
+                        <div style={{
+                          width: 16, height: 22,
+                          background: preset.wallColor,
+                          borderRadius: "3px 0 0 3px",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                        }} />
+                        <div style={{
+                          width: 16, height: 22,
+                          background: preset.roofColor,
+                          borderRadius: "0 3px 3px 0",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          borderLeft: "none",
+                        }} />
+                      </div>
+                      <span style={{
+                        fontSize: 13,
+                        fontWeight: active ? 600 : 500,
+                        color: active ? colors.accent : colors.textBright,
+                        letterSpacing: "-0.1px",
+                      }}>
+                        {preset.label}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -589,47 +579,40 @@ export default function House3DPreview() {
             </div>
           )}
 
-          {/* Color Palette - Available to all */}
-          <div style={{ marginBottom: 16 }}>
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                color: colors.textDim,
-                marginBottom: 8,
-              }}
-            >
-              Wall Color
-            </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(4, 1fr)",
-                gap: 6,
-              }}
-            >
-              {COLOR_SWATCHES.map((swatch) => (
-                <button
-                  key={swatch.hex}
-                  onClick={() => setWallColor(swatch.hex)}
-                  title={swatch.name}
-                  style={{
-                    width: "100%",
-                    aspectRatio: "1",
-                    borderRadius: 6,
-                    background: swatch.hex,
-                    border: wallColor === swatch.hex
-                      ? `2px solid ${colors.accent}`
-                      : "1px solid #2a3548",
-                    cursor: "pointer",
-                    transition: "transform 0.1s",
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
-                  onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
-                />
-              ))}
+          {/* Wall Color — single tight row of circular swatches */}
+          <div style={{ marginBottom: 20 }}>
+            <SectionLabel>Wall Color</SectionLabel>
+            <div style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+            }}>
+              {COLOR_SWATCHES.map((swatch) => {
+                const active = wallColor === swatch.hex;
+                return (
+                  <button
+                    key={swatch.hex}
+                    onClick={() => setWallColor(swatch.hex)}
+                    title={swatch.name}
+                    aria-label={swatch.name}
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: "50%",
+                      background: swatch.hex,
+                      border: active
+                        ? `2px solid ${colors.accent}`
+                        : "1px solid rgba(255,255,255,0.1)",
+                      boxShadow: active
+                        ? `0 0 0 3px ${colors.bg}, 0 0 0 4px ${colors.accent}`
+                        : "none",
+                      cursor: "pointer",
+                      padding: 0,
+                      transition: "box-shadow 0.12s",
+                    }}
+                  />
+                );
+              })}
             </div>
           </div>
 
@@ -736,110 +719,6 @@ export default function House3DPreview() {
                 <style>{`@keyframes shimmer { to { background-position: -200% 0; } }`}</style>
               </div>
             )}
-          </div>
-
-          {/* Edit Mode Toggle */}
-          <div style={{ marginBottom: 10 }}>
-            <button
-              onClick={() => setEditMode(!editMode)}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "10px 12px",
-                background: editMode ? "rgba(59, 130, 246, 0.15)" : "transparent",
-                border: `1px solid ${editMode ? "#3b82f6" : "#2a3548"}`,
-                borderRadius: 8,
-                cursor: "pointer",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path
-                    d="M10.5 1.5l2 2-8 8H2.5v-2l8-8z"
-                    stroke={editMode ? "#3b82f6" : colors.textDim}
-                    strokeWidth="1.3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                <span style={{ fontSize: 12, color: editMode ? "#3b82f6" : colors.text }}>
-                  Edit Mode
-                </span>
-              </div>
-              <div
-                style={{
-                  width: 36,
-                  height: 20,
-                  borderRadius: 10,
-                  background: editMode ? "#3b82f6" : "#2a3548",
-                  position: "relative",
-                  transition: "background 0.2s",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 2,
-                    left: editMode ? 18 : 2,
-                    width: 16,
-                    height: 16,
-                    borderRadius: "50%",
-                    background: "#fff",
-                    transition: "left 0.2s",
-                  }}
-                />
-              </div>
-            </button>
-            {editMode && (
-              <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6, paddingLeft: 4 }}>
-                Drag windows and door to reposition
-              </div>
-            )}
-          </div>
-
-          {/* Environment Toggle */}
-          <div style={{ marginBottom: 16 }}>
-            <button
-              onClick={() => setShowEnvironment(!showEnvironment)}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "10px 12px",
-                background: showEnvironment ? `${colors.accent}10` : "transparent",
-                border: `1px solid ${showEnvironment ? colors.accent : "#2a3548"}`,
-                borderRadius: 8,
-                cursor: "pointer",
-              }}
-            >
-              <span style={{ fontSize: 12, color: colors.text }}>Show Environment</span>
-              <div
-                style={{
-                  width: 36,
-                  height: 20,
-                  borderRadius: 10,
-                  background: showEnvironment ? colors.accent : "#2a3548",
-                  position: "relative",
-                  transition: "background 0.2s",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 2,
-                    left: showEnvironment ? 18 : 2,
-                    width: 16,
-                    height: 16,
-                    borderRadius: "50%",
-                    background: "#fff",
-                    transition: "left 0.2s",
-                  }}
-                />
-              </div>
-            </button>
           </div>
 
           {/* Homeowner Info & Progress */}

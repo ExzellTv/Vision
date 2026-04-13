@@ -18,7 +18,6 @@ import SettingsScreen from "./screens/Settings/SettingsScreen";
 import Browse from "./screens/Browse/Browse";
 import Chat from "./screens/Chat/Chat";
 import House3DPreview from "./screens/House3DPreview/House3DPreview";
-import HouseViewerPage from "./screens/HouseViewerPage/HouseViewerPage";
 
 /* Auth guard — DISABLED FOR DEMO — shows login when signed out, renders child routes when signed in */
 // function AuthGuard() {
@@ -173,7 +172,6 @@ const router = createBrowserRouter([
       // Internal project routes (accessed within project flow)
       { path: "develop", element: <FloorPlanEditor /> },
       { path: "preview3d", element: <House3DPreview /> },
-      { path: "house-viewer", element: <HouseViewerPage /> },
       { path: "edit", element: <LayerEditor /> },
       { path: "feasibility", element: <FeasibilityDashboard /> },
       // { path: "structural", element: <StructuralIntelligence /> }, // DEMO: Integrated into 3D house
