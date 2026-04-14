@@ -152,6 +152,7 @@ export function ProjectProvider({ children }) {
   const [projectId, setProjectId] = useState(null);           // MongoDB _id after first save
   const [buildingContext, setBuildingContextRaw] = useState(DEFAULT_BUILDING_CONTEXT);
   const [savedSchedule, setSavedSchedule] = useState(null);   // persisted schedule from MongoDB
+  const [projectLocation, setProjectLocation] = useState(null); // { city, state } — set at project creation, never touched by FloorPlanEditor
   const [demoLoaded, setDemoLoaded] = useState(false);        // prevent double-load
 
   const setBuildingContext = useCallback((updates) => {
@@ -175,6 +176,7 @@ export function ProjectProvider({ children }) {
     setMaterials(src.materials || []);
     setBuildingContextRaw({ ...DEFAULT_BUILDING_CONTEXT, ...(src.buildingContext || {}) });
     setMaxStep(src === DEMO_PROJECT ? 5 : (src.maxStep ?? 5));
+    setProjectLocation(src.projectLocation || null);
   }, [demoLoaded]);
 
   /* Persist user's plan whenever it changes — so hard-refresh doesn't revert
@@ -189,8 +191,9 @@ export function ProjectProvider({ children }) {
       materials,
       buildingContext,
       maxStep,
+      projectLocation,
     });
-  }, [demoLoaded, projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep]);
+  }, [demoLoaded, projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep, projectLocation]);
 
   /* Reset entire project state for a clean "new project" flow */
   const resetProject = useCallback(() => {
@@ -207,6 +210,7 @@ export function ProjectProvider({ children }) {
     setProjectId(null);
     setBuildingContextRaw(DEFAULT_BUILDING_CONTEXT);
     setSavedSchedule(null);
+    setProjectLocation(null);
   }, []);
 
   /* Wrap setters to normalize API data */
@@ -257,6 +261,7 @@ export function ProjectProvider({ children }) {
     projectId, setProjectId,
     buildingContext, setBuildingContext,
     savedSchedule, setSavedSchedule,
+    projectLocation, setProjectLocation,
     resetProject,
     // Derived
     totalSF, stories, footprintWidth, footprintDepth,

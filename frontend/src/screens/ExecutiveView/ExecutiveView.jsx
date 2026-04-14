@@ -181,6 +181,7 @@ export default function ExecutiveView() {
         floor_plan: project.floorPlan || null,
         story_plans: project.storyPlans || [],
         materials: project.materials || [],
+        location: project.projectLocation || null,
       };
       let saved;
       if (project.projectId) {

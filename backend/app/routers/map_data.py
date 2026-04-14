@@ -13,11 +13,14 @@ Data source priority:
 from __future__ import annotations
 
 import json
+import asyncio
+import http.client
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import certifi
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.config import settings
@@ -272,6 +275,281 @@ async def get_land_listings() -> list[dict]:
         _normalize_land(d) for d in docs
         if d.get("latitude") is not None and d.get("longitude") is not None
     ][:500]
+
+
+@router.get("/search")
+async def search_by_city(
+    city:  str = Query(..., description="City name, e.g. Detroit"),
+    state: str = Query(..., description="State name or abbreviation, e.g. Michigan or MI"),
+) -> dict:
+    """
+    Return live property listings for any US city using the HasData/Redfin API.
+
+    Flow:
+      1. Normalize state to 2-letter abbreviation (handles full names like "Michigan" → "MI")
+      2. In parallel: resolve zip codes via zippopotam.us AND geocode centroid via Nominatim
+      3. For each zip (capped at 8) call HasData scraper
+      4. Split results: Land → _normalize_land, everything else → _normalize_comp
+      5. Return { comparables, land, centroid }
+      6. Centroid always returned (from Nominatim) even if HasData yields nothing
+    """
+    HASDATA_KEY = "97402f5b-37b8-468a-af04-adeffb9ee9aa"
+    MAX_ZIPS    = 8
+
+    # ── State name → 2-letter abbreviation ───────────────────────────────
+    STATE_ABBR = {
+        "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
+        "california": "CA", "colorado": "CO", "connecticut": "CT", "delaware": "DE",
+        "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID",
+        "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS",
+        "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+        "massachusetts": "MA", "michigan": "MI", "minnesota": "MN",
+        "mississippi": "MS", "missouri": "MO", "montana": "MT", "nebraska": "NE",
+        "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ",
+        "new mexico": "NM", "new york": "NY", "north carolina": "NC",
+        "north dakota": "ND", "ohio": "OH", "oklahoma": "OK", "oregon": "OR",
+        "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+        "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT",
+        "vermont": "VT", "virginia": "VA", "washington": "WA",
+        "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
+    }
+    state_abbr = STATE_ABBR.get(state.lower().strip(), state.upper().strip()[:2])
+    city_key   = city.lower().strip()
+
+    # city_name variants for exact-match queries (Atlas M0 blocks $regex)
+    city_variants = list({city.strip(), city.strip().title(), city.strip().upper(), city.strip().lower()})
+
+    # ── Cache check: return MongoDB-cached results if available ───────────
+    # Re-enrich stale entries that are missing comps or land from the raw collections.
+    try:
+        db = _get_db()
+        if db is not None:
+            cached = await db["city_search_cache"].find_one(
+                {"city": city_key, "state": state_abbr},
+                {"_id": 0, "comparables": 1, "land": 1, "centroid": 1},
+            )
+            if cached:
+                cached_comps = cached.get("comparables") or []
+                cached_land  = cached.get("land") or []
+                needs_update = False
+
+                if not cached_land:
+                    land_cursor = db["land_listings"].find(
+                        {"address.city": {"$in": city_variants},
+                         "latitude":  {"$exists": True, "$ne": None},
+                         "longitude": {"$exists": True, "$ne": None}},
+                        limit=500,
+                    )
+                    land_docs = await land_cursor.to_list(500)
+                    if land_docs:
+                        cached_land  = [_normalize_land(d) for d in land_docs]
+                        needs_update = True
+
+                if not cached_comps:
+                    comp_cursor = db["comparables"].find(
+                        {"address.city": {"$in": city_variants},
+                         "latitude":  {"$exists": True, "$ne": None},
+                         "longitude": {"$exists": True, "$ne": None}},
+                        limit=500,
+                    )
+                    comp_docs = await comp_cursor.to_list(500)
+                    if comp_docs:
+                        cached_comps = [_normalize_comp(d) for d in comp_docs]
+                        needs_update = True
+
+                if needs_update:
+                    await db["city_search_cache"].update_one(
+                        {"city": city_key, "state": state_abbr},
+                        {"$set": {
+                            "comparables": cached_comps,
+                            "land":        cached_land,
+                            "cached_at":   datetime.now(timezone.utc),
+                        }},
+                    )
+                return {
+                    "comparables": cached_comps,
+                    "land":        cached_land,
+                    "centroid":    cached.get("centroid"),
+                }
+    except Exception:
+        pass  # cache miss — continue to live fetch
+
+    # ── Check existing comparables/land_listings collections first ───────
+    # Dallas (and any other city imported directly into MongoDB) lives here.
+    # If found, normalize, save to city_search_cache, and return — no API call needed.
+    def _fetch_nominatim_centroid(city_name: str, state_code: str) -> dict | None:
+        """Synchronous Nominatim geocode — runs in threadpool."""
+        try:
+            conn = http.client.HTTPSConnection("nominatim.openstreetmap.org", timeout=6)
+            conn.request(
+                "GET",
+                f"/search?city={city_name.replace(' ', '%20')}&state={state_code}&country=US&format=json&limit=1",
+                headers={"User-Agent": "VisionApp/1.0"},
+            )
+            body = json.loads(conn.getresponse().read())
+            if body:
+                return {"lat": float(body[0]["lat"]), "lng": float(body[0]["lon"])}
+        except Exception:
+            pass
+        return None
+
+    try:
+        db = _get_db()
+        if db is not None:
+            comp_cursor = db["comparables"].find(
+                {"address.city": {"$in": city_variants},
+                 "latitude":  {"$exists": True, "$ne": None},
+                 "longitude": {"$exists": True, "$ne": None}},
+                limit=500,
+            )
+            land_cursor = db["land_listings"].find(
+                {"address.city": {"$in": city_variants},
+                 "latitude":  {"$exists": True, "$ne": None},
+                 "longitude": {"$exists": True, "$ne": None}},
+                limit=500,
+            )
+            comp_docs, land_docs = await asyncio.gather(
+                comp_cursor.to_list(500),
+                land_cursor.to_list(500),
+            )
+            if comp_docs or land_docs:
+                comparables   = [_normalize_comp(d) for d in comp_docs]
+                land_listings = [_normalize_land(d) for d in land_docs]
+                loop = asyncio.get_event_loop()
+                centroid = await loop.run_in_executor(None, _fetch_nominatim_centroid, city, state_abbr)
+                if not centroid:
+                    anchor = comparables or land_listings
+                    if anchor:
+                        centroid = {
+                            "lat": round(sum(p["lat"] for p in anchor) / len(anchor), 6),
+                            "lng": round(sum(p["lng"] for p in anchor) / len(anchor), 6),
+                        }
+                result = {"comparables": comparables, "land": land_listings, "centroid": centroid}
+                # save to city_search_cache so next request is instant
+                try:
+                    await db["city_search_cache"].update_one(
+                        {"city": city_key, "state": state_abbr},
+                        {"$set": {
+                            "city":        city_key,
+                            "state":       state_abbr,
+                            "comparables": comparables,
+                            "land":        land_listings,
+                            "centroid":    centroid,
+                            "cached_at":   datetime.now(timezone.utc),
+                        }},
+                        upsert=True,
+                    )
+                except Exception:
+                    pass
+                return result
+    except Exception:
+        pass  # fall through to HasData
+
+    def _fetch_zips(city_name: str, state_code: str) -> list[str]:
+        """Synchronous call to zippopotam.us — runs in threadpool."""
+        try:
+            conn = http.client.HTTPSConnection("api.zippopotam.us", timeout=6)
+            conn.request("GET", f"/us/{state_code}/{city_name.replace(' ', '%20')}")
+            res  = conn.getresponse()
+            if res.status != 200:
+                return []
+            body = json.loads(res.read().decode("utf-8"))
+            return [p["post code"] for p in body.get("places", [])]
+        except Exception:
+            return []
+
+    def _fetch_hasdata(keyword: str) -> list[dict]:
+        """Synchronous HasData call for one keyword (zip or city) — runs in threadpool."""
+        try:
+            conn = http.client.HTTPSConnection("api.hasdata.com", timeout=15)
+            conn.request(
+                "GET",
+                f"/scrape/redfin/listing?keyword={keyword}&type=forSale",
+                headers={
+                    "x-api-key":    HASDATA_KEY,
+                    "Content-Type": "application/json",
+                },
+            )
+            res  = conn.getresponse()
+            body = json.loads(res.read().decode("utf-8"))
+            return body.get("properties", [])
+        except Exception:
+            return []
+
+    loop = asyncio.get_event_loop()
+
+    # ── 1. Resolve zips + centroid in parallel ────────────────────────────
+    zips, nominatim_centroid = await asyncio.gather(
+        loop.run_in_executor(None, _fetch_zips, city, state_abbr),
+        loop.run_in_executor(None, _fetch_nominatim_centroid, city, state_abbr),
+    )
+
+    zips = zips[:MAX_ZIPS]
+
+    # ── 2. Fetch listings for each zip ────────────────────────────────────
+    all_props: list[dict] = []
+    for z in zips:
+        props = await loop.run_in_executor(None, _fetch_hasdata, z)
+        all_props.extend(props)
+
+    # ── 2b. Fallback: search by "City ST" keyword if zip lookup found nothing ─
+    if not all_props:
+        direct = await loop.run_in_executor(None, _fetch_hasdata, f"{city} {state_abbr}")
+        all_props.extend(direct)
+    if not all_props:
+        direct2 = await loop.run_in_executor(None, _fetch_hasdata, f"{city}, {state_abbr}")
+        all_props.extend(direct2)
+
+    # ── 3. Split and normalize ────────────────────────────────────────────
+    comparables: list[dict] = []
+    land_listings: list[dict] = []
+
+    for prop in all_props:
+        if prop.get("latitude") is None or prop.get("longitude") is None:
+            continue
+        prop_type = (prop.get("propertyType") or "").lower()
+        if prop_type == "land":
+            land_listings.append(_normalize_land(prop))
+        else:
+            comparables.append(_normalize_comp(prop))
+
+    # ── 4. Centroid: prefer Nominatim (always accurate), fall back to avg ─
+    centroid = nominatim_centroid
+    if not centroid:
+        anchor = comparables or land_listings
+        if anchor:
+            centroid = {
+                "lat": round(sum(p["lat"] for p in anchor) / len(anchor), 6),
+                "lng": round(sum(p["lng"] for p in anchor) / len(anchor), 6),
+            }
+
+    result = {
+        "comparables": comparables[:500],
+        "land":        land_listings[:500],
+        "centroid":    centroid,
+    }
+
+    # ── Save to MongoDB cache for future searches ─────────────────────────
+    if comparables or land_listings:
+        try:
+            db = _get_db()
+            if db is not None:
+                await db["city_search_cache"].update_one(
+                    {"city": city_key, "state": state_abbr},
+                    {"$set": {
+                        "city":        city_key,
+                        "state":       state_abbr,
+                        "comparables": result["comparables"],
+                        "land":        result["land"],
+                        "centroid":    centroid,
+                        "cached_at":   datetime.now(timezone.utc),
+                    }},
+                    upsert=True,
+                )
+        except Exception:
+            pass  # cache write failure is non-fatal
+
+    return result
 
 
 @router.get("/market-stats")

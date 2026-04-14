@@ -1678,6 +1678,7 @@ export default function LayerEditor() {
       const payload = {
         name: project.projectName || "New Project",
         materials: layers.map((l) => ({ name: l.name, material: l.material, cost: l.cost, materialIndex: l.materialIndex })),
+        location: project.projectLocation || null,
       };
       let saved;
       if (project.projectId) {

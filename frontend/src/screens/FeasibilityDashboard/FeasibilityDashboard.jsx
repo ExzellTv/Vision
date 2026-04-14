@@ -76,36 +76,61 @@ function SubScoreBar({ label, level, color }) {
 export default function FeasibilityDashboard() {
   const project = useProject();
 
-  // ── Live MongoDB data — starts empty, filled on mount from API ──
-  const [liveComps, setLiveComps] = useState([]);
-  const [liveLand,  setLiveLand]  = useState([]);
+  // ── Live map data — populated when user searches a city ──
+  const [liveComps,   setLiveComps]   = useState([]);
+  const [liveLand,    setLiveLand]    = useState([]);
   const [marketStats, setMarketStats] = useState(null);
+  const [mapLoading,  setMapLoading]  = useState(false);
+  const [searchCity,  setSearchCity]  = useState(null); // { city, state }
 
+  // Fire whenever the user submits a city search
   useEffect(() => {
+    if (!searchCity) return;
     let cancelled = false;
-    Promise.all([
-      mapApi.getComparables(),
-      mapApi.getLandListings(),
-      mapApi.getMarketStats(),
-    ])
-      .then(([comps, land, stats]) => {
+    setMapLoading(true);
+    mapApi.searchByCity(searchCity.city, searchCity.state)
+      .then((data) => {
         if (cancelled) return;
-        console.info(`[FeasibilityDashboard] MongoDB data loaded: ${comps?.length ?? 0} comps, ${land?.length ?? 0} land listings`);
-        if (comps?.length)  setLiveComps(comps);
-        if (land?.length)   setLiveLand(land);
-        if (stats)          setMarketStats(stats);
+        console.info(
+          `[FeasibilityDashboard] City search "${searchCity.city}, ${searchCity.state}": ` +
+          `${data?.comparables?.length ?? 0} comps, ${data?.land?.length ?? 0} land`
+        );
+        setLiveComps(data?.comparables ?? []);
+        setLiveLand(data?.land ?? []);
+        if (data?.centroid)            setSearchCentroid(data.centroid);
       })
       .catch((err) => {
-        console.warn('[FeasibilityDashboard] MongoDB fetch failed — map will be empty:', err?.message || err);
-      });
+        console.warn('[FeasibilityDashboard] City search failed — falling back to empty map:', err?.message || err);
+        if (!cancelled) { setLiveComps([]); setLiveLand([]); }
+      })
+      .finally(() => { if (!cancelled) setMapLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [searchCity]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Centroid returned by the search — used to re-center the map
+  const [searchCentroid, setSearchCentroid] = useState(null);
 
   // ── Map / analysis state ──────────────────────────────────────────────
   const [loc,     setLoc]     = useState(null);  // pinned map location
   const [selLand, setSelLand] = useState(null);  // selected vacant land parcel
   const [radius,  setRadius]  = useState(0.75);  // comp search radius (miles)
   const [radiusEnabled, setRadiusEnabled] = useState(true); // radius toggle
+
+  const handleCitySearch = useCallback((city, state) => {
+    setSearchCity({ city, state });
+    setLoc(null);
+    setSelLand(null);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-search from project location (stored separately, never wiped) ─
+  const locationKey = project?.projectLocation
+    ? `${project.projectLocation.city},${project.projectLocation.state}`
+    : null;
+  useEffect(() => {
+    if (!locationKey) return;
+    const [city, state] = locationKey.split(",");
+    handleCitySearch(city, state);
+  }, [locationKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Import Model state ───────────────────────────────────────────────
   const [importedModel,   setImportedModel]   = useState(null);
@@ -211,6 +236,9 @@ export default function FeasibilityDashboard() {
           land={liveLand}
           landFilters={landFilters}
           onLandFiltersChange={setLandFilters}
+          onCitySearch={handleCitySearch}
+          mapLoading={mapLoading}
+          searchCentroid={searchCentroid}
         />
 
         {/* ── Parcel info card — only when a land parcel is selected ── */}

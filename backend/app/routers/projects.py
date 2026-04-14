@@ -51,6 +51,7 @@ class ProjectCreate(BaseModel):
     notes: str = ""
     schedule: dict[str, Any] | None = None
     building_context: dict[str, Any] | None = None
+    location: dict[str, Any] | None = None  # { "city": "Detroit", "state": "MI" }
 
 
 class ProjectUpdate(BaseModel):
@@ -64,6 +65,7 @@ class ProjectUpdate(BaseModel):
     building_context: dict[str, Any] | None = None
     compliance_cache: dict[str, Any] | None = None
     diagnosis_cache: list[dict[str, Any]] | None = None
+    location: dict[str, Any] | None = None  # { "city": "Detroit", "state": "MI" }
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +103,7 @@ async def create_project(
         "notes": body.notes,
         "schedule": body.schedule,
         "building_context": body.building_context,
+        "location": body.location or None,
         "created_at": now,
         "updated_at": now,
     }

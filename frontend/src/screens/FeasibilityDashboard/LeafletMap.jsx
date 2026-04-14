@@ -152,6 +152,9 @@ export default function LeafletMap({
   land,
   landFilters,         // controlled by FeasibilityDashboard
   onLandFiltersChange, // setter provided by FeasibilityDashboard
+  onCitySearch,        // (city, state) → triggers live HasData fetch
+  mapLoading,          // boolean — true while city search is in-flight
+  searchCentroid,      // { lat, lng } | null — re-center map after search
 }) {
   const mapRef = useRef(null);
 
@@ -277,6 +280,22 @@ export default function LeafletMap({
     showLand,
     activeLayer,
   });
+
+  // ── Detect when Leaflet finishes initialising (mapI.current becomes non-null) ─
+  const [mapReady, setMapReady] = useState(false);
+  useEffect(() => {
+    if (mapReady) return;
+    const id = setInterval(() => {
+      if (mapI?.current) { setMapReady(true); clearInterval(id); }
+    }, 50);
+    return () => clearInterval(id);
+  }, [mapReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Re-center map when centroid changes after a city search ──────────
+  useEffect(() => {
+    if (!searchCentroid || !mapReady || !mapI?.current) return;
+    mapI.current.setView([searchCentroid.lat, searchCentroid.lng], 12, { animate: true });
+  }, [searchCentroid, mapReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Shared input styles for filter panel ─────────────────────────────
   const inputS = {

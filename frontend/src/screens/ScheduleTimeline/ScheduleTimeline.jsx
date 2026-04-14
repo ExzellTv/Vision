@@ -782,6 +782,7 @@ function ScheduleTimelineInner() {
         schedule: schedulePayload,
         ...(project.materials?.length > 0 && { materials: project.materials }),
         ...(project.buildingContext && { building_context: project.buildingContext }),
+        ...(project.projectLocation && { location: project.projectLocation }),
       };
 
       let saved;

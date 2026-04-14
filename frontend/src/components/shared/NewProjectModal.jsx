@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { colors, fonts, radii } from "../../theme/tokens";
 
 function Label({ children }) {
@@ -23,6 +23,106 @@ export default function NewProjectModal({ onClose, onGenerate }) {
   const [bedrooms, setBedrooms] = useState(3);
   const [bathrooms, setBathrooms] = useState(2);
   const [stories, setStories] = useState(2);
+
+  // ── Location state ────────────────────────────────────────────────────
+  const [locationInput,     setLocationInput]     = useState("");
+  const [locationValidated, setLocationValidated] = useState(null); // { city, state } | null
+  const [suggestions,       setSuggestions]       = useState([]);
+  const [showSuggestions,   setShowSuggestions]   = useState(false);
+  const [locationError,     setLocationError]     = useState("");
+  const [locLoading,        setLocLoading]        = useState(false);
+  const debounceRef   = useRef(null);
+  const suggestBoxRef = useRef(null);
+
+  // Debounced Nominatim fetch
+  useEffect(() => {
+    const q = locationInput.trim();
+    if (!q || locationValidated) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    if (q.length < 2) return;
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setLocLoading(true);
+      try {
+        const url =
+          `https://nominatim.openstreetmap.org/search` +
+          `?q=${encodeURIComponent(q)}&countrycodes=us&format=json&limit=6&addressdetails=1`;
+        const res  = await fetch(url, { headers: { "Accept-Language": "en" } });
+        const data = await res.json();
+        // Only keep results that have a city/town/village + state
+        const filtered = data
+          .filter((r) => {
+            const a = r.address || {};
+            return (a.city || a.town || a.village || a.county) && a.state;
+          })
+          .map((r) => {
+            const a    = r.address || {};
+            const city = a.city || a.town || a.village || a.county || "";
+            // Map full state name → abbreviation
+            const STATE_ABBR = {
+              "alabama":"AL","alaska":"AK","arizona":"AZ","arkansas":"AR","california":"CA",
+              "colorado":"CO","connecticut":"CT","delaware":"DE","florida":"FL","georgia":"GA",
+              "hawaii":"HI","idaho":"ID","illinois":"IL","indiana":"IN","iowa":"IA",
+              "kansas":"KS","kentucky":"KY","louisiana":"LA","maine":"ME","maryland":"MD",
+              "massachusetts":"MA","michigan":"MI","minnesota":"MN","mississippi":"MS",
+              "missouri":"MO","montana":"MT","nebraska":"NE","nevada":"NV",
+              "new hampshire":"NH","new jersey":"NJ","new mexico":"NM","new york":"NY",
+              "north carolina":"NC","north dakota":"ND","ohio":"OH","oklahoma":"OK",
+              "oregon":"OR","pennsylvania":"PA","rhode island":"RI","south carolina":"SC",
+              "south dakota":"SD","tennessee":"TN","texas":"TX","utah":"UT","vermont":"VT",
+              "virginia":"VA","washington":"WA","west virginia":"WV","wisconsin":"WI",
+              "wyoming":"WY",
+            };
+            const stateAbbr = STATE_ABBR[(a.state || "").toLowerCase()] || a.state || "";
+            return { label: `${city}, ${stateAbbr}`, city, state: stateAbbr };
+          });
+        // Deduplicate by label
+        const seen  = new Set();
+        const dedup = filtered.filter((s) => {
+          if (seen.has(s.label)) return false;
+          seen.add(s.label);
+          return true;
+        });
+        setSuggestions(dedup.slice(0, 5));
+        setShowSuggestions(dedup.length > 0);
+        if (dedup.length === 0) setLocationError("No matching US cities found.");
+        else setLocationError("");
+      } catch {
+        setSuggestions([]);
+      } finally {
+        setLocLoading(false);
+      }
+    }, 350);
+    return () => clearTimeout(debounceRef.current);
+  }, [locationInput, locationValidated]);
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (suggestBoxRef.current && !suggestBoxRef.current.contains(e.target))
+        setShowSuggestions(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleSelectSuggestion = (s) => {
+    setLocationInput(s.label);
+    setLocationValidated({ city: s.city, state: s.state });
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setLocationError("");
+  };
+
+  const handleLocationChange = (val) => {
+    setLocationInput(val);
+    setLocationValidated(null); // force re-validation on any edit
+  };
+
+  const canGenerate = !!locationValidated;
 
   const pct = ((targetSF - 1500) / (5000 - 1500)) * 100;
 
@@ -246,7 +346,7 @@ export default function NewProjectModal({ onClose, onGenerate }) {
           </div>
 
           {/* Stories */}
-          <div style={{ marginBottom: 32 }}>
+          <div style={{ marginBottom: 26 }}>
             <Label>Stories</Label>
             <BtnGroup
               options={[{value:1,label:"1"},{value:2,label:"2"}]}
@@ -255,26 +355,144 @@ export default function NewProjectModal({ onClose, onGenerate }) {
             />
           </div>
 
+          {/* Location — required */}
+          <div style={{ marginBottom: 32, position: "relative" }} ref={suggestBoxRef}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+              <Label>Location</Label>
+              <span style={{
+                fontFamily: fonts.label, fontSize: 9, fontWeight: 700,
+                color: colors.danger || "#ef4444",
+                letterSpacing: "0.1em", textTransform: "uppercase",
+                marginBottom: 10,
+              }}>
+                required
+              </span>
+            </div>
+            <div style={{ position: "relative" }}>
+              <input
+                value={locationInput}
+                onChange={(e) => handleLocationChange(e.target.value)}
+                onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+                placeholder="e.g. Detroit, Michigan"
+                style={{
+                  width: "100%",
+                  padding: "12px 16px",
+                  background: colors.bg,
+                  border: `1px solid ${locationValidated ? "#22c55e" : locationError ? "#ef4444" : colors.cardBorder}`,
+                  borderRadius: radii.lg,
+                  color: colors.text,
+                  fontFamily: fonts.label,
+                  fontSize: 14,
+                  outline: "none",
+                  boxSizing: "border-box",
+                  paddingRight: locLoading ? 40 : 16,
+                }}
+              />
+              {/* Loading spinner */}
+              {locLoading && (
+                <span style={{
+                  position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                  color: colors.textDim, fontSize: 11, fontFamily: fonts.label,
+                }}>
+                  …
+                </span>
+              )}
+              {/* Validated checkmark */}
+              {locationValidated && !locLoading && (
+                <span style={{
+                  position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                  color: "#22c55e", fontSize: 16,
+                }}>
+                  ✓
+                </span>
+              )}
+            </div>
+
+            {/* Suggestions dropdown */}
+            {showSuggestions && suggestions.length > 0 && (
+              <div style={{
+                position:       "absolute",
+                top:            "calc(100% + 4px)",
+                left:           0,
+                right:          0,
+                background:     "#111827",
+                border:         `1px solid ${colors.cardBorder}`,
+                borderRadius:   radii.lg,
+                zIndex:         2000,
+                overflow:       "hidden",
+                boxShadow:      "0 8px 24px rgba(0,0,0,0.5)",
+              }}>
+                {suggestions.map((s) => (
+                  <div
+                    key={s.label}
+                    onMouseDown={() => handleSelectSuggestion(s)}
+                    style={{
+                      padding:    "10px 16px",
+                      fontFamily: fonts.label,
+                      fontSize:   13,
+                      color:      colors.text,
+                      cursor:     "pointer",
+                      borderBottom: `1px solid ${colors.cardBorder}`,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(59,130,246,0.12)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    📍 {s.label}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Error message */}
+            {locationError && !locationValidated && (
+              <p style={{
+                margin: "6px 0 0",
+                fontFamily: fonts.label,
+                fontSize: 11,
+                color: "#ef4444",
+              }}>
+                {locationError}
+              </p>
+            )}
+            {!locationValidated && !locationError && locationInput.length > 0 && !locLoading && (
+              <p style={{
+                margin: "6px 0 0",
+                fontFamily: fonts.label,
+                fontSize: 11,
+                color: colors.textDim,
+              }}>
+                Select a city from the suggestions to continue.
+              </p>
+            )}
+          </div>
+
           {/* CTA */}
           <button
-            onClick={() => onGenerate({ projectName, targetSF, bedrooms, bathrooms, stories })}
+            onClick={() => {
+              if (!canGenerate) return;
+              onGenerate({ projectName, targetSF, bedrooms, bathrooms, stories, location: locationValidated });
+            }}
+            disabled={!canGenerate}
             style={{
               width: "100%",
               padding: "15px",
-              background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+              background: canGenerate
+                ? "linear-gradient(135deg, #2563eb, #1d4ed8)"
+                : "rgba(37,99,235,0.25)",
               border: "none",
               borderRadius: radii.lg,
-              color: "white",
+              color: canGenerate ? "white" : "rgba(255,255,255,0.35)",
               fontFamily: fonts.label,
               fontSize: 15,
               fontWeight: 600,
-              cursor: "pointer",
+              cursor: canGenerate ? "pointer" : "not-allowed",
               letterSpacing: "0.2px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               gap: 8,
-              boxShadow: "0 4px 20px rgba(37,99,235,0.45)",
+              boxShadow: canGenerate ? "0 4px 20px rgba(37,99,235,0.45)" : "none",
+              transition: "all 0.2s ease",
             }}
           >
             Generate Initial Floor Plan

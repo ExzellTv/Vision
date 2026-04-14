@@ -498,6 +498,27 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
         >
           {label}
         </div>
+
+        {/* Location badge */}
+        {project.location?.city && (
+          <div style={{
+            display:    "inline-flex",
+            alignItems: "center",
+            gap:        4,
+            marginTop:  6,
+            padding:    "2px 8px",
+            borderRadius: 4,
+            background: "rgba(59,130,246,0.1)",
+            border:     "1px solid rgba(59,130,246,0.2)",
+            fontSize:   10,
+            fontFamily: fonts.label,
+            color:      colors.secondary,
+            fontWeight: 600,
+            letterSpacing: "0.04em",
+          }}>
+            📍 {project.location.city}, {project.location.state}
+          </div>
+        )}
       </div>
 
       {/* Action button */}
@@ -927,7 +948,7 @@ function DeleteModal({ project, onClose, onConfirm }) {
 /* ── Main screen ── */
 export default function ProjectsScreen() {
   const navigate = useNavigate();
-  const { setProjectName, setProjectId, setStoryPlans, setFloorPlan, setGenerateParams, resetProject, setBuildingContext, setMaterials, setSavedSchedule } = useProject();
+  const { setProjectName, setProjectId, setStoryPlans, setFloorPlan, setGenerateParams, setProjectLocation, resetProject, setBuildingContext, setMaterials, setSavedSchedule } = useProject();
 
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -957,6 +978,7 @@ export default function ProjectsScreen() {
     setProjectName(project.name);
     setProjectId(project.id);
     if (project.generate_params) setGenerateParams(project.generate_params);
+    if (project.location) setProjectLocation(project.location);
     // Restore all story plans so the 3D model reflects the correct number of floors
     if (project.story_plans?.length > 0) {
       setStoryPlans(project.story_plans);
@@ -985,6 +1007,7 @@ export default function ProjectsScreen() {
       garage: "2-car",
       openFloorPlan: true,
     });
+    setProjectLocation(params.location || null);
     navigate("/develop");
   };
 
@@ -1001,6 +1024,7 @@ export default function ProjectsScreen() {
     setProjectName(project.name);
     setProjectId(project.id);
     if (project.generate_params) setGenerateParams(project.generate_params);
+    if (project.location) setProjectLocation(project.location);
     if (project.story_plans?.length > 0) {
       setStoryPlans(project.story_plans);
     } else if (project.floor_plan) {

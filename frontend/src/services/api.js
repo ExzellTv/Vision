@@ -108,11 +108,13 @@ export const scheduleApi = {
     request(`/schedule/${id}/phase/${phase}`, { method: "PATCH", body: JSON.stringify(data) }),
 };
 
-// Map Data (MongoDB-backed)
+// Map Data (MongoDB-backed + live HasData/Redfin search)
 export const mapApi = {
   getComparables:  () => request("/map/comparables"),
   getLandListings: () => request("/map/land-listings"),
   getMarketStats:  () => request("/map/market-stats"),
+  searchByCity:    (city, state) =>
+    request(`/map/search?city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}`),
 };
 
 // Compliance
