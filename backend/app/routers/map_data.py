@@ -25,6 +25,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.config import settings
 
+HASDATA_KEY = settings.hasdata_api_key
+
 router = APIRouter()
 
 # ── JSON fallback cache ────────────────────────────────────────────────────
@@ -293,7 +295,6 @@ async def search_by_city(
       5. Return { comparables, land, centroid }
       6. Centroid always returned (from Nominatim) even if HasData yields nothing
     """
-    HASDATA_KEY = "97402f5b-37b8-468a-af04-adeffb9ee9aa"
     MAX_ZIPS    = 8
 
     # ── State name → 2-letter abbreviation ───────────────────────────────

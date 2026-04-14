@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     aps_client_secret: str = ""
     materials_api_key: str = ""
     cesium_ion_token: str = ""
+    hasdata_api_key: str = ""
 
     @property
     def mongodb_uri(self) -> str:
