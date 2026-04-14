@@ -59,8 +59,19 @@ export default function NewProjectModal({ onClose, onGenerate }) {
             return (a.city || a.town || a.village || a.county) && a.state;
           })
           .map((r) => {
-            const a    = r.address || {};
-            const city = a.city || a.town || a.village || a.county || "";
+            const a       = r.address || {};
+            const rawCity = a.city || a.town || a.village || a.county || "";
+            // Normalize Nominatim city names to match Redfin/HasData market names
+            const CITY_NORMALIZE = {
+              "new york city": "New York",
+              "manhattan":     "New York",
+              "brooklyn":      "New York",
+              "queens":        "New York",
+              "the bronx":     "New York",
+              "bronx":         "New York",
+              "staten island": "New York",
+            };
+            const city = CITY_NORMALIZE[rawCity.toLowerCase()] || rawCity;
             // Map full state name → abbreviation
             const STATE_ABBR = {
               "alabama":"AL","alaska":"AK","arizona":"AZ","arkansas":"AR","california":"CA",

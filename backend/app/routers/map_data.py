@@ -13,8 +13,12 @@ Data source priority:
 from __future__ import annotations
 
 import json
+import logging
 import asyncio
 import http.client
+from urllib.parse import quote
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,6 +30,63 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from app.config import settings
 
 HASDATA_KEY = settings.hasdata_api_key
+
+# ── Cache version — bump this whenever search logic changes so stale entries
+#    are automatically re-fetched on next request. ──────────────────────────
+CACHE_VERSION = 6
+
+# ── Land property-type variants returned by HasData / Redfin ─────────────────
+LAND_TYPES = {
+    "land", "lot/land", "lots/land", "vacant land", "farm", "farm and ranch",
+    # Additional Redfin / HasData variants
+    "lot", "lots", "land/lot", "land/lots", "vacant lot", "vacant lots",
+    "residential land", "commercial land", "industrial land",
+    "unimproved land", "raw land", "acreage",
+}
+
+# ── Nominatim → Redfin city name normalization ────────────────────────────────
+# Nominatim uses official OSM names (e.g. "New York City", borough names) that
+# differ from the market names Redfin/HasData index. This maps the raw Nominatim
+# value (lowercased) to the correct Redfin search term.
+CITY_NORMALIZATIONS: dict[str, str] = {
+    "new york city": "New York",
+    "manhattan":     "New York",
+    "brooklyn":      "New York",
+    "queens":        "New York",
+    "the bronx":     "New York",
+    "bronx":         "New York",
+    "staten island": "New York",
+}
+
+# ── State-level centroid fallback (geographic center of each state) ──────────
+STATE_CENTROIDS: dict[str, tuple[float, float]] = {
+    "AL": (32.806671, -86.791130), "AK": (61.370716, -152.404419),
+    "AZ": (33.729759, -111.431221), "AR": (34.969704, -92.373123),
+    "CA": (36.116203, -119.681564), "CO": (39.059811, -105.311104),
+    "CT": (41.597782, -72.755371),  "DE": (39.318523, -75.507141),
+    "FL": (27.766279, -81.686783),  "GA": (33.040619, -83.643074),
+    "HI": (21.094318, -157.498337), "ID": (44.240459, -114.478828),
+    "IL": (40.349457, -88.986137),  "IN": (39.849426, -86.258278),
+    "IA": (42.011539, -93.210526),  "KS": (38.526600, -96.726486),
+    "KY": (37.668140, -84.670067),  "LA": (31.169960, -91.867805),
+    "ME": (44.693947, -69.381927),  "MD": (39.063946, -76.802101),
+    "MA": (42.230171, -71.530106),  "MI": (43.326618, -84.536095),
+    "MN": (45.694454, -93.900192),  "MS": (32.741646, -89.678696),
+    "MO": (38.456085, -92.288368),  "MT": (46.921925, -110.454353),
+    "NE": (41.125370, -98.268082),  "NV": (38.313515, -117.055374),
+    "NH": (43.452492, -71.563896),  "NJ": (40.298904, -74.521011),
+    "NM": (34.840515, -106.248482), "NY": (42.165726, -74.948051),
+    "NC": (35.630066, -79.806419),  "ND": (47.528912, -99.784012),
+    "OH": (40.388783, -82.764915),  "OK": (35.565342, -96.928917),
+    "OR": (44.572021, -122.070938), "PA": (40.590752, -77.209755),
+    "RI": (41.680893, -71.511780),  "SC": (33.856892, -80.945007),
+    "SD": (44.299782, -99.438828),  "TN": (35.747845, -86.692345),
+    "TX": (31.054487, -97.563461),  "UT": (40.150032, -111.862434),
+    "VT": (44.045876, -72.710686),  "VA": (37.769337, -78.169968),
+    "WA": (47.400902, -121.490494), "WV": (38.491226, -80.954453),
+    "WI": (44.268543, -89.616508),  "WY": (42.755966, -107.302490),
+    "DC": (38.897438, -77.026817),
+}
 
 router = APIRouter()
 
@@ -157,34 +218,57 @@ def _normalize_land(doc: dict[str, Any]) -> dict[str, Any]:
     price-based estimate.
     """
     price = doc.get("price") or 0
-    area  = doc.get("area")
-    addr  = doc.get("address") or {}
 
-    # ── lot_sf: prefer real data from MongoDB, fall back to estimate ──
-    if area and area > 0:
-        lot_sf = int(area)
-    elif price > 0:
-        # Fallback for the ~8 listings without area data.
-        est_sf = price / 15.0
-        lot_sf = max(2000, min(int(est_sf), 50000))
+    # HasData returns area under several field names; MongoDB seed uses "area"
+    area = (
+        doc.get("area") or
+        doc.get("lotSize") or
+        doc.get("sqFtLot") or
+        doc.get("lot_sf") or
+        0
+    )
+
+    # address can be a dict (MongoDB seed) or a plain string (HasData)
+    raw_addr = doc.get("address")
+    if isinstance(raw_addr, dict):
+        addr_str = f"{raw_addr.get('street', '')}, {raw_addr.get('city', '')}".strip(", ")
+    elif isinstance(raw_addr, str):
+        addr_str = raw_addr.strip()
     else:
+        addr_str = ""
+
+    # ── lot_sf: prefer real data, fall back to price-based estimate ──
+    try:
+        lot_sf = int(float(area)) if area and float(area) > 0 else 0
+    except (ValueError, TypeError):
         lot_sf = 0
 
+    if lot_sf == 0 and price > 0:
+        est_sf = price / 15.0
+        lot_sf = max(2000, min(int(est_sf), 50000))
+
     acres = round(lot_sf / 43560, 2) if lot_sf > 0 else None
+
+    # lat/lng coerced to float — HasData sometimes returns as string
+    try:
+        lat = float(doc.get("latitude") or 0) or None
+        lng = float(doc.get("longitude") or 0) or None
+    except (ValueError, TypeError):
+        lat = lng = None
 
     # ── Redfin listing URL — pass through only if it looks valid ──
     raw_url = doc.get("url") or ""
     listing_url = raw_url if raw_url.startswith("http") else None
 
     return {
-        "id":             str(doc.get("id") or doc.get("_id", "")),
-        "lat":            doc.get("latitude"),
-        "lng":            doc.get("longitude"),
+        "id":             str(doc.get("id") or doc.get("listingId") or doc.get("_id", "")),
+        "lat":            lat,
+        "lng":            lng,
         "price":          price,
         "lot_sf":         lot_sf,
         "acres":          acres,
         "zoning":         doc.get("zoning") or "N/A",
-        "address":        f"{addr.get('street', '')}, {addr.get('city', '')}".strip(", "),
+        "address":        addr_str,
         "status":         doc.get("status") or "Active",
         "topography":     "Level",
         "utilities":      "Unknown",
@@ -293,9 +377,9 @@ async def search_by_city(
       3. For each zip (capped at 8) call HasData scraper
       4. Split results: Land → _normalize_land, everything else → _normalize_comp
       5. Return { comparables, land, centroid }
-      6. Centroid always returned (from Nominatim) even if HasData yields nothing
+      6. Centroid always returned (Nominatim → avg coords → state-level fallback)
     """
-    MAX_ZIPS    = 8
+    MAX_ZIPS    = 25
 
     # ── State name → 2-letter abbreviation ───────────────────────────────
     STATE_ABBR = {
@@ -317,6 +401,10 @@ async def search_by_city(
     state_abbr = STATE_ABBR.get(state.lower().strip(), state.upper().strip()[:2])
     city_key   = city.lower().strip()
 
+    # Normalize Nominatim city names to Redfin market names (e.g. "New York City" → "New York")
+    city     = CITY_NORMALIZATIONS.get(city_key, city)
+    city_key = city.lower().strip()
+
     # city_name variants for exact-match queries (Atlas M0 blocks $regex)
     city_variants = list({city.strip(), city.strip().title(), city.strip().upper(), city.strip().lower()})
 
@@ -327,51 +415,78 @@ async def search_by_city(
         if db is not None:
             cached = await db["city_search_cache"].find_one(
                 {"city": city_key, "state": state_abbr},
-                {"_id": 0, "comparables": 1, "land": 1, "centroid": 1},
+                {"_id": 0, "comparables": 1, "land": 1, "centroid": 1, "cache_version": 1, "retry_after": 1},
             )
             if cached:
-                cached_comps = cached.get("comparables") or []
-                cached_land  = cached.get("land") or []
-                needs_update = False
+                has_data    = bool(cached.get("comparables") or cached.get("land"))
+                retry_after = cached.get("retry_after")
+                ttl_expired = retry_after and datetime.now(timezone.utc).timestamp() > retry_after
+                version_ok  = cached.get("cache_version") == CACHE_VERSION
+                # Serve full-data entries unconditionally (preserves Houston etc. across version bumps).
+                # Only re-fetch no-data entries when the version changed or the TTL expired.
+                if has_data or (version_ok and not ttl_expired):
+                    cached_comps = cached.get("comparables") or []
+                    cached_land  = cached.get("land") or []
+                    needs_update = False
 
-                if not cached_land:
-                    land_cursor = db["land_listings"].find(
-                        {"address.city": {"$in": city_variants},
-                         "latitude":  {"$exists": True, "$ne": None},
-                         "longitude": {"$exists": True, "$ne": None}},
-                        limit=500,
-                    )
-                    land_docs = await land_cursor.to_list(500)
-                    if land_docs:
-                        cached_land  = [_normalize_land(d) for d in land_docs]
-                        needs_update = True
+                    if not cached_land:
+                        land_cursor = db["land_listings"].find(
+                            {"address.city": {"$in": city_variants},
+                             "latitude":  {"$exists": True, "$ne": None},
+                             "longitude": {"$exists": True, "$ne": None}},
+                            limit=500,
+                        )
+                        land_docs = await land_cursor.to_list(500)
+                        if land_docs:
+                            cached_land  = [_normalize_land(d) for d in land_docs]
+                            needs_update = True
 
-                if not cached_comps:
-                    comp_cursor = db["comparables"].find(
-                        {"address.city": {"$in": city_variants},
-                         "latitude":  {"$exists": True, "$ne": None},
-                         "longitude": {"$exists": True, "$ne": None}},
-                        limit=500,
-                    )
-                    comp_docs = await comp_cursor.to_list(500)
-                    if comp_docs:
-                        cached_comps = [_normalize_comp(d) for d in comp_docs]
-                        needs_update = True
+                    # If still no land after MongoDB check, hit HasData for land —
+                    # handles cached cities (e.g. Phoenix) that were saved before
+                    # the land-specific fetch was added.
+                    if not cached_land:
+                        _loop = asyncio.get_running_loop()
+                        # Resolve zips for this city to fetch land via zip codes
+                        _zips = await _loop.run_in_executor(None, _fetch_zips, city, state_abbr)
+                        for _z in _zips:
+                            _batch, _ = await _loop.run_in_executor(None, _fetch_hasdata_land, _z)
+                            for _prop in _batch:
+                                if _prop.get("latitude") is None or _prop.get("longitude") is None:
+                                    continue
+                                _pt = (_prop.get("propertyType") or "").lower()
+                                if _pt in LAND_TYPES:
+                                    cached_land.append(_normalize_land(_prop))
+                        if cached_land:
+                            needs_update = True
 
-                if needs_update:
-                    await db["city_search_cache"].update_one(
-                        {"city": city_key, "state": state_abbr},
-                        {"$set": {
-                            "comparables": cached_comps,
-                            "land":        cached_land,
-                            "cached_at":   datetime.now(timezone.utc),
-                        }},
-                    )
-                return {
-                    "comparables": cached_comps,
-                    "land":        cached_land,
-                    "centroid":    cached.get("centroid"),
-                }
+                    if not cached_comps:
+                        comp_cursor = db["comparables"].find(
+                            {"address.city": {"$in": city_variants},
+                             "latitude":  {"$exists": True, "$ne": None},
+                             "longitude": {"$exists": True, "$ne": None}},
+                            limit=500,
+                        )
+                        comp_docs = await comp_cursor.to_list(500)
+                        if comp_docs:
+                            cached_comps = [_normalize_comp(d) for d in comp_docs]
+                            needs_update = True
+
+                    if needs_update:
+                        await db["city_search_cache"].update_one(
+                            {"city": city_key, "state": state_abbr},
+                            {"$set": {
+                                "comparables":   cached_comps,
+                                "land":          cached_land,
+                                "cache_version": CACHE_VERSION,
+                                "cached_at":     datetime.now(timezone.utc),
+                            }},
+                        )
+                    return {
+                        "comparables": cached_comps,
+                        "land":        cached_land,
+                        "centroid":    cached.get("centroid"),
+                    }
+                # else: TTL expired — fall through to live fetch
     except Exception:
         pass  # cache miss — continue to live fetch
 
@@ -416,7 +531,7 @@ async def search_by_city(
             if comp_docs or land_docs:
                 comparables   = [_normalize_comp(d) for d in comp_docs]
                 land_listings = [_normalize_land(d) for d in land_docs]
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 centroid = await loop.run_in_executor(None, _fetch_nominatim_centroid, city, state_abbr)
                 if not centroid:
                     anchor = comparables or land_listings
@@ -431,12 +546,13 @@ async def search_by_city(
                     await db["city_search_cache"].update_one(
                         {"city": city_key, "state": state_abbr},
                         {"$set": {
-                            "city":        city_key,
-                            "state":       state_abbr,
-                            "comparables": comparables,
-                            "land":        land_listings,
-                            "centroid":    centroid,
-                            "cached_at":   datetime.now(timezone.utc),
+                            "city":          city_key,
+                            "state":         state_abbr,
+                            "comparables":   comparables,
+                            "land":          land_listings,
+                            "centroid":      centroid,
+                            "cache_version": CACHE_VERSION,
+                            "cached_at":     datetime.now(timezone.utc),
                         }},
                         upsert=True,
                     )
@@ -459,25 +575,67 @@ async def search_by_city(
         except Exception:
             return []
 
-    def _fetch_hasdata(keyword: str) -> list[dict]:
-        """Synchronous HasData call for one keyword (zip or city) — runs in threadpool."""
-        try:
-            conn = http.client.HTTPSConnection("api.hasdata.com", timeout=15)
-            conn.request(
-                "GET",
-                f"/scrape/redfin/listing?keyword={keyword}&type=forSale",
-                headers={
-                    "x-api-key":    HASDATA_KEY,
-                    "Content-Type": "application/json",
-                },
-            )
-            res  = conn.getresponse()
-            body = json.loads(res.read().decode("utf-8"))
-            return body.get("properties", [])
-        except Exception:
-            return []
+    def _fetch_hasdata_land(keyword: str, max_pages: int = 12, start_page: int = 1) -> tuple[list[dict], int]:
+        """Paginated HasData call — fetches up to max_pages pages starting from start_page.
+        Returns (props, pages_actually_fetched) so caller can track real credit usage."""
+        all_props: list[dict] = []
+        pages_fetched = 0
+        for page in range(start_page, start_page + max_pages):
+            try:
+                conn = http.client.HTTPSConnection("api.hasdata.com", timeout=25)
+                conn.request(
+                    "GET",
+                    f"/scrape/redfin/listing?keyword={quote(keyword)}&type=forSale&page={page}",
+                    headers={
+                        "x-api-key":    HASDATA_KEY,
+                        "Content-Type": "application/json",
+                    },
+                )
+                res  = conn.getresponse()
+                body = json.loads(res.read().decode("utf-8"))
+                if "error" in body or ("message" in body and not body.get("properties")):
+                    logger.warning("[HasData] zip=%r page=%d error: %s", keyword, page, body.get("error") or body.get("message", ""))
+                    break
+                props = body.get("properties", [])
+                pages_fetched += 1
+                logger.info("[HasData] zip=%r page=%d → %d props", keyword, page, len(props))
+                if not props:
+                    break  # no more pages
+                all_props.extend(props)
+            except Exception as exc:
+                logger.warning("[HasData] zip=%r page=%d exception: %s", keyword, page, exc)
+                break
+        logger.info("[HasData] zip=%r total=%d props across %d pages", keyword, len(all_props), pages_fetched)
+        return all_props, pages_fetched
 
-    loop = asyncio.get_event_loop()
+    def _fetch_hasdata(keyword: str) -> list[dict]:
+        """Synchronous HasData call for one keyword (zip or city) — runs in threadpool.
+        Retries once on any failure or empty response to handle transient timeouts."""
+        for _attempt in range(2):
+            try:
+                conn = http.client.HTTPSConnection("api.hasdata.com", timeout=25)
+                conn.request(
+                    "GET",
+                    f"/scrape/redfin/listing?keyword={quote(keyword)}&type=forSale",
+                    headers={
+                        "x-api-key":    HASDATA_KEY,
+                        "Content-Type": "application/json",
+                    },
+                )
+                res  = conn.getresponse()
+                body = json.loads(res.read().decode("utf-8"))
+                # If HasData returned an error object, retry rather than
+                # treating it as "no listings" and caching it as empty.
+                if "error" in body or ("message" in body and not body.get("properties")):
+                    continue
+                props = body.get("properties", [])
+                if props:
+                    return props
+            except Exception:
+                pass
+        return []
+
+    loop = asyncio.get_running_loop()
 
     # ── 1. Resolve zips + centroid in parallel ────────────────────────────
     zips, nominatim_centroid = await asyncio.gather(
@@ -487,21 +645,71 @@ async def search_by_city(
 
     zips = zips[:MAX_ZIPS]
 
-    # ── 2. Fetch listings for each zip ────────────────────────────────────
+    ABBR_TO_STATE = {v: k.title() for k, v in STATE_ABBR.items()}
+    full_state = ABBR_TO_STATE.get(state_abbr, "")
+
+    # ── 2. Sequential zip-based HasData searches (zip codes only) ────────────
+    # HasData's Redfin scraper requires zip codes — city name keywords return empty.
+    # Runs one zip at a time to respect the 1-concurrency limit on the API plan.
+    #
+    # Smart page offset: if CSV data already exists for a zip, start HasData
+    # from the page AFTER the last CSV page (~42 listings/page) so we only
+    # fetch listings the CSV doesn't already cover — no wasted credits.
+    REDFIN_PAGE_SIZE = 42
+    zip_start_pages: dict[str, int] = {}
+    try:
+        _db = _get_db()
+        if _db is not None:
+            _pipeline = [
+                {"$match": {"address.city": {"$in": city_variants}, "address.zipcode": {"$exists": True, "$ne": None}}},
+                {"$group": {"_id": "$address.zipcode", "count": {"$sum": 1}}},
+            ]
+            _zip_counts = await _db["land_listings"].aggregate(_pipeline).to_list(None)
+            for _entry in _zip_counts:
+                _z = str(_entry["_id"]).strip()
+                _n = _entry["count"]
+                if _z:
+                    zip_start_pages[_z] = (_n // REDFIN_PAGE_SIZE) + 1
+            if zip_start_pages:
+                logger.info("[HasData] per-zip CSV offsets for %s, %s: %s", city, state_abbr, zip_start_pages)
+    except Exception as _exc:
+        logger.warning("[HasData] failed to build zip start pages: %s", _exc)
+
     all_props: list[dict] = []
+    MAX_CREDITS = 75  # hard cap — 1 page call = ~5 credits, 75 calls ≈ 375 credits max
+    credits_used = 0
+
     for z in zips:
-        props = await loop.run_in_executor(None, _fetch_hasdata, z)
-        all_props.extend(props)
+        if credits_used >= MAX_CREDITS:
+            logger.info("[HasData] credit cap (%d) reached — stopping zip search", MAX_CREDITS)
+            break
+        start_page = zip_start_pages.get(z, 1)
+        pages_allowed = min(12, MAX_CREDITS - credits_used)
+        # If CSV already covers this zip fully (start_page beyond Redfin's last page),
+        # skip it — no new listings to fetch. Redfin caps at ~9 pages (42*9=378).
+        if start_page > 9:
+            logger.info("[HasData] zip=%s fully covered by CSV — skipping", z)
+            continue
+        batch, pages_used = await loop.run_in_executor(None, _fetch_hasdata_land, z, pages_allowed, start_page)
+        credits_used += pages_used
+        all_props.extend(batch)
+        logger.info("[HasData] zip=%s start_page=%d → %d props (credits used: %d/%d)", z, start_page, len(batch), credits_used, MAX_CREDITS)
 
-    # ── 2b. Fallback: search by "City ST" keyword if zip lookup found nothing ─
-    if not all_props:
-        direct = await loop.run_in_executor(None, _fetch_hasdata, f"{city} {state_abbr}")
-        all_props.extend(direct)
-    if not all_props:
-        direct2 = await loop.run_in_executor(None, _fetch_hasdata, f"{city}, {state_abbr}")
-        all_props.extend(direct2)
+    # ── 3. Deduplicate by property id then split and normalize ───────────────
+    # Multiple keyword/zip searches return overlapping listings — dedupe by id.
+    seen_ids: set = set()
+    unique_props: list[dict] = []
+    for p in all_props:
+        pid = p.get("id") or p.get("listingId") or p.get("url") or id(p)
+        if pid not in seen_ids:
+            seen_ids.add(pid)
+            unique_props.append(p)
+    all_props = unique_props
 
-    # ── 3. Split and normalize ────────────────────────────────────────────
+    # Log all unique property types returned so we can tune LAND_TYPES if needed
+    all_types = sorted({(p.get("propertyType") or "").lower() for p in all_props})
+    logger.info("[map_data] %s, %s — %d unique props, types: %s", city, state_abbr, len(all_props), all_types)
+
     comparables: list[dict] = []
     land_listings: list[dict] = []
 
@@ -509,12 +717,19 @@ async def search_by_city(
         if prop.get("latitude") is None or prop.get("longitude") is None:
             continue
         prop_type = (prop.get("propertyType") or "").lower()
-        if prop_type == "land":
-            land_listings.append(_normalize_land(prop))
-        else:
-            comparables.append(_normalize_comp(prop))
+        try:
+            if prop_type in LAND_TYPES:
+                normalized = _normalize_land(prop)
+                if normalized.get("lat") and normalized.get("lng"):
+                    land_listings.append(normalized)
+            else:
+                normalized = _normalize_comp(prop)
+                if normalized.get("lat") and normalized.get("lng"):
+                    comparables.append(normalized)
+        except Exception as exc:
+            logger.warning("[map_data] normalize error for prop %s: %s", prop.get("id"), exc)
 
-    # ── 4. Centroid: prefer Nominatim (always accurate), fall back to avg ─
+    # ── 4. Centroid: prefer Nominatim, fall back to avg coords, then state center ─
     centroid = nominatim_centroid
     if not centroid:
         anchor = comparables or land_listings
@@ -523,34 +738,129 @@ async def search_by_city(
                 "lat": round(sum(p["lat"] for p in anchor) / len(anchor), 6),
                 "lng": round(sum(p["lng"] for p in anchor) / len(anchor), 6),
             }
+    if not centroid and state_abbr in STATE_CENTROIDS:
+        lat, lng = STATE_CENTROIDS[state_abbr]
+        centroid = {"lat": lat, "lng": lng}
 
+    logger.info("[map_data] %s, %s — %d comps, %d land listings", city, state_abbr, len(comparables), len(land_listings))
     result = {
         "comparables": comparables[:500],
-        "land":        land_listings[:500],
+        "land":        land_listings[:1000],
         "centroid":    centroid,
     }
 
+    # ── Persist scraped land to land_listings (permanent, like Dallas seed) ──
+    # This means clearing city_search_cache never loses HasData-scraped data —
+    # the next search rebuilds from land_listings instead of re-scraping.
+    try:
+        db = _get_db()
+        if db is not None and all_props:
+            from pymongo import UpdateOne as _UpdateOne
+            land_ops = []
+            for prop in all_props:
+                prop_type = (prop.get("propertyType") or "").lower()
+                if prop_type not in LAND_TYPES:
+                    continue
+                unique_id = prop.get("id") or prop.get("listingId") or prop.get("url")
+                if not unique_id:
+                    continue
+                raw_addr = prop.get("address") or ""
+                addr_doc = (
+                    raw_addr if isinstance(raw_addr, dict)
+                    else {"street": str(raw_addr).strip(), "city": city.strip().title(), "state": state_abbr}
+                )
+                if isinstance(addr_doc, dict) and not addr_doc.get("city"):
+                    addr_doc["city"] = city.strip().title()
+                    addr_doc["state"] = state_abbr
+                doc = {
+                    "id":           str(unique_id),
+                    "url":          prop.get("url") or "",
+                    "price":        prop.get("price"),
+                    "address":      addr_doc,
+                    "latitude":     prop.get("latitude"),
+                    "longitude":    prop.get("longitude"),
+                    "area":         prop.get("lotSize") or prop.get("sqFtLot") or prop.get("area") or 0,
+                    "status":       prop.get("status") or "Active",
+                    "daysOnMarket": prop.get("daysOnMarket"),
+                    "propertyType": prop.get("propertyType") or "Land",
+                    "source":       "hasdata",
+                }
+                land_ops.append(_UpdateOne({"id": doc["id"]}, {"$set": doc}, upsert=True))
+            if land_ops:
+                await db["land_listings"].bulk_write(land_ops, ordered=False)
+                logger.info("[map_data] persisted %d land listings to land_listings for %s, %s", len(land_ops), city, state_abbr)
+    except Exception as exc:
+        logger.warning("[map_data] failed to persist land listings: %s", exc)
+
     # ── Save to MongoDB cache for future searches ─────────────────────────
-    if comparables or land_listings:
-        try:
-            db = _get_db()
-            if db is not None:
+    try:
+        db = _get_db()
+        if db is not None:
+            if comparables or land_listings:
+                # Full result — cache permanently (until version bump)
                 await db["city_search_cache"].update_one(
                     {"city": city_key, "state": state_abbr},
                     {"$set": {
-                        "city":        city_key,
-                        "state":       state_abbr,
-                        "comparables": result["comparables"],
-                        "land":        result["land"],
-                        "centroid":    centroid,
-                        "cached_at":   datetime.now(timezone.utc),
+                        "city":          city_key,
+                        "state":         state_abbr,
+                        "comparables":   result["comparables"],
+                        "land":          result["land"],
+                        "centroid":      centroid,
+                        "cache_version": CACHE_VERSION,
+                        "cached_at":     datetime.now(timezone.utc),
                     }},
                     upsert=True,
                 )
-        except Exception:
-            pass  # cache write failure is non-fatal
+            else:
+                # No data found — cache a no-data marker for 24 h so we don't
+                # burn API credits on every request for cities with no listings.
+                await db["city_search_cache"].update_one(
+                    {"city": city_key, "state": state_abbr},
+                    {"$set": {
+                        "city":          city_key,
+                        "state":         state_abbr,
+                        "comparables":   [],
+                        "land":          [],
+                        "centroid":      centroid,
+                        "cache_version": CACHE_VERSION,
+                        "retry_after":   datetime.now(timezone.utc).timestamp() + 3600,
+                        "cached_at":     datetime.now(timezone.utc),
+                    }},
+                    upsert=True,
+                )
+    except Exception:
+        pass  # cache write failure is non-fatal
 
     return result
+
+
+@router.delete("/cache")
+async def clear_city_cache(
+    city:  str = Query(..., description="City name, e.g. Phoenix"),
+    state: str = Query(..., description="State abbreviation, e.g. AZ"),
+) -> dict:
+    """
+    Delete a city's cache entry from city_search_cache so the next search
+    does a full fresh fetch from HasData and re-plots all land and properties.
+    """
+    try:
+        db = _get_db()
+        if db is None:
+            raise HTTPException(status_code=503, detail="MongoDB not available")
+        city_key   = city.lower().strip()
+        state_abbr = state.upper().strip()[:2]
+        result = await db["city_search_cache"].delete_one(
+            {"city": city_key, "state": state_abbr}
+        )
+        if result.deleted_count:
+            logger.info("[map_data] Cache cleared for %s, %s", city_key, state_abbr)
+            return {"cleared": True, "city": city_key, "state": state_abbr}
+        else:
+            return {"cleared": False, "detail": "No cache entry found — will fetch fresh on next search"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/market-stats")

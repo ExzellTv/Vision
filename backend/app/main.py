@@ -8,7 +8,7 @@ from app.config import settings
 from app.database import Base, engine
 from app.models import *  # noqa: F401,F403 — register all models
 from app.routers import floorplan, structural, cost, market, risk, zoning, schedule, ingest, map_data
-from app.routers import compliance, projects, seed
+from app.routers import compliance, projects, seed, csv_import
 from app import mongodb
 from app.services import ml_predictor
 
@@ -27,6 +27,13 @@ async def lifespan(application: FastAPI):
             logger.info("MongoDB connected")
         except Exception as exc:
             logger.warning(f"MongoDB connection failed (non-fatal): {exc}")
+
+    # Confirm HasData key is loaded
+    from app.routers.map_data import HASDATA_KEY
+    if HASDATA_KEY:
+        logger.info(f"HasData API key loaded: {HASDATA_KEY[:8]}...")
+    else:
+        logger.warning("HasData API key is EMPTY — city search will not work. Set HASDATA_API_KEY in backend/.env")
 
     # Auto-train ML model on startup if not already trained
     try:
@@ -69,6 +76,7 @@ app.include_router(map_data.router,  prefix="/api/map",       tags=["Map Data"])
 app.include_router(compliance.router, prefix="/api/compliance", tags=["Compliance"])
 app.include_router(projects.router, prefix="/api/projects", tags=["Projects"])
 app.include_router(seed.router,     prefix="/api/seed-data", tags=["Seed"])
+app.include_router(csv_import.router, prefix="/api/import/csv", tags=["CSV Import"])
 
 
 @app.get("/api/health")

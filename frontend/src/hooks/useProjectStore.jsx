@@ -16,8 +16,8 @@ function readPersistedProject() {
     const raw = localStorage.getItem(PERSIST_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    // Must have at least a floor plan with rooms to count as a real saved project.
-    if (!parsed?.floorPlan?.rooms?.length) return null;
+    // Restore if we have a floor plan OR a saved project location.
+    if (!parsed?.floorPlan?.rooms?.length && !parsed?.projectLocation) return null;
     return parsed;
   } catch (err) {
     if (import.meta.env.DEV) console.warn("[Vision] Failed to read persisted project:", err);
@@ -27,8 +27,9 @@ function readPersistedProject() {
 
 function writePersistedProject(project) {
   try {
-    // Don't overwrite storage with empty state (happens briefly during resetProject).
-    if (!project?.floorPlan?.rooms?.length) return;
+    // Persist as soon as we have a location OR a floor plan — whichever comes first.
+    // This ensures projectLocation survives navigation before a floor plan is generated.
+    if (!project?.floorPlan?.rooms?.length && !project?.projectLocation) return;
     localStorage.setItem(PERSIST_KEY, JSON.stringify(project));
   } catch (err) {
     if (import.meta.env.DEV) console.warn("[Vision] Failed to persist project:", err);

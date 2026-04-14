@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, Component } from "react";
 import { useNavigate } from "react-router-dom";
 import * as THREE from "three";
-import { colors, fonts, card, radii } from "../../theme/tokens";
+import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
 import { projectsApi } from "../../services/api";
@@ -441,6 +441,7 @@ function ScheduleTimelineInner() {
   const controlsRef    = useRef(null);
   const animFrameRef   = useRef(null);
   const disposedRef    = useRef(false);
+  const resizeFnRef    = useRef(null); // stored so panel drags can trigger renderer resize
 
   // Restore from saved schedule if available
   const saved = project.savedSchedule;
@@ -465,6 +466,42 @@ function ScheduleTimelineInner() {
   );
   const [noteOpenId,     setNoteOpenId]     = useState(null);
   const [noteDraft,      setNoteDraft]      = useState("");
+
+  // ── Resizable panels ──
+  const [leftPct,  setLeftPct]  = useState(55); // % of main row width for 3D panel
+  const [topPct,   setTopPct]   = useState(58); // % of resizable area for main content
+  const mainRowRef    = useRef(null);
+  const resizableRef  = useRef(null);
+
+  const startHResize = useCallback((e) => {
+    e.preventDefault();
+    const startX   = e.clientX;
+    const startPct = leftPct;
+    const onMove = (mv) => {
+      if (!mainRowRef.current) return;
+      const w = mainRowRef.current.getBoundingClientRect().width;
+      const delta = ((mv.clientX - startX) / w) * 100;
+      setLeftPct(Math.min(75, Math.max(25, startPct + delta)));
+    };
+    const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [leftPct]);
+
+  const startVResize = useCallback((e) => {
+    e.preventDefault();
+    const startY   = e.clientY;
+    const startPct = topPct;
+    const onMove = (mv) => {
+      if (!resizableRef.current) return;
+      const h = resizableRef.current.getBoundingClientRect().height;
+      const delta = ((mv.clientY - startY) / h) * 100;
+      setTopPct(Math.min(80, Math.max(20, startPct + delta)));
+    };
+    const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [topPct]);
 
   const projectName = project.projectName || "New Project";
   const stories     = project.stories     || 1;
@@ -612,6 +649,18 @@ function ScheduleTimelineInner() {
     setTimeSlider(Math.max(0.5, Math.min(totalWeeks || 1, todayWeek || 1)));
   }, [startDateStr]); // eslint-disable-line
 
+  // Sync scrubber to the end of the furthest completed phase when checkboxes change
+  useEffect(() => {
+    const completedInOrder = schedule.filter(p => p.status === "complete");
+    if (completedInOrder.length === 0) {
+      setTimeSlider(0);
+      return;
+    }
+    const last = completedInOrder[completedInOrder.length - 1];
+    const endWeek = weeksBetween(projectStart, last.endDate);
+    setTimeSlider(Math.min(totalWeeks || endWeek, endWeek));
+  }, [manualDone, schedule, projectStart, totalWeeks]);
+
   /* ─── Three.js Init: Full LayerEditor Model ─── */
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -689,6 +738,7 @@ function ScheduleTimelineInner() {
       camera.aspect = p.clientWidth / p.clientHeight;
       camera.updateProjectionMatrix();
     };
+    resizeFnRef.current = resize;
     resize();
     window.addEventListener("resize", resize);
 
@@ -815,16 +865,22 @@ function ScheduleTimelineInner() {
     document.head.appendChild(s);
   }, []);
 
+  // Re-fit the Three.js renderer whenever panel split changes
+  useEffect(() => {
+    const id = requestAnimationFrame(() => { resizeFnRef.current?.(); });
+    return () => cancelAnimationFrame(id);
+  }, [leftPct, topPct]);
+
   const navigate  = useNavigate();
   const sliderPct = totalWeeks > 0 ? (timeSlider / totalWeeks) * 100 : 0;
   const sliderBg  = `linear-gradient(to right,${colors.accent} 0%,${colors.accent} ${sliderPct}%,${colors.panelBorder} ${sliderPct}%,${colors.panelBorder} 100%)`;
 
   return (
-    <div style={{ height: "100%", background: colors.bgGradient, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ height: "100%", background: colors.bgGradient, display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
 
       {/* ── Header ── */}
-      <div style={{ padding: "14px 20px 8px", flexShrink: 0 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+      <div style={{ padding: "10px 16px 6px", flexShrink: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <img src="/VisionLogo.png" alt="Vision" style={{ height: 22, width: "auto", objectFit: "contain", display: "block" }} />
@@ -846,7 +902,7 @@ function ScheduleTimelineInner() {
             </p>
           </div>
 
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap" }}>
             {/* Project start date picker — builder only; homeowner sees static label */}
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.6px" }}>
@@ -926,64 +982,45 @@ function ScheduleTimelineInner() {
           </div>
         </div>
 
-        {/* Overall progress bar */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10 }}>
-          <span style={{ fontFamily: fonts.label, fontSize: 10, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.6px", flexShrink: 0 }}>Today</span>
-          <span style={{ fontFamily: fonts.data, fontSize: 11, color: colors.accent, flexShrink: 0 }}>{fmtDateFull(TODAY)}</span>
-          <div style={{ flex: 1, height: 4, background: colors.cardBorder, borderRadius: 2 }}>
-            <div style={{ width: `${overallPct}%`, height: "100%", background: `linear-gradient(90deg,${colors.success},${colors.accent})`, borderRadius: 2, transition: "width 0.5s" }} />
-          </div>
-          <span style={{ fontFamily: fonts.data, fontSize: 11, fontWeight: 600, color: colors.accent, flexShrink: 0 }}>{overallPct}%</span>
-          <span style={{ fontFamily: fonts.label, fontSize: 11, color: colors.textDim, flexShrink: 0 }}>
-            {activePhase ? activePhase.name : completedPhases.length === schedule.length ? "Complete" : "Not Started"}
-          </span>
-        </div>
       </div>
 
-      {/* ── Main content ── */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden", padding: "0 20px", gap: 16 }}>
+      {/* ── Resizable area — single connected panel container ── */}
+      <div ref={resizableRef} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", margin: "0 16px 10px", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.lg }}>
 
-        {/* Left — 3D Viewport */}
-        <div style={{ flex: "0 0 55%", display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ flex: 1, position: "relative", background: colors.panel, border: `1px solid ${colors.panelBorder}`, borderRadius: radii.lg, overflow: "hidden" }}>
-            <canvas
-              ref={canvasRef}
-              style={{ width: "100%", height: "100%", display: "block", cursor: "grab" }}
-            />
-            <div style={{ position: "absolute", top: 12, left: 12, display: "flex", alignItems: "center", gap: 8, background: "rgba(15,20,32,0.88)", padding: "6px 12px", borderRadius: radii.md, border: `1px solid ${colors.panelBorder}` }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: colors.accent }} />
-              <span style={{ fontFamily: fonts.label, fontSize: 11, color: colors.accent, fontWeight: 600 }}>{sliderPhase}</span>
-              <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>{sliderDate}</span>
-            </div>
-          </div>
+      {/* ── Main content row ── */}
+      <div ref={mainRowRef} style={{ display: "flex", flex: `${topPct} 1 0`, minHeight: 0, overflow: "hidden" }}>
 
-          {/* Metric cards */}
-          <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
-            <div style={{ ...card, flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
-              <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px" }}>Total Duration</span>
-              <span style={{ fontFamily: fonts.data, fontSize: 20, fontWeight: 700, color: colors.textBright, lineHeight: 1.2 }}>{Math.round(totalWeeks)} wks</span>
-              <span style={{ fontFamily: fonts.label, fontSize: 10, color: colors.textDim }}>≈ {Math.round(totalWeeks * 7 / 30)} months</span>
-            </div>
-            <div style={{ ...card, flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
-              <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px" }}>Phases Done</span>
-              <span style={{ fontFamily: fonts.data, fontSize: 20, fontWeight: 700, color: colors.textBright, lineHeight: 1.2 }}>
-                {completedPhases.length}<span style={{ fontSize: 13, color: colors.textDim }}>/{schedule.length}</span>
-              </span>
-              <span style={{ fontFamily: fonts.label, fontSize: 10, color: colors.success }}>Complete</span>
-            </div>
+        {/* Left — 3D Viewport: flush, no individual border */}
+        <div style={{ flex: `${leftPct} 1 0`, minWidth: 280, position: "relative", overflow: "hidden", background: colors.panel }}>
+          <canvas
+            ref={canvasRef}
+            style={{ width: "100%", height: "100%", display: "block", cursor: "grab" }}
+          />
+          <div style={{ position: "absolute", top: 12, left: 12, display: "flex", alignItems: "center", gap: 8, background: "rgba(15,20,32,0.88)", padding: "6px 12px", borderRadius: radii.md, border: `1px solid ${colors.panelBorder}` }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: colors.accent }} />
+            <span style={{ fontFamily: fonts.label, fontSize: 11, color: colors.accent, fontWeight: 600 }}>{sliderPhase}</span>
+            <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>{sliderDate}</span>
           </div>
         </div>
 
-        {/* Right — Intelligence Panel */}
-        <div style={{ flex: "0 0 45%", display: "flex", flexDirection: "column", gap: 10, overflow: "auto", paddingBottom: 8 }}>
+        {/* ── Horizontal drag handle — flush divider ── */}
+        <div
+          onMouseDown={startHResize}
+          style={{ width: 5, flexShrink: 0, cursor: "col-resize", background: colors.cardBorder, transition: "background 0.15s", zIndex: 10 }}
+          onMouseEnter={e => { e.currentTarget.style.background = colors.accent; }}
+          onMouseLeave={e => { e.currentTarget.style.background = colors.cardBorder; }}
+        />
+
+        {/* Right — Intelligence Panel: flush, no outer card */}
+        <div style={{ flex: `${100 - leftPct} 1 0`, minWidth: 240, display: "flex", flexDirection: "column", overflow: "hidden", background: colors.cardSurface }}>
           {/* Cost summary */}
-          <div style={{ ...card }}>
+          <div style={{ padding: "12px 14px", borderBottom: `1px solid ${colors.cardBorder}`, flexShrink: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>
                 <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: 4 }}>
                   Est. Construction Cost
                 </span>
-                <span style={{ fontFamily: fonts.data, fontSize: 26, fontWeight: 700, color: colors.textBright, lineHeight: 1 }}>
+                <span style={{ fontFamily: fonts.data, fontSize: 22, fontWeight: 700, color: colors.textBright, lineHeight: 1 }}>
                   {fmtCost(totalCost)}
                 </span>
               </div>
@@ -991,144 +1028,37 @@ function ScheduleTimelineInner() {
                 <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: 4 }}>
                   Spent to Date
                 </span>
-                <span style={{ fontFamily: fonts.data, fontSize: 16, fontWeight: 700, color: colors.accent }}>
+                <span style={{ fontFamily: fonts.data, fontSize: 14, fontWeight: 700, color: colors.accent }}>
                   {fmtCost(Math.round(cumulativeCost))}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Progress gauge */}
-          <div style={{ ...card, display: "flex", justifyContent: "center" }}>
-            <ProgressGauge score={overallPct} size={100} />
-          </div>
-
-          {/* Phase × material list with mark-as-done checkboxes */}
-          <div style={{ ...card }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <span style={{ fontFamily: fonts.label, fontSize: 10, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px" }}>
-                Phase Schedule
-              </span>
-              <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim }}>
-                {schedule.filter(p => p.status === "complete").length}/{schedule.length} complete
-              </span>
+          {/* Progress gauge + Duration + Phases Done */}
+          <div style={{ padding: "10px 14px", display: "flex", alignItems: "center", gap: 16, borderBottom: `1px solid ${colors.cardBorder}`, flexShrink: 0 }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: 2 }}>Today</span>
+                <span style={{ fontFamily: fonts.data, fontSize: 13, fontWeight: 700, color: colors.accent, lineHeight: 1 }}>{fmtDateFull(TODAY)}</span>
+              </div>
+              <div>
+                <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: 2 }}>Duration</span>
+                <span style={{ fontFamily: fonts.data, fontSize: 20, fontWeight: 700, color: colors.textBright, lineHeight: 1 }}>{Math.round(totalWeeks)}<span style={{ fontSize: 11, fontWeight: 400, color: colors.textDim }}> wks</span></span>
+                <span style={{ fontFamily: fonts.label, fontSize: 10, color: colors.textDim, display: "block", marginTop: 2 }}>≈ {Math.round(totalWeeks * 7 / 30)} months</span>
+              </div>
+              <div>
+                <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: 2 }}>Phases Done</span>
+                <span style={{ fontFamily: fonts.data, fontSize: 20, fontWeight: 700, color: colors.textBright, lineHeight: 1 }}>{completedPhases.length}<span style={{ fontSize: 11, fontWeight: 400, color: colors.textDim }}>/{schedule.length}</span></span>
+                <span style={{ fontFamily: fonts.label, fontSize: 10, color: colors.success, display: "block", marginTop: 2 }}>complete</span>
+              </div>
             </div>
-            {schedule.map((ph) => {
-              const catCol = ph.layerColor ?? CATEGORY_COLOR[ph.category] ?? colors.textDim;
-              const isDone = ph.status === "complete";
-              const isManual = manualDone.has(ph.id);
-              return (
-                <div key={ph.id}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: noteOpenId === ph.id ? 0 : 7, padding: "4px 6px", borderRadius: 6, background: isDone ? "rgba(46,213,115,0.04)" : "transparent", border: isDone ? "1px solid rgba(46,213,115,0.12)" : "1px solid transparent", transition: "all 0.2s" }}>
-                  {/* Mark-done checkbox — builder only */}
-                  {!isHomeowner && (
-                    <button
-                      onClick={() => toggleManualDone(ph.id)}
-                      title={isDone ? "Mark as not done" : "Mark as done"}
-                      style={{
-                        width: 18, height: 18, borderRadius: 4, flexShrink: 0, cursor: "pointer",
-                        border: `2px solid ${isDone ? colors.success : colors.cardBorder}`,
-                        background: isDone ? colors.successDim : "transparent",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        transition: "all 0.15s", padding: 0,
-                      }}
-                    >
-                      {isDone && (
-                        <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                          <path d="M1 4L3.5 6.5L9 1" stroke={colors.success} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      )}
-                    </button>
-                  )}
-                  {/* Category colour stripe */}
-                  <div style={{ width: 3, height: 26, borderRadius: 2, flexShrink: 0, background: catCol, opacity: ph.status === "planned" ? 0.4 : 1 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <span style={{ fontFamily: fonts.label, fontSize: 10, fontWeight: ph.status === "active" ? 600 : 400, color: isDone ? colors.textDim : ph.status === "active" ? colors.textBright : colors.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isDone ? "line-through" : "none", textDecorationColor: colors.success }}>
-                        {ph.name}
-                      </span>
-                      {isManual && (
-                        <span style={{ fontFamily: fonts.data, fontSize: 7, color: colors.success, background: colors.successDim, padding: "1px 4px", borderRadius: 3, flexShrink: 0 }}>MANUAL</span>
-                      )}
-                      <span style={{ fontFamily: fonts.data, fontSize: 8, color: catCol, letterSpacing: "0.4px", flexShrink: 0, opacity: 0.8 }}>
-                        {ph.category}
-                      </span>
-                    </div>
-                    <span style={{ fontFamily: fonts.label, fontSize: 9, color: colors.textDim }}>
-                      {ph.material !== "—" ? ph.material : `${ph.durationWeeks} wk${ph.durationWeeks !== 1 ? "s" : ""} · ${fmtDate(ph.startDate)}–${fmtDate(ph.endDate)}`}
-                    </span>
-                  </div>
-                  {ph.cost > 0 && (
-                    <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim, flexShrink: 0 }}>{fmtCost(ph.cost)}</span>
-                  )}
-                  <StatusBadge status={ph.status} />
-                  {/* Note indicator for homeowners — clickable dot toggles note view */}
-                  {isHomeowner && phaseNotes[ph.id] && (
-                    <button
-                      onClick={() => setNoteOpenId(noteOpenId === ph.id ? null : ph.id)}
-                      title={noteOpenId === ph.id ? "Hide builder note" : "View builder note"}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", display: "flex", alignItems: "center", gap: 3, borderRadius: 4, flexShrink: 0 }}
-                    >
-                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: noteOpenId === ph.id ? colors.accent : colors.warn, display: "inline-block", transition: "background 0.15s" }} />
-                      <span style={{ fontFamily: fonts.label, fontSize: 9, color: noteOpenId === ph.id ? colors.accent : colors.warn, letterSpacing: "0.3px" }}>
-                        {noteOpenId === ph.id ? "Hide" : "Note"}
-                      </span>
-                    </button>
-                  )}
-                  {/* Three-dot note button — builder only */}
-                  {!isHomeowner && (
-                    <div style={{ position: "relative", flexShrink: 0 }}>
-                      <button
-                        onClick={() => openNote(ph)}
-                        title={phaseNotes[ph.id] ? "View/edit delay note" : "Add delay note"}
-                        style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: colors.textDim, display: "flex", alignItems: "center", gap: 2, borderRadius: 4, transition: "background 0.15s" }}
-                      >
-                        <span style={{ fontFamily: fonts.data, fontSize: 13, letterSpacing: 1, lineHeight: 1, color: noteOpenId === ph.id ? colors.accent : colors.textDim }}>⋯</span>
-                        {phaseNotes[ph.id] && (
-                          <span style={{ width: 5, height: 5, borderRadius: "50%", background: colors.warn, display: "inline-block", marginLeft: 1, flexShrink: 0 }} />
-                        )}
-                      </button>
-                    </div>
-                  )}
-                </div>
-                {/* Read-only note display — homeowner view, toggleable */}
-                {isHomeowner && phaseNotes[ph.id] && noteOpenId === ph.id && (
-                  <div style={{ margin: "0 0 7px 28px", padding: "10px 12px", borderRadius: "0 0 8px 8px", background: "rgba(20,24,36,0.97)", border: `1px solid ${colors.warn}44`, borderTop: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>
-                    <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 700, color: colors.warn, textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: 6 }}>Builder Note</span>
-                    <p style={{ margin: 0, fontFamily: fonts.label, fontSize: 10, color: colors.textBright, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{phaseNotes[ph.id]}</p>
-                  </div>
-                )}
-                {/* Inline note popover — builder edit */}
-                {!isHomeowner && noteOpenId === ph.id && (
-                  <div style={{ margin: "0 0 7px 28px", padding: "10px 12px", borderRadius: "0 0 8px 8px", background: "rgba(20,24,36,0.97)", border: `1px solid ${colors.warn}44`, borderTop: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
-                      <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 700, color: colors.warn, textTransform: "uppercase", letterSpacing: "0.8px" }}>Delay Note</span>
-                      <button onClick={() => { setNoteOpenId(null); setNoteDraft(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: colors.textDim, fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
-                    </div>
-                    <textarea
-                      autoFocus
-                      rows={3}
-                      value={noteDraft}
-                      onChange={(e) => setNoteDraft(e.target.value)}
-                      placeholder="e.g. Concrete delayed by rain — pushed 2 weeks…"
-                      style={{ width: "100%", boxSizing: "border-box", fontFamily: fonts.label, fontSize: 10, color: colors.textBright, background: colors.cardBorder, border: `1px solid ${colors.panelBorder}`, borderRadius: 5, padding: "6px 8px", resize: "vertical", outline: "none", lineHeight: 1.5 }}
-                    />
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 7 }}>
-                      {phaseNotes[ph.id] && (
-                        <button onClick={() => clearNote(ph.id)} style={{ fontFamily: fonts.label, fontSize: 9, color: colors.danger, background: "transparent", border: `1px solid ${colors.danger}44`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Clear</button>
-                      )}
-                      <button onClick={() => { setNoteOpenId(null); setNoteDraft(""); }} style={{ fontFamily: fonts.label, fontSize: 9, color: colors.textDim, background: "transparent", border: `1px solid ${colors.cardBorder}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Cancel</button>
-                      <button onClick={() => saveNote(ph.id)} style={{ fontFamily: fonts.label, fontSize: 9, color: "#000", background: colors.accent, border: "none", borderRadius: 4, padding: "3px 10px", cursor: "pointer", fontWeight: 600 }}>Save</button>
-                    </div>
-                  </div>
-                )}
-                </div>
-              );
-            })}
+            <div style={{ width: 1, alignSelf: "stretch", background: colors.cardBorder, flexShrink: 0 }} />
+            <ProgressGauge score={overallPct} size={88} />
           </div>
 
           {/* Building Context Summary — handoff to Structural Intelligence */}
-          <div style={{ ...card }}>
+          <div style={{ padding: "10px 12px", flex: 1, overflow: "auto" }}>
             <span style={{ fontFamily: fonts.label, fontSize: 10, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: 10 }}>
               Structural Context
             </span>
@@ -1153,163 +1083,252 @@ function ScheduleTimelineInner() {
         </div>
       </div>
 
-      {/* ── Bottom — Gantt Timeline ── */}
-      <div style={{ ...card, margin: "8px 20px 12px", flexShrink: 0 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontFamily: fonts.label, fontSize: 11, fontWeight: 700, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px" }}>
-              Timeline
+      {/* ── Vertical drag handle — flush divider ── */}
+      <div
+        onMouseDown={startVResize}
+        style={{ height: 5, flexShrink: 0, cursor: "row-resize", background: colors.cardBorder, transition: "background 0.15s" }}
+        onMouseEnter={e => { e.currentTarget.style.background = colors.accent; }}
+        onMouseLeave={e => { e.currentTarget.style.background = colors.cardBorder; }}
+      />
+
+      {/* ── Bottom — Gantt Timeline: flush, no outer card ── */}
+      <div style={{ flex: `${100 - topPct} 1 0`, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+        {/* Card header — fixed, never scrolls */}
+        <div style={{ padding: "10px 12px 0", flexShrink: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontFamily: fonts.label, fontSize: 11, fontWeight: 700, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px" }}>
+                Timeline
+              </span>
+              <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim }}>
+                {schedule.filter(p => p.status === "complete").length}/{schedule.length} complete
+              </span>
+              {!isHomeowner && Object.keys(durationOverrides).length > 0 && (
+                <button
+                  onClick={resetDurationOverrides}
+                  title="Reset all duration edits to original schedule"
+                  style={{ fontFamily: fonts.label, fontSize: 9, color: colors.warn, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 4, padding: "2px 7px", cursor: "pointer", letterSpacing: "0.4px" }}
+                >
+                  Reset Edits
+                </button>
+              )}
+            </div>
+            <span style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim }}>
+              {fmtDateFull(projectStart)} → {completionDate ? fmtDateFull(completionDate) : "—"} · {Math.round(totalWeeks)} wks
             </span>
-            {!isHomeowner && Object.keys(durationOverrides).length > 0 && (
-              <button
-                onClick={resetDurationOverrides}
-                title="Reset all duration edits to original schedule"
-                style={{ fontFamily: fonts.label, fontSize: 9, color: colors.warn, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 4, padding: "2px 7px", cursor: "pointer", letterSpacing: "0.4px" }}
-              >
-                Reset Schedule Edits
-              </button>
+          </div>
+
+          {/* Category legend */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+            {Object.entries(CATEGORY_COLOR).map(([cat, col]) => (
+              <div key={cat} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 2, background: col, opacity: 0.85 }} />
+                <span style={{ fontFamily: fonts.label, fontSize: 9, color: colors.textDim, letterSpacing: "0.5px" }}>{cat}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Scrollable rows area */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "0 12px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {schedule.map((ph) => {
+              const sw       = weeksBetween(projectStart, ph.startDate);
+              const leftPct  = totalWeeks > 0 ? (sw / totalWeeks) * 100 : 0;
+              const widthPct = totalWeeks > 0 ? (ph.durationWeeks / totalWeeks) * 100 : 0;
+              const todayPct = totalWeeks > 0 ? Math.min(100, (todayWeek / totalWeeks) * 100) : 0;
+              const barColor = ph.layerColor ?? CATEGORY_COLOR[ph.category] ?? phaseColor(ph.status);
+              const isDone   = ph.status === "complete";
+              const isManual = manualDone.has(ph.id);
+              return (
+                <div key={ph.id}>
+                  {/* ── Row ── */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, minHeight: 26, padding: "2px 0", borderRadius: 4, background: isDone ? "rgba(46,213,115,0.03)" : "transparent", transition: "background 0.2s" }}>
+                    {/* Checkbox — builder only */}
+                    {!isHomeowner && (
+                      <button
+                        onClick={() => toggleManualDone(ph.id)}
+                        style={{ width: 14, height: 14, flexShrink: 0, borderRadius: 3, border: `1.5px solid ${isDone ? colors.success : colors.cardBorder}`, background: isDone ? colors.successDim : "transparent", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}
+                        title={isDone ? "Mark undone" : "Mark done"}
+                      >
+                        {isDone && <svg width="8" height="6" viewBox="0 0 8 6" fill="none"><path d="M1 3L3 5L7 1" stroke={colors.success} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      </button>
+                    )}
+                    {/* Activity ID */}
+                    <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, width: 20, flexShrink: 0, textAlign: "right" }}>
+                      A{String(ph.id).padStart(2, "0")}
+                    </span>
+                    {/* Phase name */}
+                    <span style={{ fontFamily: fonts.label, fontSize: 10, width: 130, flexShrink: 0, color: isDone ? colors.textDim : ph.status === "active" ? colors.accent : colors.text, fontWeight: ph.status === "active" ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isDone ? "line-through" : "none", textDecorationColor: colors.success }}>
+                      {ph.name}
+                    </span>
+                    {/* Bar track */}
+                    <div style={{ flex: 1, position: "relative", height: 12, background: colors.cardBorder, borderRadius: 3 }}>
+                      <div style={{
+                        position: "absolute", left: `${leftPct}%`, width: `${widthPct}%`, height: "100%",
+                        background: ph.status === "complete"
+                          ? `linear-gradient(90deg,${barColor}88,${barColor}cc)`
+                          : ph.status === "active"
+                            ? `linear-gradient(90deg,${barColor},${barColor}dd)`
+                            : barColor,
+                        borderRadius: 3,
+                        opacity: ph.status === "planned" ? 0.35 : ph.status === "complete" ? 0.65 : 1,
+                        transition: "all 0.3s ease",
+                      }} />
+                      {todayWeek >= 0 && todayWeek <= totalWeeks && (
+                        <div style={{ position: "absolute", left: `${todayPct}%`, top: -4, bottom: -4, width: 2, background: colors.warn, borderRadius: 1, opacity: 0.9, pointerEvents: "none" }} />
+                      )}
+                    </div>
+                    {/* Duration — inline editable for builders */}
+                    <div style={{ width: 46, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2 }}>
+                      {isHomeowner ? (
+                        <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim }}>{ph.durationWeeks}w</span>
+                      ) : editingPhaseId === ph.id ? (
+                        <>
+                          <input
+                            type="number" min={1} max={52}
+                            value={editingValue}
+                            autoFocus
+                            onChange={(e) => setEditingValue(e.target.value)}
+                            onBlur={() => commitEditDuration(ph.id)}
+                            onKeyDown={(e) => { if (e.key === "Enter") commitEditDuration(ph.id); if (e.key === "Escape") { setEditingPhaseId(null); setEditingValue(""); } }}
+                            style={{ width: 30, fontFamily: fonts.data, fontSize: 9, color: colors.textBright, background: colors.cardBorder, border: `1px solid ${colors.accent}`, borderRadius: 3, padding: "1px 3px", outline: "none", textAlign: "center" }}
+                          />
+                          <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim }}>w</span>
+                        </>
+                      ) : (
+                        <>
+                          {ph.durationWeeks !== ph.configDurationWeeks && (
+                            <span style={{ fontFamily: fonts.data, fontSize: 8, color: ph.durationWeeks > ph.configDurationWeeks ? colors.warn : colors.success, marginRight: 2 }}>
+                              {ph.durationWeeks > ph.configDurationWeeks ? `+${ph.durationWeeks - ph.configDurationWeeks}` : `${ph.durationWeeks - ph.configDurationWeeks}`}
+                            </span>
+                          )}
+                          <span style={{ fontFamily: fonts.data, fontSize: 9, color: ph.durationWeeks !== ph.configDurationWeeks ? colors.warn : colors.textDim }}>
+                            {ph.durationWeeks}w
+                          </span>
+                          <button
+                            onClick={() => startEditDuration(ph)}
+                            title="Edit phase duration"
+                            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 0 0 2px", color: colors.textDim, display: "flex", alignItems: "center", opacity: 0.5, lineHeight: 1 }}
+                          >
+                            <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+                              <path d="M7 1L9 3L3 9H1V7L7 1Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {/* Date range */}
+                    <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, width: 80, flexShrink: 0, textAlign: "right", whiteSpace: "nowrap" }}>
+                      {fmtDate(ph.startDate)}–{fmtDate(ph.endDate)}
+                    </span>
+                    {/* Note button — builder: ⋯ edit; homeowner: dot view (only if note exists) */}
+                    <div style={{ width: 26, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {isHomeowner ? (
+                        phaseNotes[ph.id] && (
+                          <button
+                            onClick={() => setNoteOpenId(noteOpenId === ph.id ? null : ph.id)}
+                            title={noteOpenId === ph.id ? "Hide builder note" : "View builder note"}
+                            style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 3px", display: "flex", alignItems: "center", gap: 3, borderRadius: 4, flexShrink: 0 }}
+                          >
+                            <span style={{ width: 6, height: 6, borderRadius: "50%", background: noteOpenId === ph.id ? colors.accent : colors.warn, display: "inline-block", transition: "background 0.15s" }} />
+                          </button>
+                        )
+                      ) : (
+                        <button
+                          onClick={() => openNote(ph)}
+                          title={phaseNotes[ph.id] ? "View/edit delay note" : "Add delay note"}
+                          style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 3px", display: "flex", alignItems: "center", gap: 2, borderRadius: 4, transition: "background 0.15s", position: "relative" }}
+                        >
+                          <span style={{ fontFamily: fonts.data, fontSize: 13, letterSpacing: 1, lineHeight: 1, color: noteOpenId === ph.id ? colors.accent : colors.textDim }}>⋯</span>
+                          {phaseNotes[ph.id] && (
+                            <span style={{ position: "absolute", top: 1, right: 1, width: 5, height: 5, borderRadius: "50%", background: colors.warn }} />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                    {/* Status badge + MANUAL tag */}
+                    <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 4 }}>
+                      {isManual && (
+                        <span style={{ fontFamily: fonts.data, fontSize: 7, color: colors.success, background: colors.successDim, padding: "1px 4px", borderRadius: 3 }}>M</span>
+                      )}
+                      <StatusBadge status={ph.status} />
+                    </div>
+                  </div>
+
+                  {/* ── Note popover — homeowner read-only ── */}
+                  {isHomeowner && phaseNotes[ph.id] && noteOpenId === ph.id && (
+                    <div style={{ margin: "0 0 4px 36px", padding: "8px 12px", borderRadius: "0 0 6px 6px", background: "rgba(20,24,36,0.97)", border: `1px solid ${colors.warn}44`, borderTop: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>
+                      <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 700, color: colors.warn, textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: 4 }}>Builder Note</span>
+                      <p style={{ margin: 0, fontFamily: fonts.label, fontSize: 10, color: colors.textBright, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{phaseNotes[ph.id]}</p>
+                    </div>
+                  )}
+
+                  {/* ── Note popover — builder edit ── */}
+                  {!isHomeowner && noteOpenId === ph.id && (
+                    <div style={{ margin: "0 0 4px 36px", padding: "10px 12px", borderRadius: "0 0 6px 6px", background: "rgba(20,24,36,0.97)", border: `1px solid ${colors.warn}44`, borderTop: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.4)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+                        <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 700, color: colors.warn, textTransform: "uppercase", letterSpacing: "0.8px" }}>Delay Note</span>
+                        <button onClick={() => { setNoteOpenId(null); setNoteDraft(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: colors.textDim, fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
+                      </div>
+                      <textarea
+                        autoFocus
+                        rows={3}
+                        value={noteDraft}
+                        onChange={(e) => setNoteDraft(e.target.value)}
+                        placeholder="e.g. Concrete delayed by rain — pushed 2 weeks…"
+                        style={{ width: "100%", boxSizing: "border-box", fontFamily: fonts.label, fontSize: 10, color: colors.textBright, background: colors.cardBorder, border: `1px solid ${colors.panelBorder}`, borderRadius: 5, padding: "6px 8px", resize: "vertical", outline: "none", lineHeight: 1.5 }}
+                      />
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 7 }}>
+                        {phaseNotes[ph.id] && (
+                          <button onClick={() => clearNote(ph.id)} style={{ fontFamily: fonts.label, fontSize: 9, color: colors.danger, background: "transparent", border: `1px solid ${colors.danger}44`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Clear</button>
+                        )}
+                        <button onClick={() => { setNoteOpenId(null); setNoteDraft(""); }} style={{ fontFamily: fonts.label, fontSize: 9, color: colors.textDim, background: "transparent", border: `1px solid ${colors.cardBorder}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Cancel</button>
+                        <button onClick={() => saveNote(ph.id)} style={{ fontFamily: fonts.label, fontSize: 9, color: "#000", background: colors.accent, border: "none", borderRadius: 4, padding: "3px 10px", cursor: "pointer", fontWeight: 600 }}>Save</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* TODAY arrow label */}
+            {totalWeeks > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, height: 14, marginTop: 2 }}>
+                <span style={{ width: 110, flexShrink: 0, fontFamily: fonts.data, fontSize: 8, color: colors.warn, fontWeight: 700 }}>
+                  TODAY · {fmtDate(TODAY)}
+                </span>
+                <div style={{ flex: 1, position: "relative", height: "100%" }}>
+                  <div style={{ position: "absolute", left: `${Math.min(100, (todayWeek / totalWeeks) * 100)}%`, transform: "translateX(-50%)", fontFamily: fonts.data, fontSize: 10, color: colors.warn, lineHeight: 1 }}>▲</div>
+                </div>
+                <span style={{ width: 152, flexShrink: 0 }} />
+              </div>
             )}
           </div>
-          <span style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim }}>
-            {fmtDateFull(projectStart)} → {completionDate ? fmtDateFull(completionDate) : "—"} · {Math.round(totalWeeks)} wks
-          </span>
         </div>
 
-        {/* Gantt header — category swim-lane labels */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-          {Object.entries(CATEGORY_COLOR).map(([cat, col]) => (
-            <div key={cat} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, background: col, opacity: 0.85 }} />
-              <span style={{ fontFamily: fonts.label, fontSize: 9, color: colors.textDim, letterSpacing: "0.5px" }}>{cat}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Gantt rows */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          {schedule.map((ph) => {
-            const sw        = weeksBetween(projectStart, ph.startDate);
-            const leftPct   = totalWeeks > 0 ? (sw / totalWeeks) * 100 : 0;
-            const widthPct  = totalWeeks > 0 ? (ph.durationWeeks / totalWeeks) * 100 : 0;
-            const todayPct  = totalWeeks > 0 ? Math.min(100, (todayWeek / totalWeeks) * 100) : 0;
-            const barColor  = ph.layerColor ?? CATEGORY_COLOR[ph.category] ?? phaseColor(ph.status);
-            const isDone    = ph.status === "complete";
-            return (
-              <div key={ph.id} style={{ display: "flex", alignItems: "center", gap: 6, height: 22 }}>
-                {/* Checkbox — builder only */}
-                {!isHomeowner && (
-                  <button
-                    onClick={() => toggleManualDone(ph.id)}
-                    style={{ width: 14, height: 14, flexShrink: 0, borderRadius: 3, border: `1.5px solid ${isDone ? colors.success : colors.cardBorder}`, background: isDone ? colors.successDim : "transparent", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}
-                    title={isDone ? "Mark undone" : "Mark done"}
-                  >
-                    {isDone && <svg width="8" height="6" viewBox="0 0 8 6" fill="none"><path d="M1 3L3 5L7 1" stroke={colors.success} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                  </button>
-                )}
-                {/* Activity ID */}
-                <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, width: 20, flexShrink: 0, textAlign: "right" }}>
-                  A{String(ph.id).padStart(2, "0")}
-                </span>
-                {/* Phase name */}
-                <span style={{ fontFamily: fonts.label, fontSize: 10, width: 152, flexShrink: 0, color: isDone ? colors.textDim : ph.status === "active" ? colors.accent : colors.text, fontWeight: ph.status === "active" ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isDone ? "line-through" : "none", textDecorationColor: colors.success }}>
-                  {ph.name}
-                </span>
-                {/* Bar track */}
-                <div style={{ flex: 1, position: "relative", height: 12, background: colors.cardBorder, borderRadius: 3 }}>
-                  <div style={{
-                    position: "absolute", left: `${leftPct}%`, width: `${widthPct}%`, height: "100%",
-                    background: ph.status === "complete"
-                      ? `linear-gradient(90deg,${barColor}88,${barColor}cc)`
-                      : ph.status === "active"
-                        ? `linear-gradient(90deg,${barColor},${barColor}dd)`
-                        : barColor,
-                    borderRadius: 3,
-                    opacity: ph.status === "planned" ? 0.35 : ph.status === "complete" ? 0.65 : 1,
-                    transition: "all 0.3s ease",
-                  }} />
-                  {/* TODAY marker */}
-                  {todayWeek >= 0 && todayWeek <= totalWeeks && (
-                    <div style={{ position: "absolute", left: `${todayPct}%`, top: -4, bottom: -4, width: 2, background: colors.warn, borderRadius: 1, opacity: 0.9, pointerEvents: "none" }} />
-                  )}
-                </div>
-                {/* Duration — inline editable for builders, static for homeowners */}
-                <div style={{ width: 54, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2 }}>
-                  {isHomeowner ? (
-                    <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim }}>{ph.durationWeeks}w</span>
-                  ) : editingPhaseId === ph.id ? (
-                    <>
-                      <input
-                        type="number" min={1} max={52}
-                        value={editingValue}
-                        autoFocus
-                        onChange={(e) => setEditingValue(e.target.value)}
-                        onBlur={() => commitEditDuration(ph.id)}
-                        onKeyDown={(e) => { if (e.key === "Enter") commitEditDuration(ph.id); if (e.key === "Escape") { setEditingPhaseId(null); setEditingValue(""); } }}
-                        style={{ width: 30, fontFamily: fonts.data, fontSize: 9, color: colors.textBright, background: colors.cardBorder, border: `1px solid ${colors.accent}`, borderRadius: 3, padding: "1px 3px", outline: "none", textAlign: "center" }}
-                      />
-                      <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim }}>w</span>
-                    </>
-                  ) : (
-                    <>
-                      {ph.durationWeeks !== ph.configDurationWeeks && (
-                        <span style={{ fontFamily: fonts.data, fontSize: 8, color: ph.durationWeeks > ph.configDurationWeeks ? colors.warn : colors.success, marginRight: 2 }}>
-                          {ph.durationWeeks > ph.configDurationWeeks ? `+${ph.durationWeeks - ph.configDurationWeeks}` : `${ph.durationWeeks - ph.configDurationWeeks}`}
-                        </span>
-                      )}
-                      <span style={{ fontFamily: fonts.data, fontSize: 9, color: ph.durationWeeks !== ph.configDurationWeeks ? colors.warn : colors.textDim }}>
-                        {ph.durationWeeks}w
-                      </span>
-                      <button
-                        onClick={() => startEditDuration(ph)}
-                        title="Edit phase duration"
-                        style={{ background: "none", border: "none", cursor: "pointer", padding: "0 0 0 2px", color: colors.textDim, display: "flex", alignItems: "center", opacity: 0.5, lineHeight: 1 }}
-                      >
-                        <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
-                          <path d="M7 1L9 3L3 9H1V7L7 1Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </button>
-                    </>
-                  )}
-                </div>
-                {/* Date range */}
-                <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, width: 90, flexShrink: 0, textAlign: "right", whiteSpace: "nowrap" }}>
-                  {fmtDate(ph.startDate)}–{fmtDate(ph.endDate)}
-                </span>
-              </div>
-            );
-          })}
-
-          {/* TODAY arrow label */}
-          {totalWeeks > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, height: 14, marginTop: 1 }}>
-              <span style={{ width: 130, flexShrink: 0, fontFamily: fonts.data, fontSize: 8, color: colors.warn, fontWeight: 700 }}>
-                TODAY · {fmtDate(TODAY)}
-              </span>
-              <div style={{ flex: 1, position: "relative", height: "100%" }}>
-                <div style={{ position: "absolute", left: `${Math.min(100, (todayWeek / totalWeeks) * 100)}%`, transform: "translateX(-50%)", fontFamily: fonts.data, fontSize: 10, color: colors.warn, lineHeight: 1 }}>▲</div>
-              </div>
-              <span style={{ width: 86, flexShrink: 0 }} />
-            </div>
-          )}
-        </div>
-
-        {/* 3D scrubber */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
-          <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.6px", width: 130, flexShrink: 0 }}>
-            Scrub 3D View
-          </span>
-          <input
-            type="range" className="tl-slider"
-            min={0} max={totalWeeks || 19} step={0.25}
-            value={timeSlider}
-            onChange={(e) => setTimeSlider(parseFloat(e.target.value))}
-            style={{ flex: 1, background: sliderBg }}
-          />
-          <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.accent, fontWeight: 600, width: 86, flexShrink: 0, textAlign: "right" }}>
-            {sliderDate}
-          </span>
+        {/* 3D scrubber — fixed at bottom of card */}
+        <div style={{ padding: "8px 12px 10px", flexShrink: 0, borderTop: `1px solid ${colors.cardBorder}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.6px", width: 110, flexShrink: 0 }}>
+              Scrub 3D View
+            </span>
+            <input
+              type="range" className="tl-slider"
+              min={0} max={totalWeeks || 19} step={0.25}
+              value={timeSlider}
+              onChange={(e) => setTimeSlider(parseFloat(e.target.value))}
+              style={{ flex: 1, background: sliderBg }}
+            />
+            <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.accent, fontWeight: 600, width: 76, flexShrink: 0, textAlign: "right" }}>
+              {sliderDate}
+            </span>
+          </div>
         </div>
       </div>
+
+      </div>{/* end resizableRef */}
     </div>
   );
 }

@@ -350,7 +350,7 @@ export default function Dashboard() {
   // DEMO MODE: Mock user instead of Clerk
   // const { user } = useUser();
   const user = { firstName: "Demo" };
-  const { setProjectName, setGenerateParams, resetProject } = useProject();
+  const { setProjectName, setGenerateParams, resetProject, setProjectLocation } = useProject();
   const [showModal, setShowModal] = useState(false);
   const [recentProjects, setRecentProjects] = useState([]);
   const [recentLoading, setRecentLoading] = useState(true);
@@ -382,6 +382,7 @@ export default function Dashboard() {
       garage: "2-car",
       openFloorPlan: true,
     });
+    setProjectLocation(params.location || null);
     navigate("/develop");
   };
 
