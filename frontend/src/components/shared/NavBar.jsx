@@ -5,11 +5,18 @@ import { useUserType } from "../../context/UserTypeContext";
 
 const LOGO = "/VisionLogo.png";
 
-const NAV_LINKS = [
+const HOMEOWNER_LINKS = [
   { label: "Dashboard", path: "/dashboard", match: ["/dashboard"] },
   { label: "Projects", path: "/projects", match: ["/projects", "/develop", "/edit", "/preview3d", "/schedule", "/feasibility", "/executive"] },
   { label: "Browse", path: "/browse", match: ["/browse"] },
   { label: "Chat", path: "/chat", match: ["/chat"] },
+];
+
+const BUILDER_LINKS = [
+  { label: "Dashboard", path: "/builderdashboard", match: ["/builderdashboard"] },
+  { label: "Requests", path: "/builderrequests", match: ["/builderrequests"] },
+  { label: "Chat", path: "/builderchat", match: ["/builderchat"] },
+  { label: "Reviews", path: "/builderreviews", match: ["/builderreviews"] },
 ];
 
 export default function NavBar() {
@@ -78,7 +85,7 @@ export default function NavBar() {
 
       {/* Nav links */}
       <div style={{ display: "flex", alignItems: "stretch", height: "100%", gap: 2 }}>
-        {NAV_LINKS.map((link) => {
+        {(isBuilder ? BUILDER_LINKS : HOMEOWNER_LINKS).map((link) => {
           const active = isActive(link);
           return (
             <button
