@@ -2,6 +2,7 @@ import { createBrowserRouter, RouterProvider, Outlet, useNavigate } from "react-
 // import { SignedIn, SignedOut, AuthenticateWithRedirectCallback } from "@clerk/clerk-react";
 import { ProjectProvider, useProject } from "./hooks/useProjectStore";
 import { UserTypeProvider, useUserType } from "./context/UserTypeContext";
+import { BuilderProvider } from "./context/BuilderContext";
 import NavBar from "./components/shared/NavBar";
 // import LandingPage from "./screens/Landing/LandingPage";
 import DemoLandingPage from "./screens/Landing/DemoLandingPage";
@@ -18,6 +19,11 @@ import SettingsScreen from "./screens/Settings/SettingsScreen";
 import Browse from "./screens/Browse/Browse";
 import Chat from "./screens/Chat/Chat";
 import House3DPreview from "./screens/House3DPreview/House3DPreview";
+import BuilderDashboard from "./screens/BuilderDashboard/BuilderDashboard";
+import ClientProject from "./screens/ClientProject/ClientProject";
+import BuilderChat from "./screens/BuilderChat/BuilderChat";
+import BuilderReviews from "./screens/BuilderReviews/BuilderReviews";
+import BuilderRequests from "./screens/BuilderRequests/BuilderRequests";
 
 /* Auth guard — DISABLED FOR DEMO — shows login when signed out, renders child routes when signed in */
 // function AuthGuard() {
@@ -273,6 +279,11 @@ const router = createBrowserRouter([
       { path: "projects", element: <ProjectsScreen /> },
       { path: "browse", element: <Browse /> },
       { path: "chat", element: <Chat /> },
+      { path: "builderchat", element: <BuilderChat /> },
+      { path: "builderdashboard", element: <BuilderDashboard /> },
+      { path: "builderreviews", element: <BuilderReviews /> },
+      { path: "builderrequests", element: <BuilderRequests /> },
+      { path: "client-project/:id", element: <ClientProject /> },
       // Internal project routes (accessed within project flow)
       { path: "develop", element: <RequireHomeowner><FloorPlanEditor /></RequireHomeowner> },
       { path: "preview3d", element: <House3DPreview /> },
@@ -289,7 +300,9 @@ const router = createBrowserRouter([
 export default function App() {
   return (
     <UserTypeProvider>
-      <RouterProvider router={router} />
+      <BuilderProvider>
+        <RouterProvider router={router} />
+      </BuilderProvider>
     </UserTypeProvider>
   );
 }

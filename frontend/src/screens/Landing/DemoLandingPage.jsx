@@ -349,7 +349,7 @@ export default function DemoLandingPage() {
           base: { background: C.accent, color: "#fff" },
           hoverShadow: "0 8px 28px rgba(59,130,246,0.45)",
         }}
-        onClick={() => { setBuilder(); navigate("/preview3d"); }}
+        onClick={() => { setBuilder(); navigate("/builderdashboard"); }}
       />
     </div>
   );
