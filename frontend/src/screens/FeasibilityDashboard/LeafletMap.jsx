@@ -119,6 +119,27 @@ const DropdownDivider = () => (
   <div style={{ height: 1, background: colors.cardBorder, margin: "4px 0" }} />
 );
 
+// ── Loading spinner ───────────────────────────────────────────────────────
+
+function MapSpinner() {
+  useEffect(() => {
+    if (document.getElementById("vmap-spin-kf")) return;
+    const s = document.createElement("style");
+    s.id = "vmap-spin-kf";
+    s.textContent = "@keyframes vmapSpin { to { transform: rotate(360deg); } }";
+    document.head.appendChild(s);
+  }, []);
+  return (
+    <div style={{
+      width: 36, height: 36,
+      border: "3px solid rgba(255,255,255,0.08)",
+      borderTopColor: "#3b82f6",
+      borderRadius: "50%",
+      animation: "vmapSpin 0.75s linear infinite",
+    }} />
+  );
+}
+
 // ── Grip handle icon ──────────────────────────────────────────────────────
 
 function GripIcon() {
@@ -363,6 +384,23 @@ export default function LeafletMap({
 
       {/* ── Map canvas ── */}
       <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
+
+      {/* ── Map loading overlay ── */}
+      {mapLoading && (
+        <div style={{
+          position: "absolute", inset: 0, zIndex: 1000,
+          background: "rgba(10,14,23,0.78)",
+          backdropFilter: "blur(4px)",
+          display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center",
+          gap: 14,
+        }}>
+          <MapSpinner />
+          <span style={{ color: "#e2e8f0", fontSize: 13, fontFamily: fonts.mono, letterSpacing: "0.04em" }}>
+            Loading map data…
+          </span>
+        </div>
+      )}
 
       {/* ── Tile-type toggles — top-right (fixed, no drag needed) ── */}
       <div style={{

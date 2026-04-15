@@ -9,7 +9,7 @@
  * mapI.current.zoomIn() etc. without owning the lifecycle.
  */
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { colors } from "../../theme/tokens";
@@ -64,6 +64,11 @@ export function useLeafletMap({
   const propM    = useRef(null);
   const radC     = useRef(null);
 
+  // Triggers marker effects to re-run once Leaflet layers are ready.
+  // Needed because a fast cache hit can deliver comps/land data before
+  // markersL/landL are created — without this signal the effects bail silently.
+  const [mapInitialized, setMapInitialized] = useState(false);
+
   // Stable callback refs — always up-to-date without being in effect deps
   const onLocChangeRef  = useRef(onLocChange);
   const onLandSelectRef = useRef(onLandSelect);
@@ -88,6 +93,7 @@ export function useLeafletMap({
 
     markersL.current = L.layerGroup().addTo(map);
     landL.current    = L.layerGroup().addTo(map);
+    setMapInitialized(true);
 
     // Map click → set analysis location, deselect any land parcel
     map.on("click", (e) => {
@@ -193,7 +199,7 @@ export function useLeafletMap({
       );
       m.addTo(markersL.current);
     });
-  }, [nearbyComps, allComps, showComps, loc, radiusEnabled]);
+  }, [nearbyComps, allComps, showComps, loc, radiusEnabled, mapInitialized]);
 
   // ── Effect 5: Land parcel markers ────────────────────────────────────
   useEffect(() => {
@@ -245,7 +251,7 @@ export function useLeafletMap({
 
       m.addTo(landL.current);
     });
-  }, [showLand, allLand]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [showLand, allLand, mapInitialized]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { mapI };
 }

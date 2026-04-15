@@ -90,6 +90,19 @@ STATE_CENTROIDS: dict[str, tuple[float, float]] = {
 
 router = APIRouter()
 
+# ── Global HasData scrape lock — enforces 1 concurrent scrape at a time ─────
+# HasData's plan allows only 1 concurrent request. Without this lock, two
+# simultaneous city searches fight each other and both get 429 rate-limited.
+_hasdata_lock: asyncio.Lock | None = None
+_scraping_cities: set[str] = set()   # cities currently being scraped
+_background_tasks: set = set()        # strong references — prevents GC killing running tasks
+
+def _get_hasdata_lock() -> asyncio.Lock:
+    global _hasdata_lock
+    if _hasdata_lock is None:
+        _hasdata_lock = asyncio.Lock()
+    return _hasdata_lock
+
 # ── JSON fallback cache ────────────────────────────────────────────────────
 _ROOT = Path(__file__).resolve().parent.parent.parent.parent  # repo root
 _COMP_JSON = _ROOT / "Comparables (1).json"
@@ -363,6 +376,255 @@ async def get_land_listings() -> list[dict]:
     ][:500]
 
 
+def _fetch_nominatim_centroid(city_name: str, state_code: str) -> dict | None:
+    """Synchronous Nominatim geocode — runs in threadpool."""
+    try:
+        conn = http.client.HTTPSConnection("nominatim.openstreetmap.org", timeout=6)
+        conn.request(
+            "GET",
+            f"/search?city={city_name.replace(' ', '%20')}&state={state_code}&country=US&format=json&limit=1",
+            headers={"User-Agent": "VisionApp/1.0"},
+        )
+        body = json.loads(conn.getresponse().read())
+        if body:
+            return {"lat": float(body[0]["lat"]), "lng": float(body[0]["lon"])}
+    except Exception:
+        pass
+    return None
+
+
+def _fetch_zips(city_name: str, state_code: str) -> list[str]:
+    """Synchronous call to zippopotam.us — runs in threadpool."""
+    try:
+        conn = http.client.HTTPSConnection("api.zippopotam.us", timeout=6)
+        conn.request("GET", f"/us/{state_code}/{city_name.replace(' ', '%20')}")
+        res = conn.getresponse()
+        if res.status != 200:
+            return []
+        body = json.loads(res.read().decode("utf-8"))
+        return [p["post code"] for p in body.get("places", [])]
+    except Exception:
+        return []
+
+
+def _fetch_hasdata_land(keyword: str, max_pages: int = 12, start_page: int = 1) -> tuple[list[dict], int, bool]:
+    """Paginated HasData call — fetches up to max_pages pages starting from start_page.
+    Returns (props, pages_fetched, was_rate_limited). Sleeps 7s between pages."""
+    import time as _time
+    all_props: list[dict] = []
+    pages_fetched = 0
+    rate_limited = False
+    for i, page in enumerate(range(start_page, start_page + max_pages)):
+        if i > 0:
+            _time.sleep(5)
+        try:
+            conn = http.client.HTTPSConnection("api.hasdata.com", timeout=8)
+            conn.request(
+                "GET",
+                f"/scrape/redfin/listing?keyword={quote(keyword)}&type=forSale&page={page}",
+                headers={"x-api-key": HASDATA_KEY, "Content-Type": "application/json"},
+            )
+            res       = conn.getresponse()
+            raw_bytes = res.read()
+            if res.status == 429:
+                logger.warning("[HasData] zip=%r page=%d rate-limited (429)", keyword, page)
+                rate_limited = True
+                break
+            if res.status != 200:
+                logger.warning("[HasData] zip=%r page=%d HTTP %d — skipping", keyword, page, res.status)
+                break
+            raw_text = raw_bytes.decode("utf-8").strip()
+            if not raw_text:
+                logger.warning("[HasData] zip=%r page=%d empty response — skipping", keyword, page)
+                break
+            body = json.loads(raw_text)
+            if "error" in body or ("message" in body and not body.get("properties")):
+                logger.warning("[HasData] zip=%r page=%d error: %s", keyword, page, body.get("error") or body.get("message", ""))
+                break
+            props = body.get("properties", [])
+            pages_fetched += 1
+            logger.info("[HasData] zip=%r page=%d → %d props", keyword, page, len(props))
+            if not props:
+                break
+            all_props.extend(props)
+        except Exception as exc:
+            logger.warning("[HasData] zip=%r page=%d exception: %s", keyword, page, exc)
+            break
+    return all_props, pages_fetched, rate_limited
+
+
+async def _scrape_city_background(
+    city: str, city_key: str, state_abbr: str,
+    city_variants: list[str], zips: list[str],
+    centroid: dict | None, scrape_key: str,
+) -> None:
+    """Background task: scrapes HasData for a city and saves to MongoDB.
+    Runs after search_by_city returns so the frontend never waits on it."""
+    from pymongo import UpdateOne as _UpdateOne
+    try:
+        loop = asyncio.get_running_loop()
+
+        # Build per-zip CSV start pages
+        REDFIN_PAGE_SIZE = 42
+        zip_start_pages: dict[str, int] = {}
+        try:
+            _db = _get_db()
+            if _db is not None:
+                _pipeline = [
+                    {"$match": {"address.city": {"$in": city_variants}, "address.zipcode": {"$exists": True, "$ne": None}}},
+                    {"$group": {"_id": "$address.zipcode", "count": {"$sum": 1}}},
+                ]
+                _zip_counts = await _db["land_listings"].aggregate(_pipeline).to_list(None)
+                for _entry in _zip_counts:
+                    _z = str(_entry["_id"]).strip()
+                    _n = _entry["count"]
+                    if _z:
+                        zip_start_pages[_z] = (_n // REDFIN_PAGE_SIZE) + 1
+        except Exception as _exc:
+            logger.warning("[BG] failed to build zip start pages: %s", _exc)
+
+        all_props: list[dict] = []
+        MAX_CREDITS = 75
+        credits_used = 0
+
+        async with _get_hasdata_lock():
+            logger.info("[BG] acquired scrape lock for %s, %s", city, state_abbr)
+            for z in zips:
+                if credits_used >= MAX_CREDITS:
+                    logger.info("[BG] credit cap reached — stopping zip search for %s", city)
+                    break
+                start_page = zip_start_pages.get(z, 1)
+                if start_page > 9:
+                    continue
+                # Cap at 2 pages per zip — land listings rarely exceed 84 per zip.
+                # Keeps scrape time manageable while covering all zips.
+                pages_allowed = min(2, MAX_CREDITS - credits_used)
+                batch, pages_used, was_429 = await loop.run_in_executor(
+                    None, _fetch_hasdata_land, z, pages_allowed, start_page
+                )
+                credits_used += pages_used
+                all_props.extend(batch)
+                logger.info("[BG] zip=%s → %d props (credits: %d/%d)", z, len(batch), credits_used, MAX_CREDITS)
+                if was_429:
+                    await asyncio.sleep(15)
+                elif pages_used == 0:
+                    # Zip returned nothing — short gap before next zip
+                    await asyncio.sleep(2)
+                else:
+                    # 6s = minimum safe gap for 10 req/min rate limit
+                    await asyncio.sleep(6)
+
+        # Deduplicate
+        seen_ids: set = set()
+        unique_props: list[dict] = []
+        for p in all_props:
+            pid = p.get("id") or p.get("listingId") or p.get("url") or id(p)
+            if pid not in seen_ids:
+                seen_ids.add(pid)
+                unique_props.append(p)
+        all_props = unique_props
+
+        # Split into land vs comps
+        comparables: list[dict] = []
+        land_listings: list[dict] = []
+        for prop in all_props:
+            if prop.get("latitude") is None or prop.get("longitude") is None:
+                continue
+            prop_type = (prop.get("propertyType") or "").lower()
+            try:
+                if prop_type in LAND_TYPES:
+                    n = _normalize_land(prop)
+                    if n.get("lat") and n.get("lng"):
+                        land_listings.append(n)
+                else:
+                    n = _normalize_comp(prop)
+                    if n.get("lat") and n.get("lng"):
+                        comparables.append(n)
+            except Exception as exc:
+                logger.warning("[BG] normalize error: %s", exc)
+
+        # Recalculate centroid from data if Nominatim didn't return one
+        if not centroid:
+            anchor = comparables or land_listings
+            if anchor:
+                centroid = {
+                    "lat": round(sum(p["lat"] for p in anchor) / len(anchor), 6),
+                    "lng": round(sum(p["lng"] for p in anchor) / len(anchor), 6),
+                }
+
+        logger.info("[BG] %s, %s — %d comps, %d land", city, state_abbr, len(comparables), len(land_listings))
+
+        db = _get_db()
+        if db is None:
+            return
+
+        # Persist land to land_listings permanently
+        if all_props:
+            land_ops = []
+            for prop in all_props:
+                if (prop.get("propertyType") or "").lower() not in LAND_TYPES:
+                    continue
+                unique_id = prop.get("id") or prop.get("listingId") or prop.get("url")
+                if not unique_id:
+                    continue
+                raw_addr = prop.get("address") or ""
+                addr_doc = (
+                    raw_addr if isinstance(raw_addr, dict)
+                    else {"street": str(raw_addr).strip(), "city": city.strip().title(), "state": state_abbr}
+                )
+                if isinstance(addr_doc, dict) and not addr_doc.get("city"):
+                    addr_doc["city"] = city.strip().title()
+                    addr_doc["state"] = state_abbr
+                land_ops.append(_UpdateOne(
+                    {"id": str(unique_id)},
+                    {"$set": {
+                        "id": str(unique_id), "url": prop.get("url") or "",
+                        "price": prop.get("price"), "address": addr_doc,
+                        "latitude": prop.get("latitude"), "longitude": prop.get("longitude"),
+                        "area": prop.get("lotSize") or prop.get("sqFtLot") or prop.get("area") or 0,
+                        "status": prop.get("status") or "Active",
+                        "daysOnMarket": prop.get("daysOnMarket"),
+                        "propertyType": prop.get("propertyType") or "Land",
+                        "source": "hasdata",
+                    }},
+                    upsert=True,
+                ))
+            if land_ops:
+                await db["land_listings"].bulk_write(land_ops, ordered=False)
+                logger.info("[BG] persisted %d land docs for %s", len(land_ops), city)
+
+        # Save to city_search_cache
+        if comparables or land_listings:
+            await db["city_search_cache"].update_one(
+                {"city": city_key, "state": state_abbr},
+                {"$set": {
+                    "city": city_key, "state": state_abbr,
+                    "comparables": comparables[:500], "land": land_listings[:1000],
+                    "centroid": centroid, "cache_version": CACHE_VERSION,
+                    "cached_at": datetime.now(timezone.utc),
+                }},
+                upsert=True,
+            )
+            logger.info("[BG] cache saved for %s, %s — scrape complete", city, state_abbr)
+        else:
+            await db["city_search_cache"].update_one(
+                {"city": city_key, "state": state_abbr},
+                {"$set": {
+                    "city": city_key, "state": state_abbr,
+                    "comparables": [], "land": [], "centroid": centroid,
+                    "cache_version": CACHE_VERSION,
+                    "retry_after": datetime.now(timezone.utc).timestamp() + 3600,
+                    "cached_at": datetime.now(timezone.utc),
+                }},
+                upsert=True,
+            )
+    except Exception as exc:
+        logger.error("[BG] scrape failed for %s, %s: %s", city, state_abbr, exc)
+    finally:
+        _scraping_cities.discard(scrape_key)
+        logger.info("[BG] scrape lock released for %s, %s", city, state_abbr)
+
+
 @router.get("/search")
 async def search_by_city(
     city:  str = Query(..., description="City name, e.g. Detroit"),
@@ -449,7 +711,7 @@ async def search_by_city(
                         # Resolve zips for this city to fetch land via zip codes
                         _zips = await _loop.run_in_executor(None, _fetch_zips, city, state_abbr)
                         for _z in _zips:
-                            _batch, _ = await _loop.run_in_executor(None, _fetch_hasdata_land, _z)
+                            _batch, _, _was_429 = await _loop.run_in_executor(None, _fetch_hasdata_land, _z)
                             for _prop in _batch:
                                 if _prop.get("latitude") is None or _prop.get("longitude") is None:
                                     continue
@@ -493,21 +755,6 @@ async def search_by_city(
     # ── Check existing comparables/land_listings collections first ───────
     # Dallas (and any other city imported directly into MongoDB) lives here.
     # If found, normalize, save to city_search_cache, and return — no API call needed.
-    def _fetch_nominatim_centroid(city_name: str, state_code: str) -> dict | None:
-        """Synchronous Nominatim geocode — runs in threadpool."""
-        try:
-            conn = http.client.HTTPSConnection("nominatim.openstreetmap.org", timeout=6)
-            conn.request(
-                "GET",
-                f"/search?city={city_name.replace(' ', '%20')}&state={state_code}&country=US&format=json&limit=1",
-                headers={"User-Agent": "VisionApp/1.0"},
-            )
-            body = json.loads(conn.getresponse().read())
-            if body:
-                return {"lat": float(body[0]["lat"]), "lng": float(body[0]["lon"])}
-        except Exception:
-            pass
-        return None
 
     try:
         db = _get_db()
@@ -562,79 +809,6 @@ async def search_by_city(
     except Exception:
         pass  # fall through to HasData
 
-    def _fetch_zips(city_name: str, state_code: str) -> list[str]:
-        """Synchronous call to zippopotam.us — runs in threadpool."""
-        try:
-            conn = http.client.HTTPSConnection("api.zippopotam.us", timeout=6)
-            conn.request("GET", f"/us/{state_code}/{city_name.replace(' ', '%20')}")
-            res  = conn.getresponse()
-            if res.status != 200:
-                return []
-            body = json.loads(res.read().decode("utf-8"))
-            return [p["post code"] for p in body.get("places", [])]
-        except Exception:
-            return []
-
-    def _fetch_hasdata_land(keyword: str, max_pages: int = 12, start_page: int = 1) -> tuple[list[dict], int]:
-        """Paginated HasData call — fetches up to max_pages pages starting from start_page.
-        Returns (props, pages_actually_fetched) so caller can track real credit usage."""
-        all_props: list[dict] = []
-        pages_fetched = 0
-        for page in range(start_page, start_page + max_pages):
-            try:
-                conn = http.client.HTTPSConnection("api.hasdata.com", timeout=25)
-                conn.request(
-                    "GET",
-                    f"/scrape/redfin/listing?keyword={quote(keyword)}&type=forSale&page={page}",
-                    headers={
-                        "x-api-key":    HASDATA_KEY,
-                        "Content-Type": "application/json",
-                    },
-                )
-                res  = conn.getresponse()
-                body = json.loads(res.read().decode("utf-8"))
-                if "error" in body or ("message" in body and not body.get("properties")):
-                    logger.warning("[HasData] zip=%r page=%d error: %s", keyword, page, body.get("error") or body.get("message", ""))
-                    break
-                props = body.get("properties", [])
-                pages_fetched += 1
-                logger.info("[HasData] zip=%r page=%d → %d props", keyword, page, len(props))
-                if not props:
-                    break  # no more pages
-                all_props.extend(props)
-            except Exception as exc:
-                logger.warning("[HasData] zip=%r page=%d exception: %s", keyword, page, exc)
-                break
-        logger.info("[HasData] zip=%r total=%d props across %d pages", keyword, len(all_props), pages_fetched)
-        return all_props, pages_fetched
-
-    def _fetch_hasdata(keyword: str) -> list[dict]:
-        """Synchronous HasData call for one keyword (zip or city) — runs in threadpool.
-        Retries once on any failure or empty response to handle transient timeouts."""
-        for _attempt in range(2):
-            try:
-                conn = http.client.HTTPSConnection("api.hasdata.com", timeout=25)
-                conn.request(
-                    "GET",
-                    f"/scrape/redfin/listing?keyword={quote(keyword)}&type=forSale",
-                    headers={
-                        "x-api-key":    HASDATA_KEY,
-                        "Content-Type": "application/json",
-                    },
-                )
-                res  = conn.getresponse()
-                body = json.loads(res.read().decode("utf-8"))
-                # If HasData returned an error object, retry rather than
-                # treating it as "no listings" and caching it as empty.
-                if "error" in body or ("message" in body and not body.get("properties")):
-                    continue
-                props = body.get("properties", [])
-                if props:
-                    return props
-            except Exception:
-                pass
-        return []
-
     loop = asyncio.get_running_loop()
 
     # ── 1. Resolve zips + centroid in parallel ────────────────────────────
@@ -648,190 +822,33 @@ async def search_by_city(
     ABBR_TO_STATE = {v: k.title() for k, v in STATE_ABBR.items()}
     full_state = ABBR_TO_STATE.get(state_abbr, "")
 
-    # ── 2. Sequential zip-based HasData searches (zip codes only) ────────────
-    # HasData's Redfin scraper requires zip codes — city name keywords return empty.
-    # Runs one zip at a time to respect the 1-concurrency limit on the API plan.
-    #
-    # Smart page offset: if CSV data already exists for a zip, start HasData
-    # from the page AFTER the last CSV page (~42 listings/page) so we only
-    # fetch listings the CSV doesn't already cover — no wasted credits.
-    REDFIN_PAGE_SIZE = 42
-    zip_start_pages: dict[str, int] = {}
-    try:
-        _db = _get_db()
-        if _db is not None:
-            _pipeline = [
-                {"$match": {"address.city": {"$in": city_variants}, "address.zipcode": {"$exists": True, "$ne": None}}},
-                {"$group": {"_id": "$address.zipcode", "count": {"$sum": 1}}},
-            ]
-            _zip_counts = await _db["land_listings"].aggregate(_pipeline).to_list(None)
-            for _entry in _zip_counts:
-                _z = str(_entry["_id"]).strip()
-                _n = _entry["count"]
-                if _z:
-                    zip_start_pages[_z] = (_n // REDFIN_PAGE_SIZE) + 1
-            if zip_start_pages:
-                logger.info("[HasData] per-zip CSV offsets for %s, %s: %s", city, state_abbr, zip_start_pages)
-    except Exception as _exc:
-        logger.warning("[HasData] failed to build zip start pages: %s", _exc)
-
-    all_props: list[dict] = []
-    MAX_CREDITS = 75  # hard cap — 1 page call = ~5 credits, 75 calls ≈ 375 credits max
-    credits_used = 0
-
-    for z in zips:
-        if credits_used >= MAX_CREDITS:
-            logger.info("[HasData] credit cap (%d) reached — stopping zip search", MAX_CREDITS)
-            break
-        start_page = zip_start_pages.get(z, 1)
-        pages_allowed = min(12, MAX_CREDITS - credits_used)
-        # If CSV already covers this zip fully (start_page beyond Redfin's last page),
-        # skip it — no new listings to fetch. Redfin caps at ~9 pages (42*9=378).
-        if start_page > 9:
-            logger.info("[HasData] zip=%s fully covered by CSV — skipping", z)
-            continue
-        batch, pages_used = await loop.run_in_executor(None, _fetch_hasdata_land, z, pages_allowed, start_page)
-        credits_used += pages_used
-        all_props.extend(batch)
-        logger.info("[HasData] zip=%s start_page=%d → %d props (credits used: %d/%d)", z, start_page, len(batch), credits_used, MAX_CREDITS)
-
-    # ── 3. Deduplicate by property id then split and normalize ───────────────
-    # Multiple keyword/zip searches return overlapping listings — dedupe by id.
-    seen_ids: set = set()
-    unique_props: list[dict] = []
-    for p in all_props:
-        pid = p.get("id") or p.get("listingId") or p.get("url") or id(p)
-        if pid not in seen_ids:
-            seen_ids.add(pid)
-            unique_props.append(p)
-    all_props = unique_props
-
-    # Log all unique property types returned so we can tune LAND_TYPES if needed
-    all_types = sorted({(p.get("propertyType") or "").lower() for p in all_props})
-    logger.info("[map_data] %s, %s — %d unique props, types: %s", city, state_abbr, len(all_props), all_types)
-
-    comparables: list[dict] = []
-    land_listings: list[dict] = []
-
-    for prop in all_props:
-        if prop.get("latitude") is None or prop.get("longitude") is None:
-            continue
-        prop_type = (prop.get("propertyType") or "").lower()
-        try:
-            if prop_type in LAND_TYPES:
-                normalized = _normalize_land(prop)
-                if normalized.get("lat") and normalized.get("lng"):
-                    land_listings.append(normalized)
-            else:
-                normalized = _normalize_comp(prop)
-                if normalized.get("lat") and normalized.get("lng"):
-                    comparables.append(normalized)
-        except Exception as exc:
-            logger.warning("[map_data] normalize error for prop %s: %s", prop.get("id"), exc)
-
-    # ── 4. Centroid: prefer Nominatim, fall back to avg coords, then state center ─
+    # ── 2. Return immediately with centroid — fire HasData scrape in background ─
+    # The scrape can take minutes (25 zips × 7s gap). Returning immediately
+    # prevents frontend socket timeouts. The background task saves results to
+    # land_listings + city_search_cache so the NEXT search gets full data instantly.
     centroid = nominatim_centroid
-    if not centroid:
-        anchor = comparables or land_listings
-        if anchor:
-            centroid = {
-                "lat": round(sum(p["lat"] for p in anchor) / len(anchor), 6),
-                "lng": round(sum(p["lng"] for p in anchor) / len(anchor), 6),
-            }
     if not centroid and state_abbr in STATE_CENTROIDS:
         lat, lng = STATE_CENTROIDS[state_abbr]
         centroid = {"lat": lat, "lng": lng}
 
-    logger.info("[map_data] %s, %s — %d comps, %d land listings", city, state_abbr, len(comparables), len(land_listings))
-    result = {
-        "comparables": comparables[:500],
-        "land":        land_listings[:1000],
-        "centroid":    centroid,
-    }
+    city_scrape_key = f"{city_key},{state_abbr}"
+    if city_scrape_key not in _scraping_cities:
+        _scraping_cities.add(city_scrape_key)
+        task = asyncio.create_task(
+            _scrape_city_background(
+                city=city, city_key=city_key, state_abbr=state_abbr,
+                city_variants=city_variants, zips=zips, centroid=centroid,
+                scrape_key=city_scrape_key,
+            )
+        )
+        # Hold a strong reference so Python's GC doesn't kill the task mid-scrape
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+        logger.info("[HasData] background scrape started for %s, %s", city, state_abbr)
+    else:
+        logger.info("[HasData] scrape already in progress for %s, %s — skipping duplicate", city, state_abbr)
 
-    # ── Persist scraped land to land_listings (permanent, like Dallas seed) ──
-    # This means clearing city_search_cache never loses HasData-scraped data —
-    # the next search rebuilds from land_listings instead of re-scraping.
-    try:
-        db = _get_db()
-        if db is not None and all_props:
-            from pymongo import UpdateOne as _UpdateOne
-            land_ops = []
-            for prop in all_props:
-                prop_type = (prop.get("propertyType") or "").lower()
-                if prop_type not in LAND_TYPES:
-                    continue
-                unique_id = prop.get("id") or prop.get("listingId") or prop.get("url")
-                if not unique_id:
-                    continue
-                raw_addr = prop.get("address") or ""
-                addr_doc = (
-                    raw_addr if isinstance(raw_addr, dict)
-                    else {"street": str(raw_addr).strip(), "city": city.strip().title(), "state": state_abbr}
-                )
-                if isinstance(addr_doc, dict) and not addr_doc.get("city"):
-                    addr_doc["city"] = city.strip().title()
-                    addr_doc["state"] = state_abbr
-                doc = {
-                    "id":           str(unique_id),
-                    "url":          prop.get("url") or "",
-                    "price":        prop.get("price"),
-                    "address":      addr_doc,
-                    "latitude":     prop.get("latitude"),
-                    "longitude":    prop.get("longitude"),
-                    "area":         prop.get("lotSize") or prop.get("sqFtLot") or prop.get("area") or 0,
-                    "status":       prop.get("status") or "Active",
-                    "daysOnMarket": prop.get("daysOnMarket"),
-                    "propertyType": prop.get("propertyType") or "Land",
-                    "source":       "hasdata",
-                }
-                land_ops.append(_UpdateOne({"id": doc["id"]}, {"$set": doc}, upsert=True))
-            if land_ops:
-                await db["land_listings"].bulk_write(land_ops, ordered=False)
-                logger.info("[map_data] persisted %d land listings to land_listings for %s, %s", len(land_ops), city, state_abbr)
-    except Exception as exc:
-        logger.warning("[map_data] failed to persist land listings: %s", exc)
-
-    # ── Save to MongoDB cache for future searches ─────────────────────────
-    try:
-        db = _get_db()
-        if db is not None:
-            if comparables or land_listings:
-                # Full result — cache permanently (until version bump)
-                await db["city_search_cache"].update_one(
-                    {"city": city_key, "state": state_abbr},
-                    {"$set": {
-                        "city":          city_key,
-                        "state":         state_abbr,
-                        "comparables":   result["comparables"],
-                        "land":          result["land"],
-                        "centroid":      centroid,
-                        "cache_version": CACHE_VERSION,
-                        "cached_at":     datetime.now(timezone.utc),
-                    }},
-                    upsert=True,
-                )
-            else:
-                # No data found — cache a no-data marker for 24 h so we don't
-                # burn API credits on every request for cities with no listings.
-                await db["city_search_cache"].update_one(
-                    {"city": city_key, "state": state_abbr},
-                    {"$set": {
-                        "city":          city_key,
-                        "state":         state_abbr,
-                        "comparables":   [],
-                        "land":          [],
-                        "centroid":      centroid,
-                        "cache_version": CACHE_VERSION,
-                        "retry_after":   datetime.now(timezone.utc).timestamp() + 3600,
-                        "cached_at":     datetime.now(timezone.utc),
-                    }},
-                    upsert=True,
-                )
-    except Exception:
-        pass  # cache write failure is non-fatal
-
-    return result
+    return {"comparables": [], "land": [], "centroid": centroid}
 
 
 @router.delete("/cache")

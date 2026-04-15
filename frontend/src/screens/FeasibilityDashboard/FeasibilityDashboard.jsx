@@ -83,28 +83,48 @@ export default function FeasibilityDashboard() {
   const [mapLoading,  setMapLoading]  = useState(false);
   const [searchCity,  setSearchCity]  = useState(null); // { city, state }
 
-  // Fire whenever the user submits a city search
+  // Fire whenever the user submits a city search.
+  // If the backend returns empty data (scrape in progress), polls every 10s
+  // until data arrives — map updates automatically without any user interaction.
   useEffect(() => {
     if (!searchCity) return;
     let cancelled = false;
+    let pollTimer = null;
+
     setMapLoading(true);
-    mapApi.searchByCity(searchCity.city, searchCity.state)
-      .then((data) => {
-        if (cancelled) return;
-        console.info(
-          `[FeasibilityDashboard] City search "${searchCity.city}, ${searchCity.state}": ` +
-          `${data?.comparables?.length ?? 0} comps, ${data?.land?.length ?? 0} land`
-        );
-        setLiveComps(data?.comparables ?? []);
-        setLiveLand(data?.land ?? []);
-        if (data?.centroid)            setSearchCentroid(data.centroid);
-      })
-      .catch((err) => {
-        console.warn('[FeasibilityDashboard] City search failed — falling back to empty map:', err?.message || err);
-        if (!cancelled) { setLiveComps([]); setLiveLand([]); }
-      })
-      .finally(() => { if (!cancelled) setMapLoading(false); });
-    return () => { cancelled = true; };
+
+    const fetchData = (isPolling = false) => {
+      mapApi.searchByCity(searchCity.city, searchCity.state)
+        .then((data) => {
+          if (cancelled) return;
+          const hasData = (data?.comparables?.length ?? 0) > 0 || (data?.land?.length ?? 0) > 0;
+          console.info(
+            `[FeasibilityDashboard] City search "${searchCity.city}, ${searchCity.state}": ` +
+            `${data?.comparables?.length ?? 0} comps, ${data?.land?.length ?? 0} land`
+          );
+          setLiveComps(data?.comparables ?? []);
+          setLiveLand(data?.land ?? []);
+          if (data?.centroid) setSearchCentroid(data.centroid);
+
+          if (hasData) {
+            // Data is ready — stop loading overlay
+            setMapLoading(false);
+          } else {
+            // Scrape still in progress — poll again in 10s, keep overlay up
+            pollTimer = setTimeout(() => { if (!cancelled) fetchData(true); }, 10000);
+          }
+        })
+        .catch((err) => {
+          console.warn('[FeasibilityDashboard] City search failed:', err?.message || err);
+          if (!cancelled) { setLiveComps([]); setLiveLand([]); setMapLoading(false); }
+        });
+    };
+
+    fetchData();
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
+    };
   }, [searchCity]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Centroid returned by the search — used to re-center the map
@@ -332,7 +352,21 @@ export default function FeasibilityDashboard() {
         display:       "flex",
         flexDirection: "column",
         gap:           20,
+        position:      "relative",
       }}>
+        {mapLoading && (
+          <div style={{
+            position: "absolute", inset: 0, zIndex: 100,
+            background: "rgba(10,14,23,0.85)",
+            backdropFilter: "blur(4px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            pointerEvents: "all",
+          }}>
+            <span style={{ color: "#94a3b8", fontSize: 13, fontFamily: "monospace", letterSpacing: "0.04em" }}>
+              Analyzing market data…
+            </span>
+          </div>
+        )}
 
         {/* ── Header ── */}
         <div>
