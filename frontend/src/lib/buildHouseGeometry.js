@@ -16,6 +16,7 @@
 import * as THREE from "three";
 import { loadTextureSetAsync, applyTexturesToMaterial } from "./pbrTextures";
 import { classifyWalls, findWallForOpening, decomposeFootprintRects, edgeSharing, rectSetDifference } from "./planGeometry";
+import { getStyleConfig } from "./houseStyleConfigs";
 
 const S = 0.1;          // feet → world units
 const WALL_THICK = 0.065; // 0.65 ft ≈ 8" in world units
@@ -67,6 +68,13 @@ const mat = {
 // ── PBR textures — load once, apply to relevant materials when ready. ──
 // Loads from Polyhaven CDN (CC0). Graceful fallback: if a fetch fails the
 // material keeps its flat color.
+//
+// NOTE: the roof material is intentionally left OFF this list.  Roof
+// geometry is built from multiple overlapping rectangles (one gable per
+// decomposed footprint rect, plus porch roofs, canopies, partial roofs
+// for smaller upper stories).  A repeating texture tiles inconsistently
+// across those overlaps and reads as ugly seams.  A flat color with the
+// per-style roughness/metalness looks uniform everywhere.
 let _texturesLoaded = false;
 function loadMaterialTexturesOnce() {
   if (_texturesLoaded) return;
@@ -75,7 +83,6 @@ function loadMaterialTexturesOnce() {
     ["exteriorWall", mat.exteriorWall],
     ["floor", mat.floor],
     ["slab", mat.slab],
-    ["roof", mat.roof],
   ];
   pairs.forEach(([key, material]) => {
     loadTextureSetAsync(key).then((textures) => {
@@ -408,7 +415,7 @@ function buildDoorFrames(plan, center) {
 // height is computed from the rect's footprint short dim (not overhang-padded)
 // so adjacent rectangles with matching short dimensions share ridge height
 // and their slopes line up cleanly in the overlap region.
-function buildGableOverRect(rect, center, overhang, ridgeAlongX, extensions, ridgeHOverride, idx) {
+function buildGableOverRect(rect, center, overhang, ridgeAlongX, extensions, ridgeHOverride, idx, pitch) {
   const ow = overhang;
 
   // Per-side extents in world units:
@@ -421,7 +428,7 @@ function buildGableOverRect(rect, center, overhang, ridgeAlongX, extensions, rid
   const rz_n = ftToWorld(rect.h) / 2 + ow + ftToWorld(ext.n);
 
   const shortDimFt = ridgeAlongX ? rect.h : rect.w;
-  const naturalRidgeH = ftToWorld(shortDimFt) / 2 * (5 / 12) * 2;
+  const naturalRidgeH = ftToWorld(shortDimFt) / 2 * (pitch || 5 / 12) * 2;
   const ridgeH = ridgeHOverride != null ? ridgeHOverride : naturalRidgeH;
 
   const baseY = SLAB_H + WALL_H;
@@ -502,13 +509,14 @@ function pickRidgeAlongX(rect, shares) {
 }
 
 /** Natural ridge height (world units) for a rect given its ridge direction. */
-function computeNaturalRidgeH(rect, ridgeAlongX) {
+function computeNaturalRidgeH(rect, ridgeAlongX, pitch = 5 / 12) {
   const shortDimFt = ridgeAlongX ? rect.h : rect.w;
-  return ftToWorld(shortDimFt) / 2 * (5 / 12) * 2;
+  return ftToWorld(shortDimFt) / 2 * pitch * 2;
 }
 
-function buildRoof(plan, center) {
-  const overhang = 0.15; // world units
+function buildRoof(plan, center, overhangOverride, pitchOverride) {
+  const overhang = overhangOverride ?? 0.15; // world units
+  const pitch = pitchOverride ?? 5 / 12;
   const rects = decomposeFootprintRects(plan.rooms);
   if (rects.length === 0) return [];
 
@@ -517,7 +525,7 @@ function buildRoof(plan, center) {
     const ridgeAlongX = pickRidgeAlongX(rect, shares);
     const naturalRidgeAlongX = rect.w >= rect.h;
     const rotated = ridgeAlongX !== naturalRidgeAlongX;
-    const ridgeH = computeNaturalRidgeH(rect, ridgeAlongX);
+    const ridgeH = computeNaturalRidgeH(rect, ridgeAlongX, pitch);
     return { rect, shares, ridgeAlongX, rotated, ridgeH };
   });
 
@@ -534,9 +542,313 @@ function buildRoof(plan, center) {
     }
 
     return buildGableOverRect(
-      meta.rect, center, overhang, meta.ridgeAlongX, null, ridgeH, idx
+      meta.rect, center, overhang, meta.ridgeAlongX, null, ridgeH, idx, pitch
     );
   });
+}
+
+// ── Build flat roof ─────────────────────────────────────────────────────────
+// A near-flat cap with slight slope for drainage. Used by Modern style.
+function buildFlatRoof(plan, center, overhang = 0.06) {
+  const rects = decomposeFootprintRects(plan.rooms);
+  if (rects.length === 0) return [];
+  const thickness = 0.04;
+  const baseY = SLAB_H + WALL_H;
+  // Use a wider minimum overhang so the roof visually covers the wall top
+  // with no hairline gap between the fascia and the stucco.
+  const effectiveOverhang = Math.max(overhang, 0.12);
+  return rects.map((rect, i) => {
+    const rw = ftToWorld(rect.w) + effectiveOverhang * 2;
+    const rd = ftToWorld(rect.h) + effectiveOverhang * 2;
+    const geo = new THREE.BoxGeometry(rw, thickness, rd);
+    const mesh = new THREE.Mesh(geo, mat.roof);
+    const cxPlan = rect.x + rect.w / 2;
+    const cyPlan = rect.y + rect.h / 2;
+    // Sit the bottom of the roof flush on top of the walls — no tilt.
+    // A tilted flat roof looked correct edge-on but exposed a gap on the
+    // low-side wall top in screenshots.
+    mesh.position.set(
+      ftToWorld(cxPlan - center.cx),
+      baseY + thickness / 2,
+      -ftToWorld(cyPlan - center.cy),
+    );
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return { mesh, name: `flat-roof-${i}`, layer: "roof" };
+  });
+}
+
+// ── Build hip roof ──────────────────────────────────────────────────────────
+// Four sloping faces meeting at a ridge (rectangular plans) or a peak (square).
+// Pitch is configurable via the style config.
+function buildHipRoof(plan, center, overhang = 0.18, pitch = 3 / 12) {
+  const rects = decomposeFootprintRects(plan.rooms);
+  if (rects.length === 0) return [];
+  const baseY = SLAB_H + WALL_H;
+
+  return rects.map((rect, idx) => {
+    const hw = ftToWorld(rect.w) / 2 + overhang;
+    const hd = ftToWorld(rect.h) / 2 + overhang;
+    const shortHalf = Math.min(hw, hd);
+    const ridgeH = shortHalf * pitch * 2;
+
+    const cxWorld = ftToWorld(rect.x + rect.w / 2 - center.cx);
+    const czWorld = -ftToWorld(rect.y + rect.h / 2 - center.cy);
+
+    // Ridge along the longer axis. For a square, ridge is zero-length (peak).
+    const ridgeAlongX = rect.w >= rect.h;
+    const ridgeLen = ridgeAlongX
+      ? Math.max(0, hw - hd)
+      : Math.max(0, hd - hw);
+
+    let vertices;
+    if (ridgeAlongX) {
+      // Ridge runs along X from -ridgeLen to +ridgeLen at y=ridgeH.
+      // Four slope triangles from the eave edges up to the ridge endpoints.
+      vertices = new Float32Array([
+        // Front slope (+Z face)
+        -hw, 0,  hd,    hw, 0,  hd,    ridgeLen, ridgeH,  0,
+        -hw, 0,  hd,    ridgeLen, ridgeH, 0,   -ridgeLen, ridgeH, 0,
+        // Back slope (-Z face)
+         hw, 0, -hd,   -hw, 0, -hd,   -ridgeLen, ridgeH,  0,
+         hw, 0, -hd,   -ridgeLen, ridgeH, 0,    ridgeLen, ridgeH, 0,
+        // Left hip (-X face)
+        -hw, 0, -hd,   -hw, 0,  hd,   -ridgeLen, ridgeH,  0,
+        // Right hip (+X face)
+         hw, 0,  hd,    hw, 0, -hd,    ridgeLen, ridgeH,  0,
+      ]);
+    } else {
+      // Ridge runs along Z from -ridgeLen to +ridgeLen.
+      vertices = new Float32Array([
+        // Left slope (-X face)
+        -hw, 0,  hd,   -hw, 0, -hd,    0, ridgeH, -ridgeLen,
+        -hw, 0,  hd,    0, ridgeH, -ridgeLen,   0, ridgeH,  ridgeLen,
+        // Right slope (+X face)
+         hw, 0, -hd,    hw, 0,  hd,    0, ridgeH,  ridgeLen,
+         hw, 0, -hd,    0, ridgeH,  ridgeLen,   0, ridgeH, -ridgeLen,
+        // Front hip (+Z face)
+        -hw, 0,  hd,    hw, 0,  hd,    0, ridgeH,  ridgeLen,
+        // Back hip (-Z face)
+         hw, 0, -hd,   -hw, 0, -hd,    0, ridgeH, -ridgeLen,
+      ]);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
+    geo.computeVertexNormals();
+
+    const mesh = new THREE.Mesh(geo, mat.roof);
+    mesh.position.set(cxWorld, baseY, czWorld);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return { mesh, name: `hip-roof-${idx}`, layer: "roof" };
+  });
+}
+
+// ── Build front porch ───────────────────────────────────────────────────────
+// A slab extending from the front wall (y = minY) with columns and a mini-roof
+// matching the main roof material. Used by Ranch and Craftsman.
+function buildPorch(plan, center, porchDepthFt = 6) {
+  if (!porchDepthFt || porchDepthFt <= 0) return [];
+  const meshes = [];
+  const porchD = ftToWorld(porchDepthFt);
+  const bboxW = ftToWorld(center.w);
+  const porchThick = 0.03;
+
+  // Find front rooms (at y = center.minY) to determine porch width
+  const frontRooms = plan.rooms.filter(r => r.type !== "garage" && Math.abs(r.y - center.minY) < 0.3);
+  if (frontRooms.length === 0) return [];
+  const porchMinX = Math.min(...frontRooms.map(r => r.x));
+  const porchMaxX = Math.max(...frontRooms.map(r => r.x + r.w));
+  const porchW = ftToWorld(porchMaxX - porchMinX);
+  const porchCxPlan = (porchMinX + porchMaxX) / 2;
+  const porchCx = ftToWorld(porchCxPlan - center.cx);
+  const porchFrontZ = -ftToWorld(center.minY - center.cy) + porchD / 2;
+
+  // Porch floor slab
+  const slabGeo = new THREE.BoxGeometry(porchW + 0.06, porchThick, porchD);
+  const slab = new THREE.Mesh(slabGeo, mat.slab);
+  slab.position.set(porchCx, SLAB_H / 2, porchFrontZ);
+  slab.receiveShadow = true;
+  meshes.push({ mesh: slab, name: "porch-slab", layer: "porch" });
+
+  // Columns at the two front corners
+  const colRadius = 0.025;
+  const colH = WALL_H * 0.85;
+  const colGeo = new THREE.CylinderGeometry(colRadius, colRadius * 1.15, colH, 8);
+  const colMat = new THREE.MeshStandardMaterial({
+    color: mat.exteriorWall.color.clone(),
+    roughness: 0.6,
+    metalness: 0.0,
+  });
+  const porchHalfW = porchW / 2 - 0.04;
+  const porchFrontEdgeZ = porchFrontZ + porchD / 2 - 0.04;
+  [[-porchHalfW + porchCx, porchFrontEdgeZ], [porchHalfW + porchCx, porchFrontEdgeZ]].forEach(([cx, cz], i) => {
+    const col = new THREE.Mesh(colGeo, colMat);
+    col.position.set(cx, SLAB_H + colH / 2, cz);
+    col.castShadow = true;
+    meshes.push({ mesh: col, name: `porch-col-${i}`, layer: "porch" });
+  });
+
+  // Porch roof — thin flat slab over the porch
+  const roofGeo = new THREE.BoxGeometry(porchW + 0.12, porchThick, porchD + 0.06);
+  const roofMesh = new THREE.Mesh(roofGeo, mat.roof);
+  roofMesh.position.set(porchCx, SLAB_H + colH, porchFrontZ);
+  roofMesh.castShadow = true;
+  roofMesh.receiveShadow = true;
+  meshes.push({ mesh: roofMesh, name: "porch-roof", layer: "porch" });
+
+  return meshes;
+}
+
+// ── Build entry canopy ──────────────────────────────────────────────────────
+// A thin flat slab above the front door position. Used by Modern, Colonial,
+// Mediterranean.
+function buildEntryCanopy(plan, center, canopyConfig) {
+  if (!canopyConfig) return [];
+  const { depthFt, heightFt } = canopyConfig;
+  if (!depthFt || !heightFt) return [];
+
+  // Find the front door
+  const frontDoor = (plan.doors || []).find(d => d.isFrontDoor) ||
+                    (plan.doors || []).find(d => d.isExterior && d.side === "top");
+  if (!frontDoor) return [];
+
+  const canopyW = ftToWorld(Math.max(frontDoor.width + 2, 5));
+  const canopyD = ftToWorld(depthFt);
+  const canopyY = SLAB_H + ftToWorld(heightFt);
+  const thick = 0.025;
+
+  const px = ftToWorld(frontDoor.x - center.cx);
+  const pz = -ftToWorld(center.minY - center.cy) + canopyD / 2;
+
+  const geo = new THREE.BoxGeometry(canopyW, thick, canopyD);
+  const mesh = new THREE.Mesh(geo, mat.roof);
+  mesh.position.set(px, canopyY, pz);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return [{ mesh, name: "entry-canopy", layer: "canopy" }];
+}
+
+// ── Build structural pillars ────────────────────────────────────────────────
+// Consumed from the `pillars` option — placements come from structuralSupport
+// generatePillars() in plan coords (feet).  Each pillar sits at y=0 and rises
+// to the 1st floor wall height.  Geometry family is driven by the style
+// config ("square" | "tapered" | "stucco") so pillars match the exterior.
+function buildPillars(pillars, center) {
+  if (!pillars || pillars.length === 0) return [];
+  const meshes = [];
+  // Darken the wall color slightly so pillars read as separate elements.
+  const pillarColor = mat.exteriorWall.color.clone().multiplyScalar(0.78);
+  const pillarMat = new THREE.MeshStandardMaterial({
+    color: pillarColor,
+    roughness: Math.min(1, mat.exteriorWall.roughness + 0.05),
+    metalness: 0.0,
+  });
+
+  pillars.forEach((p, i) => {
+    const baseW = ftToWorld(p.baseSizeFt || 1);
+    const h = ftToWorld(p.heightFt || 9);
+    let geo;
+    if (p.geometry === "tapered") {
+      const topR  = baseW * 0.4;  // tapered: top ~80% of base radius
+      const baseR = baseW * 0.5;
+      geo = new THREE.CylinderGeometry(topR, baseR, h, 12);
+    } else if (p.geometry === "stucco") {
+      // Square with a slight flare at the very top — approximate by
+      // stacking a small box on the main column.
+      const col = new THREE.BoxGeometry(baseW, h * 0.95, baseW);
+      const flare = new THREE.BoxGeometry(baseW * 1.12, h * 0.05, baseW * 1.12);
+      // Merge-like: wrap two meshes in a group.
+      const group = new THREE.Group();
+      const colMesh = new THREE.Mesh(col, pillarMat);
+      colMesh.position.y = h * 0.475;
+      const flareMesh = new THREE.Mesh(flare, pillarMat);
+      flareMesh.position.y = h * 0.975;
+      group.add(colMesh);
+      group.add(flareMesh);
+      const cxWorld = ftToWorld(p.xFt - center.cx);
+      const czWorld = -ftToWorld(p.yFt - center.cy);
+      group.position.set(cxWorld, 0, czWorld);
+      colMesh.castShadow = true;
+      colMesh.receiveShadow = true;
+      flareMesh.castShadow = true;
+      meshes.push({ mesh: group, name: `pillar-${i}`, layer: "pillar" });
+      return;
+    } else {
+      geo = new THREE.BoxGeometry(baseW, h, baseW);
+    }
+    const mesh = new THREE.Mesh(geo, pillarMat);
+    const cxWorld = ftToWorld(p.xFt - center.cx);
+    const czWorld = -ftToWorld(p.yFt - center.cy);
+    mesh.position.set(cxWorld, h / 2, czWorld);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    meshes.push({ mesh, name: `pillar-${i}`, layer: "pillar" });
+  });
+  return meshes;
+}
+
+// ── Build driveway ──────────────────────────────────────────────────────────
+// The driveway always sits directly in front of the garage door — we read
+// the garage door's side and x/y out of plan.doors (where isGarageDoor is
+// true) and extend the slab perpendicular from it, so the driveway can
+// never land on a wall with no door.
+//
+// Only emits when the ground story has at least one garage door.
+const driveMat = new THREE.MeshStandardMaterial({
+  color: "#7c7c7c",
+  roughness: 0.92,
+  metalness: 0.02,
+});
+function buildDriveway(plan, center) {
+  const garageDoors = (plan.doors || []).filter((d) => d.isGarageDoor);
+  if (garageDoors.length === 0) return [];
+  const meshes = [];
+  const DRIVE_DEPTH_FT = 18;       // 18 ft out from the garage face
+  const thickness = 0.015;
+
+  garageDoors.forEach((door, i) => {
+    const doorW = door.width || 14;
+    // OpeningSchema: for top/bottom walls, door.x is CENTER along the wall
+    // and door.y is the wall's y coord.  For left/right walls, door.x is
+    // the wall's x coord and door.y is CENTER along the wall.
+    let x, y, w, d;
+    if (door.side === "top") {
+      x = door.x - doorW / 2;
+      y = door.y - DRIVE_DEPTH_FT;
+      w = doorW;
+      d = DRIVE_DEPTH_FT;
+    } else if (door.side === "bottom") {
+      x = door.x - doorW / 2;
+      y = door.y;
+      w = doorW;
+      d = DRIVE_DEPTH_FT;
+    } else if (door.side === "left") {
+      x = door.x - DRIVE_DEPTH_FT;
+      y = door.y - doorW / 2;
+      w = DRIVE_DEPTH_FT;
+      d = doorW;
+    } else { // "right"
+      x = door.x;
+      y = door.y - doorW / 2;
+      w = DRIVE_DEPTH_FT;
+      d = doorW;
+    }
+
+    const geo = new THREE.BoxGeometry(ftToWorld(w), thickness, ftToWorld(d));
+    const mesh = new THREE.Mesh(geo, driveMat);
+    const cxPlan = x + w / 2;
+    const cyPlan = y + d / 2;
+    mesh.position.set(
+      ftToWorld(cxPlan - center.cx),
+      thickness / 2,
+      -ftToWorld(cyPlan - center.cy),
+    );
+    mesh.receiveShadow = true;
+    meshes.push({ mesh, name: `driveway-${i}`, layer: "driveway" });
+  });
+  return meshes;
 }
 
 // ── Build foundation slab ────────────────────────────────────────────────────
@@ -680,24 +992,67 @@ export function buildHouseGeometry(plan, options = {}) {
     sharedCenter = null,
     wallColor = null,
     roofColor = null,
+    pillars = null,       // PillarPlacement[] from structuralSupport
+    showPillars = true,
   } = options;
   const center = sharedCenter || computeCenter(plan.rooms);
 
-  // Materials are module-level singletons for PBR texture reuse. Only one
-  // house is rendered at a time, so mutating the shared color here is safe
-  // and keeps the texture/normal maps intact.
-  if (wallColor) mat.exteriorWall.color.set(wallColor);
-  if (roofColor) mat.roof.color.set(roofColor);
+  // Style config drives roof type, overhang, pitch, porch/canopy presence,
+  // and material palette.  Falls back to a sensible default (Ranch) if the
+  // plan's style string isn't in the registry.
+  const styleConfig = getStyleConfig(plan.style);
+
+  // Materials are module-level singletons for PBR texture reuse.  We mutate
+  // their colors/roughness here based on the active style.  User-supplied
+  // wallColor/roofColor (from the 3D preview swatches) take precedence so
+  // the UI color pickers still work on top of the style palette.
+  mat.exteriorWall.color.set(wallColor || styleConfig.materials.wallColor);
+  mat.exteriorWall.roughness = styleConfig.wallRoughness;
+  mat.roof.color.set(roofColor || styleConfig.materials.roofColor);
+  mat.roof.roughness = styleConfig.roofRoughness;
+  mat.roof.metalness = styleConfig.roofMetalness;
+  mat.windowFrame.color.set(styleConfig.materials.windowFrameColor);
+  mat.doorFrame.color.set(styleConfig.materials.doorFrameColor);
+
+  // Dispatch the roof by the style's roofType.  Unknown types fall through
+  // to gable so the scene never goes roofless.
+  let roofMeshes = [];
+  if (includeRoof) {
+    if (styleConfig.roofType === "flat") {
+      roofMeshes = buildFlatRoof(plan, center, styleConfig.roofOverhang);
+    } else if (styleConfig.roofType === "hip") {
+      roofMeshes = buildHipRoof(plan, center, styleConfig.roofOverhang, styleConfig.roofPitch);
+    } else {
+      roofMeshes = buildRoof(plan, center, styleConfig.roofOverhang, styleConfig.roofPitch);
+    }
+  }
+
+  // Porch and entry canopy live at ground level, so they only emit on the
+  // story that has the foundation (story 0 in multi-story builds).
+  const porchMeshes = includeFoundation
+    ? buildPorch(plan, center, styleConfig.porchDepthFt)
+    : [];
+  const canopyMeshes = includeFoundation
+    ? buildEntryCanopy(plan, center, styleConfig.entryCanopy)
+    : [];
+  // Structural pillars also sit at ground level (same gate as foundation).
+  const pillarMeshes = (includeFoundation && showPillars && pillars && pillars.length > 0)
+    ? buildPillars(pillars, center)
+    : [];
 
   return [
+    ...(includeFoundation ? buildDriveway(plan, center) : []),
     ...(includeFoundation ? buildFoundation(plan, center) : []),
     ...buildFloors(plan, center),
     ...buildExteriorWalls(plan, center),
     ...buildInteriorWalls(plan, center),
     ...buildWindowFrames(plan, center),
     ...buildDoorFrames(plan, center),
-    ...(includeRoof ? buildRoof(plan, center) : []),
+    ...roofMeshes,
     ...(partialRoofRects ? buildPartialRoofs(partialRoofRects, center) : []),
+    ...porchMeshes,
+    ...canopyMeshes,
+    ...pillarMeshes,
     ...buildFurniture(plan, center),
   ];
 }

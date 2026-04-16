@@ -5,6 +5,8 @@ import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { projectsApi } from "../../services/api";
 import NewProjectModal from "../../components/shared/NewProjectModal";
+import HomeownerProjectModal from "../../components/shared/HomeownerProjectModal";
+import { useUserType } from "../../context/UserTypeContext";
 
 /* ── Detect project type from name for thumbnail silhouette ── */
 function detectProjectType(name = "") {
@@ -351,6 +353,7 @@ export default function Dashboard() {
   // const { user } = useUser();
   const user = { firstName: "Demo" };
   const { setProjectName, setGenerateParams, resetProject, setProjectLocation } = useProject();
+  const { isHomeowner } = useUserType();
   const [showModal, setShowModal] = useState(false);
   const [recentProjects, setRecentProjects] = useState([]);
   const [recentLoading, setRecentLoading] = useState(true);
@@ -378,9 +381,14 @@ export default function Dashboard() {
       stories: params.stories,
       lotWidth: 60,
       lotDepth: 120,
-      style: "Ranch",
-      garage: "2-car",
+      style: params.style || "Ranch",
+      garage: params.garage || "2-car",
       openFloorPlan: true,
+      // Homeowner flow carries extras forward: budget, AI conversation, summary, per-room furniture
+      budget: params.budget || null,
+      conversationHistory: params.conversationHistory || null,
+      aiSummary: params.aiSummary || "",
+      aiRooms: params.aiRooms || null,
     });
     setProjectLocation(params.location || null);
     navigate("/develop");
@@ -550,12 +558,19 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* New Project Modal */}
+      {/* New Project Modal — homeowner gets the AI-chat flow, builder keeps the param form */}
       {showModal && (
-        <NewProjectModal
-          onClose={() => setShowModal(false)}
-          onGenerate={handleGenerate}
-        />
+        isHomeowner ? (
+          <HomeownerProjectModal
+            onClose={() => setShowModal(false)}
+            onGenerate={(p) => { setShowModal(false); handleGenerate(p); }}
+          />
+        ) : (
+          <NewProjectModal
+            onClose={() => setShowModal(false)}
+            onGenerate={handleGenerate}
+          />
+        )
       )}
 
     </div>

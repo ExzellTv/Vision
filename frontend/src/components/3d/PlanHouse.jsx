@@ -25,6 +25,7 @@ import {
   computeUncoveredByUpperStory,
   STORY_HEIGHT_WORLD,
 } from "../../lib/buildHouseGeometry";
+import { generatePillars } from "../../lib/structuralSupport";
 
 function coerceAndValidate(rawPlan) {
   if (!rawPlan) return null;
@@ -34,7 +35,7 @@ function coerceAndValidate(rawPlan) {
   return result.success ? result.data : coerced;
 }
 
-export default function PlanHouse({ plan, stories, wallColor, roofColor, showRoof = true }) {
+export default function PlanHouse({ plan, stories, wallColor, roofColor, showRoof = true, showPillars = true }) {
   // Normalize into an array of valid story plans. `stories` wins if provided.
   const validStories = useMemo(() => {
     const raw = Array.isArray(stories) && stories.length > 0 ? stories : (plan ? [plan] : []);
@@ -54,6 +55,11 @@ export default function PlanHouse({ plan, stories, wallColor, roofColor, showRoo
         ? computeUncoveredByUpperStory(story.rooms, nextStory.rooms)
         : null;
 
+      // Pillars only emit on story 0, supporting whatever 2nd floor sits above.
+      const pillars = (i === 0 && nextStory)
+        ? generatePillars(story, nextStory, story.style, story.wallHeight || 9)
+        : null;
+
       try {
         return buildHouseGeometry(story, {
           includeFoundation: i === 0,
@@ -62,13 +68,15 @@ export default function PlanHouse({ plan, stories, wallColor, roofColor, showRoo
           sharedCenter,
           wallColor,
           roofColor,
+          pillars,
+          showPillars,
         });
       } catch (err) {
         if (import.meta.env.DEV) console.warn("[Vision] buildHouseGeometry failed:", err);
         return [];
       }
     });
-  }, [validStories, wallColor, roofColor, showRoof]);
+  }, [validStories, wallColor, roofColor, showRoof, showPillars]);
 
   // Dispose geometry on plan change / unmount to avoid GPU memory leaks.
   useEffect(() => {

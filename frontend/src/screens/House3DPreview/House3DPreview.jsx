@@ -1,10 +1,12 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
 import House3D from "../../components/3d/House3D";
 import { renderWithAI, RENDER_STYLES } from "../../lib/myArchitectAI";
+import { validateStructure } from "../../lib/structuralValidator";
+import { autoFixStoryPlans } from "../../lib/autoFix";
 
 /**
  * House3DPreview - Modern 3D house preview screen
@@ -73,6 +75,12 @@ export default function House3DPreview() {
   // Cutaway view: hide the roof (and upper floors optionally) to peek inside.
   const [showRoof, setShowRoof] = useState(true);
   const [focusedStory, setFocusedStory] = useState(null); // null = all stories
+  // Structural overlays and validation state.
+  const [showPillars, setShowPillars] = useState(true);
+  const [undoSnapshot, setUndoSnapshot] = useState(null);    // pre-autofix plans
+  const [appliedFixes, setAppliedFixes] = useState([]);      // log after autofix
+  const [showFixBanner, setShowFixBanner] = useState(false); // green banner
+  const [fixesOpen, setFixesOpen] = useState(false);         // collapsible log
   // Environment + drag-to-edit were previously user-toggleable. Both now
   // default on/off so the right panel stays focused on style + color.
 
@@ -124,6 +132,46 @@ export default function House3DPreview() {
     : allStoryPlans;
   const storyCount = Array.isArray(allStoryPlans) ? allStoryPlans.length : stories;
 
+  // Live structural validation — runs every render but memoized on the
+  // plans reference so we don't churn when unrelated UI state flips.
+  const validation = useMemo(
+    () => validateStructure(allStoryPlans || []),
+    [allStoryPlans]
+  );
+  const blockingViolations = validation.violations.filter((v) => v.severity === "blocking");
+  const warningViolations  = validation.violations.filter((v) => v.severity === "warning");
+  const canContinue = validation.isValid;
+
+  const handleFixAll = useCallback(() => {
+    if (!Array.isArray(allStoryPlans) || allStoryPlans.length === 0) return;
+    setUndoSnapshot(allStoryPlans);
+    const { fixedStoryPlans, appliedFixes: fixes } = autoFixStoryPlans(allStoryPlans, "all");
+    project.setStoryPlans(fixedStoryPlans);
+    setAppliedFixes(fixes);
+    setShowFixBanner(true);
+    // Auto-hide the success banner after 6s (user can still open "what changed")
+    setTimeout(() => setShowFixBanner(false), 6000);
+  }, [allStoryPlans, project]);
+
+  const handleUndoFix = useCallback(() => {
+    if (!undoSnapshot) return;
+    project.setStoryPlans(undoSnapshot);
+    setUndoSnapshot(null);
+    setAppliedFixes([]);
+    setShowFixBanner(false);
+    setFixesOpen(false);
+  }, [undoSnapshot, project]);
+
+  const handleFixOne = useCallback((violationId) => {
+    if (!Array.isArray(allStoryPlans) || allStoryPlans.length === 0) return;
+    setUndoSnapshot(allStoryPlans);
+    const { fixedStoryPlans, appliedFixes: fixes } = autoFixStoryPlans(allStoryPlans, [violationId]);
+    project.setStoryPlans(fixedStoryPlans);
+    setAppliedFixes(fixes);
+    setShowFixBanner(true);
+    setTimeout(() => setShowFixBanner(false), 6000);
+  }, [allStoryPlans, project]);
+
   return (
     <div
       style={{
@@ -147,6 +195,7 @@ export default function House3DPreview() {
           wallColor={wallColor}
           roofColor={roofColor}
           showRoof={showRoof}
+          showPillars={showPillars}
           showGround
           showSky
           interactive={false}
@@ -289,6 +338,33 @@ export default function House3DPreview() {
           )}
         </div>
 
+        {/* Structural supports visibility toggle (bottom-left) */}
+        {storyCount > 1 && (
+          <button
+            onClick={() => setShowPillars((v) => !v)}
+            style={{
+              position: "absolute",
+              bottom: 20,
+              left: 20,
+              padding: "7px 11px",
+              background: showPillars ? `${colors.accent}15` : "rgba(13, 17, 23, 0.7)",
+              border: `1px solid ${showPillars ? colors.accent : "#2a3548"}`,
+              borderRadius: 6,
+              color: showPillars ? colors.accent : colors.textDim,
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="2" y="1" width="2.5" height="10" stroke="currentColor" strokeWidth="1.1" />
+              <rect x="7.5" y="1" width="2.5" height="10" stroke="currentColor" strokeWidth="1.1" />
+            </svg>
+            {showPillars ? "Supports on" : "Supports off"}
+          </button>
+        )}
+
         {/* Navigation Hint */}
         <div
           style={{
@@ -304,6 +380,164 @@ export default function House3DPreview() {
         >
           Drag to rotate • Scroll to zoom
         </div>
+
+        {/* ── Structural Validation Panel ───────────────────────────────
+           Appears below the viewer when blocking violations exist (red
+           border) or when a fix was just applied (green banner).  Stays
+           inline so the user still sees the house while reading. */}
+        {(blockingViolations.length > 0 || showFixBanner || warningViolations.length > 0) && (
+          <div
+            style={{
+              position: "absolute",
+              right: 20,
+              bottom: 56,                 // above the nav hint
+              width: 380,
+              maxWidth: "calc(100% - 40px)",
+              maxHeight: "55%",
+              overflowY: "auto",
+              background: "rgba(13, 17, 23, 0.94)",
+              backdropFilter: "blur(8px)",
+              border: `1px solid ${
+                blockingViolations.length > 0 ? "#7f1d1d" :
+                showFixBanner ? "#15803d" :
+                "#78350f"
+              }`,
+              borderLeft: `4px solid ${
+                blockingViolations.length > 0 ? "#ef4444" :
+                showFixBanner ? "#22c55e" :
+                "#f59e0b"
+              }`,
+              borderRadius: 10,
+              padding: "14px 18px",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+            }}
+          >
+            {/* Success banner */}
+            {showFixBanner && blockingViolations.length === 0 && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                  <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                    <circle cx="10" cy="10" r="9" stroke="#22c55e" strokeWidth="1.6" />
+                    <path d="M6 10l3 3 5-6" stroke="#22c55e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: "#22c55e" }}>
+                    Your home has been adjusted and is structurally sound.
+                  </span>
+                </div>
+                {appliedFixes.length > 0 && (
+                  <>
+                    <button
+                      onClick={() => setFixesOpen((v) => !v)}
+                      style={{
+                        marginTop: 4, padding: "4px 8px",
+                        background: "transparent", border: "1px solid #334155",
+                        borderRadius: 6, color: colors.textDim,
+                        fontSize: 11, cursor: "pointer",
+                      }}
+                    >
+                      {fixesOpen ? "Hide" : "What changed?"}
+                    </button>
+                    {fixesOpen && (
+                      <ul style={{
+                        margin: "8px 0 4px 0", paddingLeft: 18,
+                        fontSize: 12, color: colors.text, lineHeight: 1.55,
+                      }}>
+                        {appliedFixes.map((fix, i) => (
+                          <li key={i}>{fix}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+                {undoSnapshot && (
+                  <button
+                    onClick={handleUndoFix}
+                    style={{
+                      marginLeft: 8, marginTop: 4, padding: "4px 10px",
+                      background: "transparent", border: "1px solid #334155",
+                      borderRadius: 6, color: colors.textDim,
+                      fontSize: 11, cursor: "pointer",
+                    }}
+                  >
+                    Undo
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Blocking violations */}
+            {blockingViolations.length > 0 && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                    <path d="M10 2L18 17H2L10 2Z" stroke="#ef4444" strokeWidth="1.6" strokeLinejoin="round" />
+                    <path d="M10 8v4M10 14.5v0.5" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: "#fca5a5" }}>
+                    A few things to sort out before we can build
+                  </span>
+                </div>
+                <ul style={{
+                  margin: "0 0 10px 0", padding: 0, listStyle: "none",
+                }}>
+                  {blockingViolations.map((v) => (
+                    <li key={v.id} style={{
+                      display: "flex", alignItems: "flex-start", gap: 10,
+                      padding: "8px 0", borderBottom: "1px solid rgba(239,68,68,0.12)",
+                      fontSize: 12.5, color: colors.text, lineHeight: 1.5,
+                    }}>
+                      <span style={{ flex: 1 }}>{v.message}</span>
+                      {v.autoFixAvailable && (
+                        <button
+                          onClick={() => handleFixOne(v.id)}
+                          style={{
+                            flexShrink: 0, padding: "4px 10px",
+                            background: "rgba(59,130,246,0.12)",
+                            border: "1px solid rgba(59,130,246,0.4)",
+                            borderRadius: 5, color: "#60a5fa",
+                            fontSize: 11, fontWeight: 600, cursor: "pointer",
+                          }}
+                        >
+                          Fix this
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {blockingViolations.some((v) => v.autoFixAvailable) && (
+                  <button
+                    onClick={handleFixAll}
+                    style={{
+                      padding: "9px 16px",
+                      background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                      border: "none", borderRadius: 7,
+                      color: "white", fontSize: 13, fontWeight: 600,
+                      cursor: "pointer", letterSpacing: "0.2px",
+                      boxShadow: "0 4px 16px rgba(37,99,235,0.35)",
+                    }}
+                  >
+                    Fix Everything
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Warning-only state (no blockers, just heads-ups) */}
+            {blockingViolations.length === 0 && !showFixBanner && warningViolations.length > 0 && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                  <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+                    <path d="M10 2L18 17H2L10 2Z" stroke="#f59e0b" strokeWidth="1.6" strokeLinejoin="round" />
+                  </svg>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#fbbf24" }}>Heads up</span>
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: colors.text, lineHeight: 1.5 }}>
+                  {warningViolations.map((v) => <li key={v.id}>{v.message}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
 
       </div>
 
@@ -722,17 +956,21 @@ export default function House3DPreview() {
           }}
         >
           <button
-            onClick={() => navigate("/feasibility")}
+            onClick={() => { if (canContinue) navigate("/feasibility"); }}
+            disabled={!canContinue}
+            title={canContinue ? "" : "Resolve structural issues to continue"}
             style={{
               flex: 1,
               padding: "12px",
-              background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+              background: canContinue
+                ? "linear-gradient(135deg, #2563eb, #1d4ed8)"
+                : "rgba(37,99,235,0.25)",
               border: "none",
               borderRadius: 8,
-              color: "#fff",
+              color: canContinue ? "#fff" : "rgba(255,255,255,0.4)",
               fontSize: 13,
               fontWeight: 600,
-              cursor: "pointer",
+              cursor: canContinue ? "pointer" : "not-allowed",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",

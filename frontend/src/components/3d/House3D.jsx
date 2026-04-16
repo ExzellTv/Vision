@@ -820,6 +820,7 @@ function Scene({
           wallColor={houseProps.wallColor}
           roofColor={houseProps.roofColor}
           showRoof={houseProps.showRoof}
+          showPillars={houseProps.showPillars}
         />
       ) : (
         <HouseCSG {...houseProps} />
@@ -1037,6 +1038,7 @@ export default function House3D({
   vizMode = "standard",
   showFoundation = true,
   showRoof = true,
+  showPillars = true,
   showWindows = true,
   showDoor = true,
   showChimney = true,
@@ -1103,6 +1105,7 @@ export default function House3D({
     floorPlan,
     storyPlans,
     showRoof,
+    showPillars,
   };
 
   return (

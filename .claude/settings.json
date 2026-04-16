@@ -43,7 +43,13 @@
       "Bash(curl -sI -H \"Origin: http://localhost:5173\" \"https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_plaster_wall/painted_plaster_wall_diff_1k.jpg\")",
       "Bash(npm uninstall:*)",
       "Bash(python -c \"from app.main import app; print\\('Backend imports OK:', app.title\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('app/main.py'\\).read\\(\\)\\); ast.parse\\(open\\('app/config.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/main.py'\\).read\\(\\)\\); ast.parse\\(open\\('app/config.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python -m uvicorn app.main:app --reload --port 8000)",
+      "Bash(python -m uvicorn app.main:app --port 8000)",
+      "Bash(ls frontend/.env*)",
+      "Bash(netstat -ano)",
+      "Bash(awk '{print $5}')",
+      "Bash(xargs -I PID taskkill //F //PID PID)"
     ]
   }
 }

@@ -6,6 +6,8 @@ import { colors, fonts, radii } from "../../theme/tokens";
 import { projectsApi } from "../../services/api";
 import { useProject } from "../../hooks/useProjectStore";
 import NewProjectModal from "../../components/shared/NewProjectModal";
+import HomeownerProjectModal from "../../components/shared/HomeownerProjectModal";
+import { useUserType } from "../../context/UserTypeContext";
 
 /* ── helpers ── */
 function timeAgo(dateStr) {
@@ -949,6 +951,7 @@ function DeleteModal({ project, onClose, onConfirm }) {
 export default function ProjectsScreen() {
   const navigate = useNavigate();
   const { setProjectName, setProjectId, setStoryPlans, setFloorPlan, setGenerateParams, setProjectLocation, resetProject, setBuildingContext, setMaterials, setSavedSchedule } = useProject();
+  const { isHomeowner } = useUserType();
 
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1003,9 +1006,13 @@ export default function ProjectsScreen() {
       stories: params.stories,
       lotWidth: 60,
       lotDepth: 120,
-      style: "Ranch",
-      garage: "2-car",
+      style: params.style || "Ranch",
+      garage: params.garage || "2-car",
       openFloorPlan: true,
+      budget: params.budget || null,
+      conversationHistory: params.conversationHistory || null,
+      aiSummary: params.aiSummary || "",
+      aiRooms: params.aiRooms || null,
     });
     setProjectLocation(params.location || null);
     navigate("/develop");
@@ -1212,10 +1219,17 @@ export default function ProjectsScreen() {
         />
       )}
       {showNewModal && (
-        <NewProjectModal
-          onClose={() => setShowNewModal(false)}
-          onGenerate={handleGenerate}
-        />
+        isHomeowner ? (
+          <HomeownerProjectModal
+            onClose={() => setShowNewModal(false)}
+            onGenerate={(p) => { setShowNewModal(false); handleGenerate(p); }}
+          />
+        ) : (
+          <NewProjectModal
+            onClose={() => setShowNewModal(false)}
+            onGenerate={handleGenerate}
+          />
+        )
       )}
     </div>
   );

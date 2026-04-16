@@ -5,6 +5,7 @@ import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
 import { projectsApi, floorplanApi } from "../../services/api";
 import { useStructuralValidation, ValidationPanel, ValidationBadge } from "../../hooks/useStructuralValidation.jsx";
+import { STYLE_CONFIGS } from "../../lib/houseStyleConfigs";
 
 /* ───────────────────────── Constants ───────────────────────── */
 
@@ -663,27 +664,212 @@ function generateGarageDoors(rooms, bboxW, bboxD) {
   return doors;
 }
 
-function generateWindowsForRoom(room, width, depth) {
-  const SKIP_TYPES = new Set(["garage", "hallway", "closet"]);
-  if (SKIP_TYPES.has(room.type)) return [];
+/* ─────────── Auto openings: exterior windows + interior doors ─────────── */
 
-  const wins = [];
-  if (room.y === 0 && room.type !== "entry") {
-    wins.push({ x: room.x + room.w * 0.3, y: room.y, side: "top", width: Math.min(4, room.w * 0.4) });
-    if (room.w > 12) {
-      wins.push({ x: room.x + room.w * 0.7, y: room.y, side: "top", width: Math.min(4, room.w * 0.4) });
+/** Which sides of a room coincide with the outer footprint (within EPS ft). */
+function _roomExteriorSides(room, bboxW, bboxD, EPS = 0.3) {
+  return {
+    top:    room.y <= EPS,
+    bottom: room.y + room.h >= bboxD - EPS,
+    left:   room.x <= EPS,
+    right:  room.x + room.w >= bboxW - EPS,
+  };
+}
+
+/** True if a door already exists on the given side of this room. */
+function _hasDoorOnSide(room, side, doors, bboxW, bboxD) {
+  const EPS = 0.5;
+  return doors.some((d) => {
+    if (d.side !== side) return false;
+    if (side === "top"    && Math.abs(d.y) > EPS) return false;
+    if (side === "bottom" && Math.abs(d.y - bboxD) > EPS) return false;
+    if (side === "left"   && Math.abs(d.x) > EPS) return false;
+    if (side === "right"  && Math.abs(d.x - bboxW) > EPS) return false;
+    if (side === "top" || side === "bottom") {
+      return d.x + d.width >= room.x - EPS && d.x <= room.x + room.w + EPS;
     }
-  }
-  if (room.x + room.w >= width) {
-    wins.push({ x: room.x + room.w, y: room.y + room.h * 0.4, side: "right", width: Math.min(3, room.h * 0.3) });
-  }
-  if (room.y + room.h >= depth && room.type !== "laundry") {
-    wins.push({ x: room.x + room.w * 0.5, y: room.y + room.h, side: "bottom", width: Math.min(4, room.w * 0.4) });
-  }
-  if (room.x === 0 && room.type !== "garage") {
-    wins.push({ x: room.x, y: room.y + room.h * 0.5, side: "left", width: Math.min(3, room.h * 0.3) });
+    return d.y + d.width >= room.y - EPS && d.y <= room.y + room.h + EPS;
+  });
+}
+
+/**
+ * Place one window per exterior-facing wall of each room that benefits from
+ * natural light.  Skips utility rooms and walls that already carry a door.
+ * Returns OpeningSchema-compliant window entries.
+ */
+function generateExteriorWindows(rooms, bboxW, bboxD, existingDoors = []) {
+  const SKIP = new Set(["garage", "hallway", "closet"]);
+  const wins = [];
+  let idx = 0;
+  const push = (room, side, x, y, w) => {
+    if (_hasDoorOnSide(room, side, existingDoors, bboxW, bboxD)) return;
+    const isBath = room.type === "bathroom";
+    wins.push({
+      id: `win-${idx++}`,
+      type: "window",
+      x, y,
+      width: w,
+      height: isBath ? 2.5 : 4,
+      sillHeight: isBath ? 5 : 3,
+      side,
+      isExterior: true,
+    });
+  };
+  for (const r of rooms) {
+    if (SKIP.has(r.type)) continue;
+    const ext = _roomExteriorSides(r, bboxW, bboxD);
+    const winW = r.type === "bathroom" ? 2.5 : Math.min(4, r.w * 0.4, r.h * 0.4);
+    const minWinW = 2;
+    if (ext.top    && r.type !== "entry")   push(r, "top",    r.x + r.w / 2 - winW / 2, 0,     Math.max(minWinW, winW));
+    if (ext.bottom && r.type !== "laundry") push(r, "bottom", r.x + r.w / 2 - winW / 2, bboxD, Math.max(minWinW, winW));
+    if (ext.left)                            push(r, "left",   0,     r.y + r.h / 2 - winW / 2, Math.max(minWinW, winW));
+    if (ext.right)                           push(r, "right",  bboxW, r.y + r.h / 2 - winW / 2, Math.max(minWinW, winW));
   }
   return wins;
+}
+
+/**
+ * Place the front entry door on a room that fronts the footprint.  Prefers
+ * a dedicated entry/mudroom, then living, then kitchen, then any front room.
+ */
+function generateFrontEntryDoor(rooms, bboxW, bboxD) {
+  const EPS = 0.3;
+  const fronts = rooms.filter((r) => r.y <= EPS && r.type !== "garage" && r.type !== "office");
+  if (fronts.length === 0) return null;
+  const byPref = ["entry", "living", "kitchen", "hallway", "dining"];
+  let target = null;
+  for (const t of byPref) {
+    target = fronts.find((r) => r.type === t);
+    if (target) break;
+  }
+  if (!target) target = fronts[0];
+  const doorW = 3.5;
+  const cx = target.x + target.w / 2;
+  const x = Math.max(target.x + 0.5, Math.min(cx - doorW / 2, target.x + target.w - doorW - 0.5));
+  return {
+    id: `front-door-0`,
+    type: "door",
+    x,
+    y: 0,
+    width: doorW,
+    height: 7,
+    side: "top",
+    isExterior: true,
+    isFrontDoor: true,
+  };
+}
+
+/**
+ * Allow-list of room-type pairs that should have an interior door between
+ * them when they share a wall.  Keys are alphabetically sorted "a-b".
+ */
+const _DOOR_PAIR_ALLOW = new Set([
+  // Hallway connects to most things
+  "bathroom-hallway", "bedroom-hallway", "closet-hallway",
+  "dining-hallway",   "entry-hallway",   "hallway-kitchen",
+  "hallway-laundry",  "hallway-living",  "hallway-office",
+  "hallway-stair",    "garage-hallway",
+  // Master suite
+  "bathroom-bedroom", "bedroom-closet",
+  // Open-concept public zone
+  "dining-kitchen",   "dining-living",   "kitchen-living",
+  // Front flow
+  "entry-living",     "entry-kitchen",
+  // Garage access
+  "entry-garage",     "garage-laundry",  "garage-office",
+  // Utility cluster
+  "bathroom-laundry",
+  // Stairs
+  "living-stair",     "entry-stair",     "kitchen-stair",
+]);
+
+function _pairKey(a, b) {
+  return [a.type, b.type].sort().join("-");
+}
+
+/**
+ * For every pair of rooms that share an interior wall, drop a door on that
+ * wall if the pair is in the allow-list.  Doors land at the midpoint of the
+ * shared overlap so they never overshoot either room.
+ */
+function generateInteriorDoors(rooms) {
+  const EPS = 0.2;
+  const MIN_OVERLAP = 3;     // need at least 3 ft of shared wall to fit a 3 ft door
+  const DOOR_W = 3;
+  const doors = [];
+  let idx = 0;
+  const placed = new Set();
+  for (let i = 0; i < rooms.length; i++) {
+    for (let j = i + 1; j < rooms.length; j++) {
+      const a = rooms[i], b = rooms[j];
+      if (!_DOOR_PAIR_ALLOW.has(_pairKey(a, b))) continue;
+      const pairId = `${i}-${j}`;
+      if (placed.has(pairId)) continue;
+      const ax2 = a.x + a.w, ay2 = a.y + a.h;
+      const bx2 = b.x + b.w, by2 = b.y + b.h;
+
+      // Vertical shared wall: a's right === b's left
+      if (Math.abs(ax2 - b.x) < EPS) {
+        const y1 = Math.max(a.y, b.y), y2 = Math.min(ay2, by2);
+        if (y2 - y1 >= MIN_OVERLAP) {
+          const cy = (y1 + y2) / 2;
+          doors.push({
+            id: `idoor-${idx++}`, type: "door",
+            x: ax2, y: cy - DOOR_W / 2,
+            width: DOOR_W, height: 7,
+            side: "right", isExterior: false,
+          });
+          placed.add(pairId);
+          continue;
+        }
+      }
+      // Vertical shared wall: b's right === a's left
+      if (Math.abs(bx2 - a.x) < EPS) {
+        const y1 = Math.max(a.y, b.y), y2 = Math.min(ay2, by2);
+        if (y2 - y1 >= MIN_OVERLAP) {
+          const cy = (y1 + y2) / 2;
+          doors.push({
+            id: `idoor-${idx++}`, type: "door",
+            x: a.x, y: cy - DOOR_W / 2,
+            width: DOOR_W, height: 7,
+            side: "left", isExterior: false,
+          });
+          placed.add(pairId);
+          continue;
+        }
+      }
+      // Horizontal shared wall: a's bottom === b's top
+      if (Math.abs(ay2 - b.y) < EPS) {
+        const x1 = Math.max(a.x, b.x), x2 = Math.min(ax2, bx2);
+        if (x2 - x1 >= MIN_OVERLAP) {
+          const cx = (x1 + x2) / 2;
+          doors.push({
+            id: `idoor-${idx++}`, type: "door",
+            x: cx - DOOR_W / 2, y: ay2,
+            width: DOOR_W, height: 7,
+            side: "bottom", isExterior: false,
+          });
+          placed.add(pairId);
+          continue;
+        }
+      }
+      // Horizontal shared wall: b's bottom === a's top
+      if (Math.abs(by2 - a.y) < EPS) {
+        const x1 = Math.max(a.x, b.x), x2 = Math.min(ax2, bx2);
+        if (x2 - x1 >= MIN_OVERLAP) {
+          const cx = (x1 + x2) / 2;
+          doors.push({
+            id: `idoor-${idx++}`, type: "door",
+            x: cx - DOOR_W / 2, y: a.y,
+            width: DOOR_W, height: 7,
+            side: "top", isExterior: false,
+          });
+          placed.add(pairId);
+        }
+      }
+    }
+  }
+  return doors;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -917,11 +1103,21 @@ function generateLocalFloorPlan(params) {
 
   if (stories > 1) placeStairs(rooms, width, depth);
 
-  const doors   = generateGarageDoors(rooms, width, depth);
-  const score   = Math.round((0.82 + Math.random() * 0.15) * 100) / 100;
+  // Auto openings: garage overhead door, front entry door, interior doors
+  // between allowed adjacent rooms, and exterior windows on renderable walls.
+  const garageDoors   = generateGarageDoors(rooms, width, depth);
+  const frontDoor     = generateFrontEntryDoor(rooms, width, depth);
+  const interiorDoors = generateInteriorDoors(rooms);
+  const doors = [
+    ...garageDoors,
+    ...(frontDoor ? [frontDoor] : []),
+    ...interiorDoors,
+  ];
+  const windows = generateExteriorWindows(rooms, width, depth, doors);
+  const score = Math.round((0.82 + Math.random() * 0.15) * 100) / 100;
   return {
     id: `local-${Date.now()}`,
-    width, depth, rooms, doors, windows: [],
+    width, depth, rooms, doors, windows,
     totalSF: rooms.reduce((s, r) => s + (r.w || 0) * (r.h || 0), 0),
     score, stories, style,
   };
@@ -1003,10 +1199,14 @@ function generateUpperFloorPlan(params, refPlan) {
   // No secondary bedrooms — right side left blank for user customization
   // (remaining vertical space intentionally left empty — no closet auto-generated)
 
+  // Auto openings on the upper floor: interior doors between allowed
+  // adjacent rooms and exterior windows on renderable walls.  No exterior
+  // doors or garage doors on upper floors.
+  const doors = generateInteriorDoors(rooms);
+  const windows = generateExteriorWindows(rooms, width, depth, doors);
   return {
     id: `upper-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    width, depth, rooms, doors: [],
-    windows: [], // user-placed only — see note above
+    width, depth, rooms, doors, windows,
     totalSF: rooms.reduce((s, r) => s + r.w * r.h, 0),
     score: Math.round((0.7 + Math.random() * 0.25) * 100) / 100,
     stories, style,
@@ -1749,6 +1949,112 @@ function BlockIcon({ type }) {
   return icons[type] || null;
 }
 
+/* ─── Build furniture placedItems from AI-supplied per-room furniture lists ─── *
+ *  aiRooms: [{ type: "bedroom", label: "...", furniture: ["bed","dresser"] }, ...]
+ *  genRooms: the rooms produced by generateLocalFloorPlan.
+ *
+ *  Matches each AI room to a generated room of the same type (each generated
+ *  room is used at most once), then lines furniture along the room's bottom
+ *  edge so nothing overlaps.  Items unknown to the catalog are skipped, so
+ *  only renderable furniture lands on the canvas.
+ */
+const AI_FURNITURE_SIZES = {
+  sofa:   { w: 4.5, h: 4 },   tv:      { w: 3,   h: 2.5 },
+  bed:    { w: 4.5, h: 5 },   dresser: { w: 3.5, h: 3.5 },
+  oven:   { w: 3,   h: 3 },   fridge:  { w: 2.5, h: 2.5 },
+  toilet: { w: 2,   h: 2.5 }, shower:  { w: 2,   h: 2 },
+  washer: { w: 2.5, h: 2.5 }, dryer:   { w: 2.5, h: 2.5 },
+  table:  { w: 3,   h: 3 },
+};
+
+function buildFurnitureFromAiRooms(aiRooms, genRooms) {
+  if (!Array.isArray(aiRooms) || !Array.isArray(genRooms)) return [];
+  const normType = (t) => (t === "dining-room" ? "dining" : t);
+  const unused = genRooms.map((r, i) => ({ r, i, id: r.id || `gen-${i}` }));
+  const placed = [];
+  let nextId = Date.now();
+  for (const aiRoom of aiRooms) {
+    const aiType = normType(aiRoom.type);
+    const matchIdx = unused.findIndex(({ r }) => normType(r.type) === aiType);
+    if (matchIdx < 0) continue;
+    const { r } = unused.splice(matchIdx, 1)[0];
+    const furniture = (aiRoom.furniture || []).filter((k) => AI_FURNITURE_SIZES[k]);
+    let offset = 0.75;
+    const yEdge = r.y + r.h - 0.5;
+    for (const fKey of furniture) {
+      const sz = AI_FURNITURE_SIZES[fKey];
+      if (offset + sz.w > r.w - 0.75) break;
+      placed.push({
+        id: nextId++,
+        type: fKey,
+        x: Math.round((r.x + offset) * 2) / 2,
+        y: Math.round((yEdge - sz.h) * 2) / 2,
+        w: sz.w,
+        h: sz.h,
+      });
+      offset += sz.w + 0.5;
+    }
+  }
+  return placed;
+}
+
+/* ─── Convert plan.doors / plan.windows into draggable placedItems ─── *
+ *
+ *  Auto-generated openings (front door, interior doors, exterior windows)
+ *  land in plan.doors / plan.windows as OpeningSchema records.  We surface
+ *  them on the canvas as placedItems so the user can drag, resize, or
+ *  delete them like any other catalog block.
+ *
+ *  Garage overhead doors are intentionally skipped — they're huge, tied
+ *  to the garage room, and are re-derived on save by generateGarageDoors.
+ *
+ *  Opening position convention on the plan is CENTER-anchored along the
+ *  wall axis.  PlacedItems use top-left corner, so we offset accordingly.
+ *  Thickness is just cosmetic on the 2D canvas; the 3D pipeline re-reads
+ *  the real opening width via extractOpeningsFromPlacedItems.
+ */
+function buildOpeningPlacedItems(plan) {
+  const items = [];
+  const stamp = Date.now() + 10000;
+  let idx = 0;
+
+  (plan.doors || []).forEach((d) => {
+    if (d.isGarageDoor) return;   // leave garages to the auto-generator
+    const isVertical = d.side === "left" || d.side === "right";
+    const doorW = d.width || 3;
+    const thick = 0.8;
+    const w = isVertical ? thick : doorW;
+    const h = isVertical ? doorW : thick;
+    const x = (isVertical ? d.x : d.x - doorW / 2) - (isVertical ? thick / 2 : 0);
+    const y = (isVertical ? d.y - doorW / 2 : d.y) - (isVertical ? 0 : thick / 2);
+    items.push({
+      id: `door-seed-${stamp}-${idx++}`,
+      type: "door",
+      x, y, w, h,
+      isFrontDoor: !!d.isFrontDoor,
+      seededFrom: "plan.doors",
+    });
+  });
+
+  (plan.windows || []).forEach((w) => {
+    const isVertical = w.side === "left" || w.side === "right";
+    const winW = w.width || 3;
+    const thick = 0.6;
+    const ww = isVertical ? thick : winW;
+    const hh = isVertical ? winW : thick;
+    const x = (isVertical ? w.x : w.x - winW / 2) - (isVertical ? thick / 2 : 0);
+    const y = (isVertical ? w.y - winW / 2 : w.y) - (isVertical ? 0 : thick / 2);
+    items.push({
+      id: `win-seed-${stamp}-${idx++}`,
+      type: "window",
+      x, y, w: ww, h: hh,
+      seededFrom: "plan.windows",
+    });
+  });
+
+  return items;
+}
+
 /* ─── Distribute bedrooms/bathrooms evenly across n stories ─── *
  *  Ground floor gets base allocation (at least 1 if any exist).
  *  Remaining rooms are spread across upper floors, remainder to highest.
@@ -1897,6 +2203,9 @@ export default function FloorPlanEditor() {
      Per-floor state is saved in floorItemsRef so switching floors is non-destructive. */
   const prevPlanIdRef = useRef(null);
   const prevStoryRef = useRef(activeStory);
+  // Tracks whether AI-supplied furniture has already been dropped onto the
+  // active plan for this story, so we don't re-inject on re-renders.
+  const aiFurnitureDoneRef = useRef({});
   useEffect(() => {
     if (!activePlan) return;
     const storyChanged = prevStoryRef.current !== activeStory;
@@ -1917,9 +2226,19 @@ export default function FloorPlanEditor() {
       setPlacedItems(activePlan.placed_items);
     } else {
       const stamp = Date.now();
-      setPlacedItems(
-        activePlan.rooms.map((r, i) => ({ id: `room-${stamp}-${i}`, isRoom: true, ...r }))
-      );
+      const roomItems = activePlan.rooms.map((r, i) => ({ id: `room-${stamp}-${i}`, isRoom: true, ...r }));
+      // First time landing on story 0 via the homeowner AI flow: drop in the
+      // furniture the AI specified per room.  Only runs once per story.
+      const aiRooms = project.generateParams?.aiRooms;
+      const furnitureItems = (activeStory === 0 && aiRooms && !aiFurnitureDoneRef.current[activeStory])
+        ? buildFurnitureFromAiRooms(aiRooms, activePlan.rooms)
+        : [];
+      if (furnitureItems.length > 0) aiFurnitureDoneRef.current[activeStory] = true;
+      // Surface auto-generated doors/windows as draggable placedItems so the
+      // user can reposition them like furniture.  Garage overheads stay on
+      // plan.doors and get re-derived on save.
+      const openingItems = buildOpeningPlacedItems(activePlan);
+      setPlacedItems([...roomItems, ...furnitureItems, ...openingItems]);
     }
     setSelectedItemIdx(-1);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2407,6 +2726,24 @@ export default function FloorPlanEditor() {
   }, [activePlan, placedItems, selectedItemIdx, zoom, getTransform, activeTool, panOffset, annotations]);
 
   /* Build preset floor plan from params — fully local, no API */
+  // Swap the house style without regenerating the floor plan.  Updates the
+  // style field on every story variant + the persisted storyPlans so the
+  // 3D exterior (roof, materials, porch, canopy) reflects the change on
+  // next preview while the 2D room layout stays exactly as the user edited.
+  const handleChangeStyle = useCallback((nextStyle) => {
+    if (!nextStyle || params.style === nextStyle) return;
+    setParams((p) => ({ ...p, style: nextStyle }));
+    setAllStoryVariants((prev) =>
+      prev.map((variants) => variants.map((pv) => ({ ...pv, style: nextStyle })))
+    );
+    // Mirror to the live storyPlans so the 3D preview sees the swap without
+    // requiring a save-to-edit first.
+    if (Array.isArray(project.storyPlans) && project.storyPlans.length > 0) {
+      project.setStoryPlans(project.storyPlans.map((p) => ({ ...p, style: nextStyle })));
+    }
+    setIsDirty(true);
+  }, [params.style, project]);
+
   const handleGenerate = useCallback((overrideParams) => {
     const p = overrideParams || params;
     const storiesToGen = p.stories || 1;
@@ -2591,8 +2928,13 @@ export default function FloorPlanEditor() {
           placed_items: allItems,
           width: bboxW,
           depth: bboxD,
-          doors: [...(plan.doors || []), ...placedDoors, ...generatedGarageDoors],
-          windows: [...(plan.windows || []), ...placedWindows],
+          // Openings are seeded from plan.doors / plan.windows into placedItems
+          // on canvas load, so the canvas is now the single source of truth.
+          // Only auto-generated garage doors (not tracked as placedItems) get
+          // merged in.  The pre-existing non-garage plan.doors would duplicate
+          // placedDoors if we re-included them.
+          doors: [...placedDoors, ...generatedGarageDoors],
+          windows: [...placedWindows],
         };
       })
       .filter(Boolean);
@@ -3091,6 +3433,65 @@ export default function FloorPlanEditor() {
             </svg>
             {project.projectName || "New Project"}
           </div>
+
+          {/* Style selector — compact segmented control, swaps 3D exterior
+              without touching the 2D layout. */}
+          {activePlan && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 3,
+              marginLeft: 6,
+              padding: 3,
+              background: "rgba(26,34,54,0.4)",
+              border: "1px solid #1a2236",
+              borderRadius: 7,
+            }}>
+              {Object.keys(STYLE_CONFIGS).map((key) => {
+                const config = STYLE_CONFIGS[key];
+                const active = params.style === key;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => handleChangeStyle(key)}
+                    title={`${key} style`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "5px 9px",
+                      background: active ? "rgba(0,212,255,0.12)" : "transparent",
+                      border: `1px solid ${active ? "#00d4ff" : "transparent"}`,
+                      borderRadius: 5,
+                      color: active ? "#00d4ff" : "#8a9bb0",
+                      fontFamily: fonts.label,
+                      fontSize: 11,
+                      fontWeight: active ? 700 : 500,
+                      letterSpacing: "0.2px",
+                      cursor: "pointer",
+                      transition: "all 0.14s",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!active) e.currentTarget.style.color = "#c8d0e0";
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!active) e.currentTarget.style.color = "#8a9bb0";
+                    }}
+                  >
+                    <span style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 2,
+                      background: config.materials.wallColor,
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      flexShrink: 0,
+                    }} />
+                    {key}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* Structural validation badge */}
           {placedItems.length > 0 && (
