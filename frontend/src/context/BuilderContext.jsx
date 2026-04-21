@@ -1,4 +1,5 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useState, useEffect } from "react";
+import { projectsApi } from "../services/api";
 
 const BuilderContext = createContext(null);
 
@@ -103,6 +104,50 @@ const INITIAL_PROJECTS = [
 export function BuilderProvider({ children }) {
   const [projects, setProjects] = useState(INITIAL_PROJECTS);
 
+  const fetchApiProjects = () => {
+    projectsApi.available()
+      .then((apiProjects) => {
+        const mapped = apiProjects.map((p) => {
+          let progress = 0;
+          let progressTone = "secondary";
+          const sched = p.schedule;
+          if (sched?.phases?.length) {
+            const done = (sched.manualDone ?? []).length;
+            progress = Math.round((done / sched.phases.length) * 100);
+            progressTone = progress >= 80 ? "accent" : progress >= 40 ? "secondary" : "warn";
+          }
+          return {
+            id: p.id,
+            name: p.name,
+            address: p.location ? `${p.location.city}, ${p.location.state}` : "Location TBD",
+            status: "New Request",
+            client: "Homeowner",
+            cost: { budget: p.generate_params?.budget?.max ?? p.generate_params?.budget?.min ?? 0 },
+            feasibility: { score: 0, zoning: "Pending" },
+            progress,
+            progressTone,
+          };
+        });
+        setProjects((prev) => {
+          const apiMap = new Map(mapped.map((m) => [m.id, m]));
+          // Update progress on any existing project whose ID came back from the API
+          const updated = prev.map((p) => {
+            const api = apiMap.get(p.id);
+            if (api) {
+              apiMap.delete(p.id);
+              return { ...p, progress: api.progress, progressTone: api.progressTone };
+            }
+            return p;
+          });
+          // Append any brand-new API projects not already tracked
+          return [...updated, ...Array.from(apiMap.values())];
+        });
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => { fetchApiProjects(); }, []);
+
   const approveRequest = (id) => {
     setProjects((prev) =>
       prev.map((proj) => {
@@ -127,7 +172,7 @@ export function BuilderProvider({ children }) {
   };
 
   return (
-    <BuilderContext.Provider value={{ projects, approveRequest, denyRequest }}>
+    <BuilderContext.Provider value={{ projects, approveRequest, denyRequest, refreshProjects: fetchApiProjects }}>
       {children}
     </BuilderContext.Provider>
   );

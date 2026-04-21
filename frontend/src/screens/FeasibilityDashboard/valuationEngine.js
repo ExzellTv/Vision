@@ -8,16 +8,16 @@
 
 // ── Valuation constants ───────────────────────────────────────────────────
 export const BUILD_COST_PSF  = 185;   // $/SF new construction (Dallas mid-range, 2026)
-const RENT_PSF        = 1.15;  // $/SF/month rental estimate
-const GRM             = 15;    // Gross Rent Multiplier
-const ADJ_SIZE_PSF    = 125;   // $/SF size adjustment
-const ADJ_AGE_PY      = 1200;  // $ per year age adjustment
+const GRM             = 15;    // Gross Rent Multiplier (used for income approach baseline)
+const ADJ_SIZE_PSF    = 35;    // $/SF size adjustment (realistic paired-sales estimate)
+const ADJ_AGE_PY      = 800;   // $ per year age adjustment
+const ADJ_AGE_MAX_YRS = 20;    // cap age contribution at 20 years
 const ADJ_BED         = 15000; // $ per bedroom difference
 const ADJ_BATH        = 12000; // $ per bathroom difference
 const ADJ_LOT_PSF     = 3.50;  // $/SF lot size adjustment
-const W_SCA           = 0.50;  // SCA weight
-const W_COST          = 0.30;  // Cost approach weight
-const W_INCOME        = 0.20;  // Income approach weight
+const W_SCA           = 0.50;  // SCA weight (at full comp confidence)
+const W_COST          = 0.30;  // Cost approach weight (at full comp confidence)
+const W_INCOME        = 0.20;  // Income approach weight (at full comp confidence)
 const SUBJECT_YEAR    = 2026;
 
 // ── Geospatial helpers ────────────────────────────────────────────────────
@@ -73,6 +73,15 @@ export function computeNearbyComps(loc, radius, comps, radiusEnabled = true) {
   return withDist.filter((c) => c._dist <= radius);
 }
 
+// ── Outlier rejection — removes distressed/non-arm's-length sales ────────
+function rejectOutliers(comps) {
+  if (comps.length < 3) return comps;
+  const prices = [...comps].map((c) => c.sale_price).sort((a, b) => a - b);
+  const mid    = Math.floor(prices.length / 2);
+  const median = prices.length % 2 ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2;
+  return comps.filter((c) => c.sale_price >= median * 0.40 && c.sale_price <= median * 2.20);
+}
+
 // ── Full blended valuation (SCA + Cost + Income) ─────────────────────────
 
 /**
@@ -93,15 +102,17 @@ export function runValuation(loc, selLand, nearbyComps, subjectSF, subjectBeds, 
   const landPrice = selLand?.price  || 0;
 
   // 1. Sales Comparison Approach — inverse-distance weighted adjusted comps
-  const compResults = nearbyComps.slice(0, 7).map((c) => {
+  const cleanedComps = rejectOutliers(nearbyComps.slice(0, 10));
+  const compResults  = cleanedComps.slice(0, 7).map((c) => {
     const dist     = haversine(loc.lat, loc.lng, c.lat, c.lng);
-    const cSf      = c.sf || subjectSF;                          // guard zero/null
-    const cYear    = c.year_built || SUBJECT_YEAR;                // guard missing
-    const cBeds    = c.bedrooms ?? subjectBeds;                   // guard null
-    const cBaths   = c.bathrooms ?? subjectBaths;                 // guard null
-    const cLotSf   = c.lot_sf || lotSf;                          // guard zero/null
+    const cSf      = c.sf || subjectSF;
+    const cYear    = c.year_built || SUBJECT_YEAR;
+    const cBeds    = c.bedrooms ?? subjectBeds;
+    const cBaths   = c.bathrooms ?? subjectBaths;
+    const cLotSf   = c.lot_sf || lotSf;
     const adjSize  = (subjectSF    - cSf)    * ADJ_SIZE_PSF;
-    const adjAge   = (SUBJECT_YEAR - cYear)  * ADJ_AGE_PY;
+    const yrDiff   = Math.min(SUBJECT_YEAR - cYear, ADJ_AGE_MAX_YRS);
+    const adjAge   = yrDiff * ADJ_AGE_PY;
     const adjBed   = (subjectBeds  - cBeds)  * ADJ_BED;
     const adjBath  = (subjectBaths - cBaths) * ADJ_BATH;
     const adjLot   = (lotSf        - cLotSf) * ADJ_LOT_PSF;
@@ -118,13 +129,22 @@ export function runValuation(loc, selLand, nearbyComps, subjectSF, subjectBeds, 
   const buildCost = subjectSF * BUILD_COST_PSF;
   const costValue = landPrice + buildCost;
 
-  // 3. Income Approach — GRM method
-  const monthlyRent = subjectSF * RENT_PSF;
-  const annualRent  = monthlyRent * 12;
-  const incomeValue = annualRent * GRM;
+  // 3. Income Approach — rent derived from local comp price-per-SF (rent-to-value rule)
+  const sortedPricePSF = compResults.length
+    ? compResults.map((r) => r.adjusted / subjectSF).sort((a, b) => a - b)
+    : [BUILD_COST_PSF * 1.15];
+  const medianPricePSF  = sortedPricePSF[Math.floor(sortedPricePSF.length / 2)];
+  const dynamicRentPSF  = Math.max(0.80, Math.min(1.60, medianPricePSF * 0.006));
+  const monthlyRent     = subjectSF * dynamicRentPSF;
+  const annualRent      = monthlyRent * 12;
+  const incomeValue     = annualRent * GRM;
 
-  // 4. Blended ARV
-  const blended = W_SCA * scaValue + W_COST * costValue + W_INCOME * incomeValue;
+  // 4. Blended ARV — shift toward cost approach when few comps (more stable)
+  const compConfidence = Math.min(compResults.length / 5, 1); // 0 comps→0, 5+→1
+  const wSca    = 0.30 + 0.20 * compConfidence;  // 0.30 → 0.50
+  const wCost   = 0.45 - 0.15 * compConfidence;  // 0.45 → 0.30
+  const wIncome = 0.25 - 0.05 * compConfidence;  // 0.25 → 0.20
+  const blended = wSca * scaValue + wCost * costValue + wIncome * incomeValue;
 
   // 5. Investment metrics
   const totalInvestment = landPrice + buildCost;

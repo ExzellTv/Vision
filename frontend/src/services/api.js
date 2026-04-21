@@ -135,8 +135,11 @@ export const complianceApi = {
 // Projects (MongoDB-backed, requires auth)
 export const projectsApi = {
   list: () => request("/projects"),
+  available: () => request("/projects/available"),
   create: (data) => request("/projects", { method: "POST", body: JSON.stringify(data) }),
   get: (id) => request(`/projects/${id}`),
+  getPublic: (id) => request(`/projects/${id}/public`),
   update: (id, data) => request(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  updateSchedule: (id, schedule) => request(`/projects/${id}/schedule`, { method: "PATCH", body: JSON.stringify({ schedule }) }),
   delete: (id) => request(`/projects/${id}`, { method: "DELETE" }),
 };

@@ -1,11 +1,11 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
+
 import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import FeasibilityGauge from "../../components/shared/FeasibilityGauge";
 import StatusBadge from "../../components/shared/StatusBadge";
 
 import LeafletMap from "./LeafletMap";
-import ImportModelModal from "./ImportModelModal";
 import { computeNearbyComps, runValuation, fmtK, fmtUSD, BUILD_COST_PSF } from "./valuationEngine";
 import { generateFeasibilityPDF } from "./pdfReport";
 import { mapApi, projectsApi } from "../../services/api";
@@ -136,6 +136,13 @@ export default function FeasibilityDashboard() {
   const [radius,  setRadius]  = useState(0.75);  // comp search radius (miles)
   const [radiusEnabled, setRadiusEnabled] = useState(true); // radius toggle
 
+  // ── Select Plot state ────────────────────────────────────────────────────
+  const [plotSaved,  setPlotSaved]  = useState(false);
+  const [plotSaving, setPlotSaving] = useState(false);
+
+  // Reset saved state when user picks a different parcel
+  useEffect(() => { setPlotSaved(false); }, [selLand]);
+
   const handleCitySearch = useCallback((city, state) => {
     setSearchCity({ city, state });
     setLoc(null);
@@ -152,10 +159,7 @@ export default function FeasibilityDashboard() {
     handleCitySearch(city, state);
   }, [locationKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Import Model state ───────────────────────────────────────────────
-  const [importedModel,   setImportedModel]   = useState(null);
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [landFilters,     setLandFilters]     = useState(LAND_FILTER_DEFAULT);
+  const [landFilters, setLandFilters] = useState(LAND_FILTER_DEFAULT);
 
   // ── Project-derived subject-property specs ────────────────────────────
   // Base values from the active project store
@@ -166,11 +170,35 @@ export default function FeasibilityDashboard() {
   const style        = project.floorPlan?.style || "traditional";
   const projectName  = project.projectName || "New Project";
 
-  // Override with imported model if present — does NOT mutate useProjectStore
-  const totalSF   = importedModel?.generate_params?.targetSF  ?? storeSF;
-  const stories   = importedModel?.generate_params?.stories   ?? storeStories;
-  const bedrooms  = importedModel?.generate_params?.bedrooms  ?? storeBeds;
-  const bathrooms = importedModel?.generate_params?.bathrooms ?? storeBaths;
+  const totalSF   = storeSF;
+  const stories   = storeStories;
+  const bedrooms  = storeBeds;
+  const bathrooms = storeBaths;
+
+  // Auto-set minimum lot size filter from the active project's footprint
+  useEffect(() => {
+    const gp = project.generateParams || {};
+    let footprintSF;
+    if (gp.lotWidth && gp.lotDepth)           footprintSF = gp.lotWidth * gp.lotDepth;
+    else if (project.totalSF && project.stories) footprintSF = project.totalSF / project.stories;
+    else if (project.totalSF)                 footprintSF = project.totalSF;
+    else return;
+    const minLotSf = Math.max(Math.ceil(footprintSF * 1.75), 3000).toString();
+    setLandFilters((prev) => ({ ...prev, minLotSf }));
+  }, [project.totalSF, project.stories, project.generateParams]);
+
+  // Auto-restore saved plot once land data has loaded (fires after city search completes)
+  useEffect(() => {
+    if (!project.projectId || !liveLand.length || selLand) return;
+    projectsApi.getPublic(project.projectId)
+      .then((p) => {
+        if (!p.plot?.lat || !p.plot?.lng) return;
+        setSelLand(p.plot);
+        setLoc({ lat: p.plot.lat, lng: p.plot.lng });
+        setPlotSaved(true);
+      })
+      .catch(() => {});
+  }, [liveLand]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived analysis values ───────────────────────────────────────────
   const nearbyComps = useMemo(
@@ -184,28 +212,29 @@ export default function FeasibilityDashboard() {
   );
 
 
-  // ── Import Model handlers ─────────────────────────────────────────────
-  const handleImportModel = useCallback((proj) => {
-    setImportedModel(proj);
-    setShowImportModal(false);
-
-    // Compute minimum lot size from project footprint + 1.75× setback buffer
-    const gp = proj.generate_params || {};
-    let footprintSF;
-    if (gp.lotWidth && gp.lotDepth)     footprintSF = gp.lotWidth * gp.lotDepth;
-    else if (gp.targetSF && gp.stories) footprintSF = gp.targetSF / gp.stories;
-    else if (gp.targetSF)               footprintSF = gp.targetSF;
-    else                                footprintSF = 2200;
-
-    const minLotSf = Math.max(Math.ceil(footprintSF * 1.75), 3000).toString();
-    setLandFilters((prev) => ({ ...prev, minLotSf }));
-  }, []);
-
-  const handleClearImport = useCallback(() => {
-    setImportedModel(null);
-    // Reset only minLotSf — other manual filters are preserved
-    setLandFilters((prev) => ({ ...prev, minLotSf: "" }));
-  }, []);
+  // ── Select Plot handler ──────────────────────────────────────────────────
+  const handleSelectPlot = useCallback(async () => {
+    if (!selLand || !project.projectId) return;
+    setPlotSaving(true);
+    try {
+      await projectsApi.update(project.projectId, {
+        plot: {
+          address: selLand.address,
+          lat:     selLand.lat ?? loc?.lat,
+          lng:     selLand.lng ?? loc?.lng,
+          price:   selLand.price,
+          lot_sf:  selLand.lot_sf,
+          zoning:  selLand.zoning,
+          url:     selLand.url ?? null,
+        },
+      });
+      setPlotSaved(true);
+    } catch (_) {
+      // silently fail — no UX disruption
+    } finally {
+      setPlotSaving(false);
+    }
+  }, [selLand, project.projectId, loc]);
 
   // ── Display values: live valuation when available, DEMO otherwise ─────
   const estTotalCost   = Math.round(BUILD_COST_PSF * totalSF);
@@ -601,67 +630,25 @@ export default function FeasibilityDashboard() {
         {/* ── Action Buttons ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: "auto" }}>
 
-          {/* Import Model button / active import badge */}
-          {importedModel ? (
-            <div style={{
-              display:        "flex",
-              alignItems:     "center",
-              justifyContent: "space-between",
-              padding:        "8px 12px",
-              background:     colors.accentDim,
-              border:         `1px solid ${colors.accent}`,
-              borderRadius:   radii.md,
-            }}>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <span style={{
-                  fontFamily:    fonts.label, fontSize: 9, fontWeight: 700,
-                  color:         colors.accent, textTransform: "uppercase",
-                  letterSpacing: "0.6px", display: "block",
-                }}>
-                  Using Model
-                </span>
-                <div style={{
-                  fontFamily:   fonts.data, fontSize: 11, color: colors.textBright,
-                  marginTop:    2,
-                  overflow:     "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  maxWidth:     190,
-                }}>
-                  {importedModel.name || "Untitled Project"}
-                </div>
-              </div>
-              <button
-                onClick={handleClearImport}
-                style={{
-                  background:  "transparent",
-                  border:      "none",
-                  color:       colors.textDim,
-                  fontSize:    18,
-                  cursor:      "pointer",
-                  padding:     "0 4px",
-                  lineHeight:  1,
-                  flexShrink:  0,
-                  marginLeft:  8,
-                }}
-                title="Clear import"
-              >
-                ×
-              </button>
-            </div>
-          ) : (
+          {/* Select Plot — only when a parcel is selected and project is loaded */}
+          {selLand && project.projectId && (
             <button
-              onClick={() => setShowImportModal(true)}
+              onClick={handleSelectPlot}
+              disabled={plotSaving || plotSaved}
               style={{
-                padding:       "12px 0",
-                background:    "transparent",
-                border:        `1px solid ${colors.accent}`,
-                borderRadius:  radii.md,
-                color:         colors.accent,
-                fontFamily:    fonts.label, fontSize: 14, fontWeight: 700,
-                cursor:        "pointer", textAlign: "center",
-                letterSpacing: "0.3px",
+                padding:      "12px 0",
+                background:   plotSaved ? colors.successDim : "transparent",
+                border:       `1px solid ${plotSaved ? colors.success : colors.secondary}`,
+                borderRadius: radii.md,
+                color:        plotSaved ? colors.success : colors.secondary,
+                fontFamily:   fonts.label, fontSize: 14, fontWeight: 700,
+                cursor:       plotSaved || plotSaving ? "default" : "pointer",
+                textAlign:    "center", letterSpacing: "0.3px",
+                opacity:      plotSaving ? 0.6 : 1,
+                transition:   "all 0.2s",
               }}
             >
-              Import Model
+              {plotSaved ? "✓ Plot Selected" : plotSaving ? "Saving…" : "Select Plot"}
             </button>
           )}
 
@@ -679,7 +666,6 @@ export default function FeasibilityDashboard() {
                 bedrooms,
                 bathrooms,
                 style,
-                importedModel,
                 marketStats,
                 demoScore:     DEMO.score,
                 demoCostPSF:   DEMO.costPerSf,
@@ -705,13 +691,6 @@ export default function FeasibilityDashboard() {
       </div>
     </div>
 
-    {/* ── Import Model modal ── */}
-    {showImportModal && (
-      <ImportModelModal
-        onImport={handleImportModel}
-        onClose={() => setShowImportModal(false)}
-      />
-    )}
-    </>
+</>
   );
 }

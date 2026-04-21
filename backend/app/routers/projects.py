@@ -66,6 +66,11 @@ class ProjectUpdate(BaseModel):
     compliance_cache: dict[str, Any] | None = None
     diagnosis_cache: list[dict[str, Any]] | None = None
     location: dict[str, Any] | None = None  # { "city": "Detroit", "state": "MI" }
+    plot: dict[str, Any] | None = None  # selected land parcel { address, lat, lng, price, lot_sf, zoning, url }
+
+
+class ProjectScheduleUpdate(BaseModel):
+    schedule: dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +114,56 @@ async def create_project(
     }
     result = await db.projects.insert_one(doc)
     doc["_id"] = result.inserted_id
+    return _to_json(doc)
+
+
+@router.get("/available")
+async def list_available_projects(
+    db=Depends(get_db),
+) -> list[dict]:
+    """Return all homeowner projects available for builders to claim."""
+    cursor = db.projects.find({}).sort("created_at", -1)
+    docs = await cursor.to_list(200)
+    return [_to_json(d) for d in docs]
+
+
+@router.patch("/{project_id}/schedule")
+async def update_project_schedule(
+    project_id: str,
+    body: ProjectScheduleUpdate,
+    db=Depends(get_db),
+) -> dict:
+    """Update only the schedule field — no user_id check so builders can save to homeowner projects."""
+    try:
+        oid = ObjectId(project_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid project ID")
+
+    updates = {"schedule": body.schedule, "updated_at": datetime.now(timezone.utc)}
+    result = await db.projects.find_one_and_update(
+        {"_id": oid},
+        {"$set": updates},
+        return_document=True,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return _to_json(result)
+
+
+@router.get("/{project_id}/public")
+async def get_project_public(
+    project_id: str,
+    db=Depends(get_db),
+) -> dict:
+    """Read a project without user ownership check — for builders viewing homeowner projects."""
+    try:
+        oid = ObjectId(project_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid project ID")
+
+    doc = await db.projects.find_one({"_id": oid})
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Project not found")
     return _to_json(doc)
 
 

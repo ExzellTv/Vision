@@ -837,7 +837,8 @@ function ScheduleTimelineInner() {
 
       let saved;
       if (project.projectId) {
-        saved = await projectsApi.update(project.projectId, payload);
+        // Use schedule-only endpoint so builders can save to homeowner projects (no user_id enforcement)
+        saved = await projectsApi.updateSchedule(project.projectId, schedulePayload);
       } else {
         saved = await projectsApi.create({ ...payload, notes: "" });
       }
@@ -1132,7 +1133,7 @@ function ScheduleTimelineInner() {
 
         {/* Scrollable rows area */}
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "0 12px" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
             {schedule.map((ph) => {
               const sw       = weeksBetween(projectStart, ph.startDate);
               const leftPct  = totalWeeks > 0 ? (sw / totalWeeks) * 100 : 0;
@@ -1141,10 +1142,14 @@ function ScheduleTimelineInner() {
               const barColor = ph.layerColor ?? CATEGORY_COLOR[ph.category] ?? phaseColor(ph.status);
               const isDone   = ph.status === "complete";
               const isManual = manualDone.has(ph.id);
+              const hasNote  = !!phaseNotes[ph.id];
               return (
                 <div key={ph.id}>
                   {/* ── Row ── */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, minHeight: 26, padding: "2px 0", borderRadius: 4, background: isDone ? "rgba(46,213,115,0.03)" : "transparent", transition: "background 0.2s" }}>
+                  <div
+                    onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.035)"}
+                    onMouseLeave={e => e.currentTarget.style.background = isDone ? "rgba(46,213,115,0.03)" : "transparent"}
+                    style={{ display: "flex", alignItems: "center", gap: 6, minHeight: 44, padding: "6px 8px", borderRadius: 4, border: "1px solid transparent", background: isDone ? "rgba(46,213,115,0.03)" : "transparent", transition: "background 0.2s" }}>
                     {/* Checkbox — builder only */}
                     {!isHomeowner && (
                       <button
@@ -1160,11 +1165,11 @@ function ScheduleTimelineInner() {
                       A{String(ph.id).padStart(2, "0")}
                     </span>
                     {/* Phase name */}
-                    <span style={{ fontFamily: fonts.label, fontSize: 10, width: 130, flexShrink: 0, color: isDone ? colors.textDim : ph.status === "active" ? colors.accent : colors.text, fontWeight: ph.status === "active" ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isDone ? "line-through" : "none", textDecorationColor: colors.success }}>
+                    <span title={ph.name} style={{ fontFamily: fonts.label, fontSize: 10, width: 160, flexShrink: 0, color: isDone ? colors.textDim : ph.status === "active" ? colors.accent : colors.text, fontWeight: ph.status === "active" ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: isDone ? "line-through" : "none", textDecorationColor: colors.success }}>
                       {ph.name}
                     </span>
                     {/* Bar track */}
-                    <div style={{ flex: 1, position: "relative", height: 12, background: colors.cardBorder, borderRadius: 3 }}>
+                    <div style={{ flex: 1, position: "relative", height: 16, background: colors.cardBorder, borderRadius: 4 }}>
                       <div style={{
                         position: "absolute", left: `${leftPct}%`, width: `${widthPct}%`, height: "100%",
                         background: ph.status === "complete"
@@ -1172,7 +1177,7 @@ function ScheduleTimelineInner() {
                           : ph.status === "active"
                             ? `linear-gradient(90deg,${barColor},${barColor}dd)`
                             : barColor,
-                        borderRadius: 3,
+                        borderRadius: 4,
                         opacity: ph.status === "planned" ? 0.35 : ph.status === "complete" ? 0.65 : 1,
                         transition: "all 0.3s ease",
                       }} />
@@ -1210,9 +1215,11 @@ function ScheduleTimelineInner() {
                           <button
                             onClick={() => startEditDuration(ph)}
                             title="Edit phase duration"
-                            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 0 0 2px", color: colors.textDim, display: "flex", alignItems: "center", opacity: 0.5, lineHeight: 1 }}
+                            onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+                            onMouseLeave={e => e.currentTarget.style.opacity = "0.35"}
+                            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 0 0 2px", color: colors.accent, display: "flex", alignItems: "center", opacity: 0.35, lineHeight: 1, transition: "opacity 0.15s" }}
                           >
-                            <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                               <path d="M7 1L9 3L3 9H1V7L7 1Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
                           </button>
@@ -1223,8 +1230,8 @@ function ScheduleTimelineInner() {
                     <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim, width: 80, flexShrink: 0, textAlign: "right", whiteSpace: "nowrap" }}>
                       {fmtDate(ph.startDate)}–{fmtDate(ph.endDate)}
                     </span>
-                    {/* Note button — builder: ⋯ edit; homeowner: dot view (only if note exists) */}
-                    <div style={{ width: 26, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {/* Note button — builder: pill; homeowner: dot view (only if note exists) */}
+                    <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                       {isHomeowner ? (
                         phaseNotes[ph.id] && (
                           <button
@@ -1238,24 +1245,39 @@ function ScheduleTimelineInner() {
                       ) : (
                         <button
                           onClick={() => openNote(ph)}
-                          title={phaseNotes[ph.id] ? "View/edit delay note" : "Add delay note"}
-                          style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 3px", display: "flex", alignItems: "center", gap: 2, borderRadius: 4, transition: "background 0.15s", position: "relative" }}
+                          title={hasNote ? "View/edit delay note" : "Add delay note"}
+                          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}
                         >
-                          <span style={{ fontFamily: fonts.data, fontSize: 13, letterSpacing: 1, lineHeight: 1, color: noteOpenId === ph.id ? colors.accent : colors.textDim }}>⋯</span>
-                          {phaseNotes[ph.id] && (
-                            <span style={{ position: "absolute", top: 1, right: 1, width: 5, height: 5, borderRadius: "50%", background: colors.warn }} />
-                          )}
+                          <div style={{
+                            display: "flex", alignItems: "center", gap: 4,
+                            padding: "3px 8px", borderRadius: 99,
+                            border: `1px solid ${hasNote ? colors.warn : colors.cardBorder}`,
+                            background: hasNote ? "rgba(255,190,0,0.08)" : "transparent",
+                            color: noteOpenId === ph.id ? colors.accent : hasNote ? colors.warn : colors.textDim,
+                            fontFamily: fonts.label, fontSize: 10, fontWeight: 600,
+                            whiteSpace: "nowrap", letterSpacing: "0.3px",
+                            transition: "border-color 0.15s, color 0.15s",
+                          }}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                            {hasNote ? "Note ●" : "Note"}
+                          </div>
                         </button>
                       )}
                     </div>
                     {/* Status badge + MANUAL tag */}
-                    <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 4 }}>
+                    <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 4, paddingRight: 4 }}>
                       {isManual && (
                         <span style={{ fontFamily: fonts.data, fontSize: 7, color: colors.success, background: colors.successDim, padding: "1px 4px", borderRadius: 3 }}>M</span>
                       )}
                       <StatusBadge status={ph.status} />
                     </div>
                   </div>
+
+                  {/* ── Row divider ── */}
+                  <div style={{ height: 1, background: `${colors.cardBorder}55`, margin: "0 -8px" }} />
 
                   {/* ── Note popover — homeowner read-only ── */}
                   {isHomeowner && phaseNotes[ph.id] && noteOpenId === ph.id && (

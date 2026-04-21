@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { colors, fonts, radii, card } from "../../theme/tokens";
 import { useNavigate } from "react-router-dom";
 
@@ -196,9 +197,11 @@ function ProjectCard({ project }) {
 }
 
 export default function ProjectsPage() {
-  const { projects } = useBuilderStore();
+  const { projects, refreshProjects } = useBuilderStore();
   const activeProjects = projects.filter((p) => p.status !== "New Request");
   const pendingRequests = projects.filter((p) => p.status === "New Request");
+
+  useEffect(() => { refreshProjects(); }, []);
 
 
   return (
