@@ -232,18 +232,18 @@ export default function FeasibilityDashboard() {
     if (!selLand || !project.projectId) return;
     setPlotSaving(true);
     try {
-      await projectsApi.update(project.projectId, {
-        plot: {
-          address: selLand.address,
-          lat:     selLand.lat ?? loc?.lat,
-          lng:     selLand.lng ?? loc?.lng,
-          price:   selLand.price,
-          lot_sf:  selLand.lot_sf,
-          zoning:  selLand.zoning,
-          url:     selLand.url ?? null,
-        },
-      });
+      const savedPlot = {
+        address: selLand.address,
+        lat:     selLand.lat ?? loc?.lat,
+        lng:     selLand.lng ?? loc?.lng,
+        price:   selLand.price,
+        lot_sf:  selLand.lot_sf,
+        zoning:  selLand.zoning,
+        url:     selLand.url ?? null,
+      };
+      await projectsApi.update(project.projectId, { plot: savedPlot });
       setPlotSaved(true);
+      setDbProject((prev) => prev ? { ...prev, plot: savedPlot } : prev);
     } catch (_) {
       // silently fail — no UX disruption
     } finally {

@@ -143,3 +143,11 @@ export const projectsApi = {
   updateSchedule: (id, schedule) => request(`/projects/${id}/schedule`, { method: "PATCH", body: JSON.stringify({ schedule }) }),
   delete: (id) => request(`/projects/${id}`, { method: "DELETE" }),
 };
+
+export const builderRequestsApi = {
+  create: (data) => request("/builder-requests", { method: "POST", body: JSON.stringify(data) }),
+  list: () => request("/builder-requests"),
+  allPending: () => request("/builder-requests/all-pending"),
+  allApproved: () => request("/builder-requests/all-approved"),
+  updateStatus: (id, status) => request(`/builder-requests/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
+};

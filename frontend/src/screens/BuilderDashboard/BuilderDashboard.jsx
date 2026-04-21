@@ -1,8 +1,19 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { colors, fonts, radii, card } from "../../theme/tokens";
 import { useNavigate } from "react-router-dom";
 
 import { useBuilderStore } from "../../context/BuilderContext";
+import { projectsApi } from "../../services/api";
+
+function derivePhaseAndProgress(schedule) {
+  if (!schedule?.phases?.length) return { phase: "Planning", progress: 0 };
+  const phases = schedule.phases;
+  const completed = phases.filter(p => p.status === "complete").length;
+  const active = phases.find(p => p.status === "active");
+  const progress = Math.round((completed / phases.length) * 100);
+  const phase = active?.name ?? (completed === phases.length ? "Complete" : "Planning");
+  return { phase, progress };
+}
 
 
 const statusStyles = {
@@ -198,10 +209,27 @@ function ProjectCard({ project }) {
 
 export default function ProjectsPage() {
   const { projects, refreshProjects } = useBuilderStore();
+  const [scheduleMap, setScheduleMap] = useState({});
   const activeProjects = projects.filter((p) => p.status !== "New Request");
   const pendingRequests = projects.filter((p) => p.status === "New Request");
 
   useEffect(() => { refreshProjects(); }, []);
+
+  // Fetch schedules for active projects to derive real phase/progress
+  useEffect(() => {
+    const mongoIds = activeProjects
+      .map(p => p.id)
+      .filter(id => /^[a-f\d]{24}$/i.test(id));
+    if (!mongoIds.length) return;
+    Promise.all(mongoIds.map(id => projectsApi.getPublic(id).catch(() => null)))
+      .then(results => {
+        const map = {};
+        results.forEach((p, i) => {
+          if (p) map[mongoIds[i]] = derivePhaseAndProgress(p.schedule);
+        });
+        setScheduleMap(map);
+      });
+  }, [activeProjects.length]);
 
 
   return (
@@ -307,9 +335,11 @@ export default function ProjectsPage() {
           gap: "28px",
           paddingBottom: "32px"
         }}>
-          {activeProjects.map((project) => (
-            <ProjectCard key={project.id} project={project} />
-          ))}
+          {activeProjects.map((project) => {
+            const sched = scheduleMap[project.id];
+            const enriched = sched ? { ...project, phase: sched.phase, progress: sched.progress } : project;
+            return <ProjectCard key={project.id} project={enriched} />;
+          })}
         </div>
       </main>
     </div>

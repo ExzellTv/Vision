@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { colors, fonts } from "../../theme/tokens";
-import { projectsApi } from "../../services/api";
+import { projectsApi, builderRequestsApi } from "../../services/api";
 
 const C = {
   bg: colors.bg,
@@ -122,10 +122,7 @@ function getProjectReadiness(proj) {
   const reasons = [];
   const fp = proj.floor_plan || proj.floorPlan;
   if (!fp?.rooms?.length) reasons.push("No floor plan generated");
-  const mats = proj.materials;
-  if (!mats?.length) reasons.push("No materials selected");
-  const hasSchedule = proj.schedule != null || (proj.max_step ?? proj.maxStep ?? 0) >= 4;
-  if (!hasSchedule) reasons.push("No construction schedule");
+  if (proj.plot?.lat == null || proj.plot?.lng == null) reasons.push("No plot selected");
   return { ready: reasons.length === 0, reasons };
 }
 
@@ -145,7 +142,12 @@ function RequestModal({ builder, onClose }) {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [sent, setSent] = useState(null);
+  // selected = project the user clicked; confirmed = request was sent
+  const [selected, setSelected] = useState(null);
+  const [submitting, setSubmitting] = useState(null);  // project id currently being submitted
+  const [confirmed, setConfirmed] = useState(null);    // project id successfully sent
+  const [submitError, setSubmitError] = useState(null);
+  const [sentProjectIds, setSentProjectIds] = useState(new Set());
 
   const load = async () => {
     setLoading(true);
@@ -163,19 +165,263 @@ function RequestModal({ builder, onClose }) {
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    builderRequestsApi.list()
+      .then((reqs) => {
+        const ids = new Set(
+          reqs
+            .filter((r) => String(r.builder_id) === String(builder.id))
+            .map((r) => r.project_id)
+        );
+        setSentProjectIds(ids);
+      })
+      .catch(() => {});
+  }, [builder.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === "Escape") {
+        if (selected && !confirmed) { setSelected(null); return; }
+        onClose();
+      }
+    };
     globalThis.addEventListener("keydown", handler);
     return () => globalThis.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [onClose, selected, confirmed]);
 
+  // ── Detail view (after picking a project) ──────────────────────────────────
+  const DetailView = ({ proj }) => {
+    const gp = proj.generate_params || {};
+    const fp = proj.floor_plan || proj.floorPlan || {};
+    const rooms = fp.rooms || [];
+    const bedrooms = rooms.filter((r) => r.type?.toLowerCase().includes("bed")).length || gp.bedrooms || "—";
+    const bathrooms = gp.bathrooms || "—";
+    const computedSF = rooms.reduce((s, r) => s + (r.w || r.width || 0) * (r.h || r.height || r.depth || 0), 0);
+    const totalSF = fp.totalSF || computedSF || gp.targetSF || "—";
+    const stories = gp.stories || 1;
+    const style = gp.style || "—";
+    const budget = gp.budget?.max ?? gp.budget?.min;
+    const landCost = proj.plot?.price;
+    const totalCost = budget && landCost ? budget + landCost : null;
+    // Physical address from saved plot; fallback to city/state from location
+    const physicalAddress = proj.plot?.address || null;
+    const cityState = proj.location ? `${proj.location.city}, ${proj.location.state}` : null;
+    const displayAddress = physicalAddress || cityState;
+
+    const stats = [
+      { label: "Size", value: totalSF !== "—" ? `${Number(totalSF).toLocaleString()} SF` : "—" },
+      { label: "Bedrooms", value: bedrooms },
+      { label: "Bathrooms", value: bathrooms },
+      { label: "Stories", value: stories },
+      { label: "Style", value: style },
+      { label: "Construction Budget", value: budget ? `$${Number(budget).toLocaleString()}` : "—" },
+      { label: "Land Cost", value: landCost ? `$${Number(landCost).toLocaleString()}` : "—" },
+      { label: "Total Est. Cost", value: totalCost ? `$${Number(totalCost).toLocaleString()}` : "—" },
+    ];
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        {/* Back + title */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "18px 24px 14px", borderBottom: `1px solid ${C.cardBorder}`, flexShrink: 0,
+        }}>
+          <button
+            onClick={() => setSelected(null)}
+            style={{
+              background: "transparent", border: `1px solid ${C.cardBorder}`, borderRadius: 6,
+              color: C.text, fontSize: 13, cursor: "pointer", padding: "4px 10px",
+              fontFamily: fonts.label, display: "flex", alignItems: "center", gap: 5,
+            }}
+          >
+            ← Back
+          </button>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.textBright, fontFamily: fonts.label }}>
+              {proj.name || "Untitled Project"}
+            </div>
+            {displayAddress && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: C.text, marginTop: 3, fontFamily: fonts.label }}>
+                <svg width="9" height="12" viewBox="0 0 10 12" fill="none" style={{ flexShrink: 0 }}>
+                  <path d="M5 0C2.79 0 1 1.79 1 4c0 3 4 8 4 8s4-5 4-8c0-2.21-1.79-4-4-4Z" fill={C.secondary} />
+                  <circle cx="5" cy="4" r="1.5" fill="rgba(10,18,32,0.9)" />
+                </svg>
+                {displayAddress}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            style={{ marginLeft: "auto", background: "transparent", border: "none", color: C.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1 }}
+          >×</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
+
+          {/* Stats grid */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 12, fontFamily: fonts.label }}>
+              Project Details
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {stats.map(({ label, value }) => (
+                <div key={label} style={{
+                  background: "rgba(0,0,0,0.25)", border: `1px solid ${C.cardBorder}`,
+                  borderRadius: 8, padding: "12px 14px",
+                }}>
+                  <div style={{ fontSize: 10, color: C.textDim, fontFamily: fonts.label, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    {label}
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: C.textBright, fontFamily: fonts.label }}>
+                    {String(value)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Floor plan rooms */}
+          {rooms.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 10, fontFamily: fonts.label }}>
+                Floor Plan — {rooms.length} Rooms
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {rooms.map((r, i) => (
+                  <div key={i} style={{
+                    padding: "5px 10px", background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)",
+                    borderRadius: 6, fontSize: 12, color: C.secondary, fontFamily: fonts.label,
+                  }}>
+                    {r.name || r.type || `Room ${i + 1}`}
+                    {r.width && r.depth ? ` · ${r.width}×${r.depth}` : ""}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Plot status */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "12px 16px", borderRadius: 8,
+            background: proj.plot?.lat != null ? "rgba(46,213,115,0.07)" : "rgba(255,159,67,0.07)",
+            border: `1px solid ${proj.plot?.lat != null ? "rgba(46,213,115,0.2)" : "rgba(255,159,67,0.2)"}`,
+          }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+              background: proj.plot?.lat != null ? C.success : "#ff9f43",
+            }} />
+            <span style={{ fontSize: 13, fontFamily: fonts.label, color: proj.plot?.lat != null ? C.success : "#ff9f43", fontWeight: 600 }}>
+              {proj.plot?.lat != null ? "Plot location saved" : "No plot selected"}
+            </span>
+          </div>
+
+          {/* Sending to builder summary */}
+          <div style={{
+            padding: "14px 16px", background: "rgba(0,212,255,0.05)", border: `1px solid rgba(0,212,255,0.15)`,
+            borderRadius: 8,
+          }}>
+            <div style={{ fontSize: 11, color: C.textDim, fontFamily: fonts.label, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.6px" }}>
+              Sending to
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.textBright, fontFamily: fonts.label }}>
+              {builder.name}
+            </div>
+            <div style={{ fontSize: 12, color: C.text, fontFamily: fonts.label, marginTop: 2 }}>
+              {builder.company} · {builder.specialty}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer — confirm button */}
+        <div style={{ borderTop: `1px solid ${C.cardBorder}`, padding: "16px 24px", flexShrink: 0 }}>
+          {confirmed === proj.id ? (
+            <div style={{
+              padding: "12px 16px", background: "rgba(46,213,115,0.1)", border: "1px solid rgba(46,213,115,0.25)",
+              borderRadius: 8, fontSize: 14, color: C.success, fontFamily: fonts.label, textAlign: "center", fontWeight: 600,
+            }}>
+              ✓ Request sent! {builder.name} will review your project.
+            </div>
+          ) : sentProjectIds.has(proj.id) ? (
+            <div style={{
+              padding: "12px 16px", background: "rgba(139,157,184,0.07)", border: `1px solid ${C.cardBorder}`,
+              borderRadius: 8, fontSize: 14, color: C.text, fontFamily: fonts.label, textAlign: "center", fontWeight: 600,
+            }}>
+              Already requested — choose a different builder to send again
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {submitError && (
+                <div style={{ fontSize: 12, color: "#ff4757", fontFamily: fonts.label, textAlign: "center" }}>
+                  {submitError}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={() => setSelected(null)}
+                  disabled={submitting === proj.id}
+                  style={{
+                    flex: 1, padding: "11px 0", background: "transparent",
+                    border: `1px solid ${C.cardBorder}`, borderRadius: 8,
+                    color: C.textDim, fontSize: 13, fontWeight: 600,
+                    cursor: submitting === proj.id ? "default" : "pointer", fontFamily: fonts.label,
+                    opacity: submitting === proj.id ? 0.5 : 1,
+                  }}
+                >
+                  Back
+                </button>
+                <button
+                  disabled={submitting === proj.id}
+                  onClick={async () => {
+                    setSubmitting(proj.id);
+                    setSubmitError(null);
+                    try {
+                      const gp = proj.generate_params || {};
+                      const budget = gp.budget?.max ?? gp.budget?.min ?? null;
+                      const address = proj.plot?.address ||
+                        (proj.location ? `${proj.location.city}, ${proj.location.state}` : null);
+                      await builderRequestsApi.create({
+                        project_id: proj.id,
+                        project_name: proj.name || "Untitled Project",
+                        builder_id: builder.id,
+                        builder_name: builder.name,
+                        builder_company: builder.company,
+                        budget,
+                        address,
+                      });
+                      setConfirmed(proj.id);
+                      setSentProjectIds((prev) => new Set([...prev, proj.id]));
+                    } catch (e) {
+                      setSubmitError(e.message || "Failed to send request. Please try again.");
+                    } finally {
+                      setSubmitting(null);
+                    }
+                  }}
+                  style={{
+                    flex: 1, padding: "11px 0",
+                    background: submitting === proj.id ? "rgba(59,130,246,0.5)" : "linear-gradient(135deg, #3b82f6, #1d4ed8)",
+                    border: "none", borderRadius: 8,
+                    color: "#fff", fontSize: 14, fontWeight: 700,
+                    cursor: submitting === proj.id ? "default" : "pointer", fontFamily: fonts.label,
+                    letterSpacing: "0.2px", transition: "background 0.15s",
+                  }}
+                >
+                  {submitting === proj.id ? "Sending…" : "Send Request →"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ── List view (pick a project) ─────────────────────────────────────────────
   const modal = (
-    <div
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.76)",
-        zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
-      }}
-    >
-      {/* Backdrop click area */}
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.76)",
+      zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
       <button
         aria-label="Close dialog"
         onClick={onClose}
@@ -185,158 +431,153 @@ function RequestModal({ builder, onClose }) {
         open
         style={{
           position: "relative",
-          background: C.card, border: `1px solid ${C.cardBorder}`, borderRadius: 12,
-          width: 500, maxHeight: 560, display: "flex", flexDirection: "column", overflow: "hidden",
+          background: C.card, border: `1px solid ${C.cardBorder}`, borderRadius: 14,
+          width: 620, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden",
           padding: 0, margin: 0,
         }}
       >
-        {/* Header */}
-        <div style={{
-          display: "flex", alignItems: "flex-start", justifyContent: "space-between",
-          padding: "18px 20px 14px", borderBottom: `1px solid ${C.cardBorder}`, flexShrink: 0,
-        }}>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: C.textBright, fontFamily: fonts.label }}>
-              Request Builder
-            </div>
-            <div style={{ fontSize: 11, color: C.text, marginTop: 3, fontFamily: fonts.label }}>
-              Select a project to send to <span style={{ color: C.textBright }}>{builder.name}</span>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: "transparent", border: "none", color: C.textDim,
-              fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px",
-            }}
-          >×</button>
-        </div>
-
-        {/* Body */}
-        <div style={{ flex: 1, overflowY: "auto" }}>
-          {loading && (
-            <div style={{ padding: "52px 0", textAlign: "center", fontSize: 12, color: C.textDim, fontFamily: fonts.label }}>
-              Loading projects…
-            </div>
-          )}
-
-          {!loading && error && (
-            <div style={{ padding: "40px 24px", textAlign: "center" }}>
-              <div style={{ fontSize: 12, color: "#ff4757", marginBottom: 12, fontFamily: fonts.label }}>{error}</div>
-              <button
-                onClick={load}
-                style={{
-                  padding: "7px 18px", background: "transparent", border: `1px solid ${C.accent}`,
-                  borderRadius: 6, color: C.accent, fontSize: 12, cursor: "pointer", fontFamily: fonts.label,
-                }}
-              >
-                Retry
-              </button>
-            </div>
-          )}
-
-          {!loading && !error && projects.length === 0 && (
-            <div style={{ padding: "52px 24px", textAlign: "center" }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: C.textBright, marginBottom: 6, fontFamily: fonts.label }}>
-                No saved projects
+        {selected ? <DetailView proj={selected} /> : (
+          <>
+            {/* Header */}
+            <div style={{
+              display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+              padding: "20px 24px 16px", borderBottom: `1px solid ${C.cardBorder}`, flexShrink: 0,
+            }}>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: C.textBright, fontFamily: fonts.label }}>
+                  Choose a Project
+                </div>
+                <div style={{ fontSize: 12, color: C.text, marginTop: 4, fontFamily: fonts.label }}>
+                  Requesting <span style={{ color: C.textBright, fontWeight: 600 }}>{builder.name}</span> — select the project you want to build
+                </div>
               </div>
-              <div style={{ fontSize: 11, color: C.textDim, lineHeight: 1.65, fontFamily: fonts.label }}>
-                Create a project in the Develop tab first, then return here to send it.
-              </div>
-            </div>
-          )}
-
-          {!loading && !error && projects.map((proj) => {
-            const { ready, reasons } = getProjectReadiness(proj);
-            const gp = proj.generate_params || {};
-            return (
               <button
-                key={proj.id}
-                disabled={!ready}
-                onClick={() => setSent(proj)}
-                style={{
-                  display: "block",
-                  width: "100%",
-                  textAlign: "left",
-                  padding: "14px 20px",
-                  borderBottom: `1px solid ${C.cardBorder}`,
-                  background: "transparent",
-                  border: "none",
-                  opacity: ready ? 1 : 0.65,
-                  cursor: ready ? "pointer" : "default",
-                  transition: "background 0.12s",
-                  fontFamily: fonts.label,
-                }}
-                onMouseEnter={(e) => { if (ready) e.currentTarget.style.background = "rgba(0,212,255,0.04)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: C.textBright, fontFamily: fonts.label, marginBottom: 3 }}>
-                      {proj.name || "Untitled Project"}
-                    </div>
-                    {gp.targetSF ? (
-                      <div style={{ fontSize: 10, color: C.textDim, fontFamily: fonts.label }}>
-                        {gp.targetSF.toLocaleString()} SF · {gp.bedrooms ?? "—"}bd / {gp.bathrooms ?? "—"}ba · {gp.stories ?? 1}-story
-                      </div>
-                    ) : null}
-                    {!ready && (
-                      <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
-                        {reasons.map((r) => (
-                          <div key={r} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                            <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#ff9f43", flexShrink: 0 }} />
-                            <span style={{ fontSize: 10, color: "#ff9f43", fontFamily: fonts.label }}>{r}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0, marginLeft: 16 }}>
-                    <div style={{ fontSize: 9, color: C.textDim, fontFamily: fonts.label }}>{timeAgo(proj.updated_at)}</div>
-                    {ready ? (
-                      <div style={{
-                        padding: "3px 8px", background: "rgba(46,213,115,0.1)", border: "1px solid rgba(46,213,115,0.25)",
-                        borderRadius: 4, fontSize: 10, fontWeight: 600, color: C.success, fontFamily: fonts.label,
-                      }}>
-                        READY
-                      </div>
-                    ) : (
-                      <div style={{
-                        padding: "3px 8px", background: "rgba(255,159,67,0.1)", border: "1px solid rgba(255,159,67,0.25)",
-                        borderRadius: 4, fontSize: 10, fontWeight: 600, color: "#ff9f43", fontFamily: fonts.label,
-                      }}>
-                        INCOMPLETE
-                      </div>
-                    )}
+                onClick={onClose}
+                style={{ background: "transparent", border: "none", color: C.textDim, fontSize: 24, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}
+              >×</button>
+            </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
+              {loading && (
+                <div style={{ padding: "60px 0", textAlign: "center", fontSize: 13, color: C.textDim, fontFamily: fonts.label }}>
+                  Loading projects…
+                </div>
+              )}
+              {!loading && error && (
+                <div style={{ padding: "40px 24px", textAlign: "center" }}>
+                  <div style={{ fontSize: 13, color: "#ff4757", marginBottom: 12, fontFamily: fonts.label }}>{error}</div>
+                  <button onClick={load} style={{ padding: "7px 18px", background: "transparent", border: `1px solid ${C.accent}`, borderRadius: 6, color: C.accent, fontSize: 12, cursor: "pointer", fontFamily: fonts.label }}>
+                    Retry
+                  </button>
+                </div>
+              )}
+              {!loading && !error && projects.length === 0 && (
+                <div style={{ padding: "60px 24px", textAlign: "center" }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: C.textBright, marginBottom: 8, fontFamily: fonts.label }}>No saved projects</div>
+                  <div style={{ fontSize: 12, color: C.textDim, lineHeight: 1.65, fontFamily: fonts.label }}>
+                    Create a project in the Develop tab first, then return here to send it.
                   </div>
                 </div>
-              </button>
-            );
-          })}
-        </div>
+              )}
+              {!loading && !error && projects.map((proj) => {
+                const { ready, reasons } = getProjectReadiness(proj);
+                const gp = proj.generate_params || {};
+                const fp = proj.floor_plan || proj.floorPlan || {};
+                const rooms = fp.rooms || [];
+                const listComputedSF = rooms.reduce((s, r) => s + (r.w || r.width || 0) * (r.h || r.height || r.depth || 0), 0);
+                const listSF = fp.totalSF || listComputedSF || gp.targetSF;
+                const isSent = confirmed === proj.id;
+                return (
+                  <div
+                    key={proj.id}
+                    style={{
+                      padding: "16px 24px", borderBottom: `1px solid ${C.cardBorder}`,
+                      opacity: ready ? 1 : 0.55,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
+                      {/* Left: project info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: C.textBright, fontFamily: fonts.label }}>
+                            {proj.name || "Untitled Project"}
+                          </div>
+                          <div style={{
+                            padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, fontFamily: fonts.label,
+                            background: ready ? "rgba(46,213,115,0.1)" : "rgba(255,159,67,0.1)",
+                            border: `1px solid ${ready ? "rgba(46,213,115,0.25)" : "rgba(255,159,67,0.25)"}`,
+                            color: ready ? C.success : "#ff9f43",
+                            flexShrink: 0,
+                          }}>
+                            {ready ? "READY" : "INCOMPLETE"}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 12, color: C.text, fontFamily: fonts.label, marginBottom: ready ? 0 : 8 }}>
+                          {listSF ? `${Number(listSF).toLocaleString()} SF` : "—"}
+                          {gp.bedrooms ? ` · ${gp.bedrooms} bd` : ""}
+                          {gp.bathrooms ? ` / ${gp.bathrooms} ba` : ""}
+                          {gp.stories ? ` · ${gp.stories}-story` : ""}
+                          {rooms.length > 0 ? ` · ${rooms.length} rooms` : ""}
+                        </div>
+                        {!ready && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                            {reasons.map((r) => (
+                              <div key={r} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#ff9f43", flexShrink: 0 }} />
+                                <span style={{ fontSize: 11, color: "#ff9f43", fontFamily: fonts.label }}>{r}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
 
-        {/* Footer */}
-        <div style={{ borderTop: `1px solid ${C.cardBorder}`, padding: "14px 20px", flexShrink: 0 }}>
-          {sent ? (
-            <div style={{
-              padding: "10px 16px", background: "rgba(46,213,115,0.1)", border: "1px solid rgba(46,213,115,0.25)",
-              borderRadius: 8, fontSize: 13, color: C.success, fontFamily: fonts.label, textAlign: "center",
-            }}>
-              Request sent! <span style={{ color: C.textBright }}>{builder.name}</span> will review <span style={{ color: C.textBright }}>{sent.name}</span>.
+                      {/* Right: actions */}
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, flexShrink: 0 }}>
+                        <div style={{ fontSize: 11, color: C.textDim, fontFamily: fonts.label }}>{timeAgo(proj.updated_at)}</div>
+                        {isSent || sentProjectIds.has(proj.id) ? (
+                          <div style={{
+                            padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700,
+                            fontFamily: fonts.label, color: isSent ? C.success : C.text,
+                            background: isSent ? "rgba(46,213,115,0.1)" : "rgba(139,157,184,0.07)",
+                            border: `1px solid ${isSent ? "rgba(46,213,115,0.25)" : C.cardBorder}`,
+                          }}>
+                            {isSent ? "✓ Sent" : "Already Requested"}
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setSelected(proj)}
+                            style={{
+                              padding: "6px 14px", background: "transparent",
+                              border: `1px solid ${C.cardBorder}`, borderRadius: 6,
+                              color: C.text, fontSize: 12, cursor: "pointer", fontFamily: fonts.label,
+                            }}
+                          >
+                            View Details →
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          ) : (
-            <button
-              onClick={onClose}
-              style={{
-                width: "100%", padding: "9px 0", background: "transparent",
-                border: `1px solid ${C.cardBorder}`, borderRadius: 8,
-                color: C.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: fonts.label,
-              }}
-            >
-              Cancel
-            </button>
-          )}
-        </div>
+
+            {/* Footer */}
+            <div style={{ borderTop: `1px solid ${C.cardBorder}`, padding: "14px 24px", flexShrink: 0 }}>
+              <button
+                onClick={onClose}
+                style={{
+                  width: "100%", padding: "10px 0", background: "transparent",
+                  border: `1px solid ${C.cardBorder}`, borderRadius: 8,
+                  color: C.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: fonts.label,
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
       </dialog>
     </div>
   );
@@ -654,6 +895,13 @@ export default function Browse() {
           </div>
         ))}
       </div>
+
+      {requestBuilder && (
+        <RequestModal
+          builder={requestBuilder}
+          onClose={() => setRequestBuilder(null)}
+        />
+      )}
     </div>
   );
 }

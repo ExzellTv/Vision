@@ -740,7 +740,10 @@ export default function LeafletMap({
         <button onClick={() => mapI.current?.zoomIn()}  style={zoomBtn} title="Zoom in">+</button>
         <button onClick={() => mapI.current?.zoomOut()} style={zoomBtn} title="Zoom out">−</button>
         <button
-          onClick={() => mapI.current?.setView([32.7767, -96.797], 12)}
+          onClick={() => {
+            const target = loc ?? searchCentroid ?? { lat: 32.7767, lng: -96.797 };
+            mapI.current?.setView([target.lat, target.lng], 13);
+          }}
           style={{ ...zoomBtn, marginTop: 4, fontSize: 13 }}
           title="Reset view"
         >
