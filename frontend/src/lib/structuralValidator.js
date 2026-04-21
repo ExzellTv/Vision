@@ -132,11 +132,11 @@ function checkFloor2Ratio(storyPlans, violations) {
   if (ratio > THRESHOLDS.MAX_FLOOR2_RATIO) {
     violations.push({
       id: "floor2-ratio",
-      severity: "blocking",
-      message: `Your second floor is bigger than the first floor can support, which would leave parts of it hanging in midair.`,
+      severity: "warning",
+      message: `Your second floor is notably larger than your first floor — worth reviewing proportions, but still buildable.`,
       affectedRoomIds: (storyPlans[1].rooms || []).map((r) => r.id).filter(Boolean),
       autoFixAvailable: true,
-      autoFixDescription: "Scale the second floor down to match the foundation.",
+      autoFixDescription: "Scale the second floor down to better match the foundation.",
     });
   }
 }
@@ -165,8 +165,8 @@ function checkRoomMinDimensions(storyPlans, violations) {
         const floorLabel = storyPlans.length > 1 ? (storyIdx === 0 ? " on the first floor" : " on the second floor") : "";
         violations.push({
           id: `room-narrow-${storyIdx}-${room.id || room.label || Math.random().toString(36).slice(2, 6)}`,
-          severity: "blocking",
-          message: `The ${friendlyRoomName(room)}${floorLabel} is too narrow to be livable.`,
+          severity: "warning",
+          message: `The ${friendlyRoomName(room)}${floorLabel} is on the narrow side — may be tight for daily use.`,
           affectedRoomIds: room.id ? [room.id] : [],
           autoFixAvailable: true,
           autoFixDescription: "Widen it to a comfortable size.",
@@ -210,11 +210,11 @@ function checkFloatingRooms(storyPlans, violations) {
     if (!supported) {
       violations.push({
         id: `floating-${room.id || room.label || Math.random().toString(36).slice(2, 6)}`,
-        severity: "blocking",
-        message: `The ${friendlyRoomName(room)} on the second floor isn't sitting over anything on the first floor — it has nothing to rest on.`,
+        severity: "warning",
+        message: `The ${friendlyRoomName(room)} on the second floor may need additional support below — review framing plan.`,
         affectedRoomIds: room.id ? [room.id] : [],
         autoFixAvailable: true,
-        autoFixDescription: "Move it over a first-floor room so it has support below.",
+        autoFixDescription: "Move it over a first-floor room so it has clear support below.",
       });
     }
   });

@@ -196,6 +196,25 @@ export function ProjectProvider({ children }) {
     });
   }, [demoLoaded, projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep, projectLocation]);
 
+  /* Force an immediate localStorage write — used when the caller has just
+   * queued a state update (e.g. setStoryPlans) but wants the new values
+   * persisted right now rather than waiting for the next useEffect cycle.
+   * Pass the changed keys in `overrides`; everything else comes from the
+   * current closure snapshot. */
+  const persistNow = useCallback((overrides = {}) => {
+    writePersistedProject({
+      projectName,
+      floorPlan,
+      storyPlans,
+      generateParams,
+      materials,
+      buildingContext,
+      maxStep,
+      projectLocation,
+      ...overrides,
+    });
+  }, [projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep, projectLocation]);
+
   /* Reset entire project state for a clean "new project" flow */
   const resetProject = useCallback(() => {
     clearPersistedProject();
@@ -264,6 +283,7 @@ export function ProjectProvider({ children }) {
     savedSchedule, setSavedSchedule,
     projectLocation, setProjectLocation,
     resetProject,
+    persistNow,
     // Derived
     totalSF, stories, footprintWidth, footprintDepth,
     normalizeVariant,

@@ -147,6 +147,9 @@ export default function House3DPreview() {
     setUndoSnapshot(allStoryPlans);
     const { fixedStoryPlans, appliedFixes: fixes } = autoFixStoryPlans(allStoryPlans, "all");
     project.setStoryPlans(fixedStoryPlans);
+    // Write to localStorage immediately — don't wait for the store's useEffect
+    // to fire, in case the user navigates before the next render cycle.
+    project.persistNow({ storyPlans: fixedStoryPlans, floorPlan: fixedStoryPlans[0] ?? null });
     setAppliedFixes(fixes);
     setShowFixBanner(true);
     // Auto-hide the success banner after 6s (user can still open "what changed")
@@ -167,6 +170,7 @@ export default function House3DPreview() {
     setUndoSnapshot(allStoryPlans);
     const { fixedStoryPlans, appliedFixes: fixes } = autoFixStoryPlans(allStoryPlans, [violationId]);
     project.setStoryPlans(fixedStoryPlans);
+    project.persistNow({ storyPlans: fixedStoryPlans, floorPlan: fixedStoryPlans[0] ?? null });
     setAppliedFixes(fixes);
     setShowFixBanner(true);
     setTimeout(() => setShowFixBanner(false), 6000);

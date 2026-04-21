@@ -203,20 +203,23 @@ export function autoFixStoryPlans(storyPlans, violationIds) {
   const fixAll = violationIds === "all";
   const ids = new Set(fixAll ? [] : (violationIds || []));
 
-  // Order matters: grow the first floor before scaling the second so
-  // ratios settle, then trim overhangs, then re-seat floating rooms,
-  // then fix narrow rooms last (widening might otherwise undo trims).
+  // "Fix All" only addresses genuinely structural (blocking) issues:
+  // cantilever overhangs and an undersized first floor.  Proportion
+  // warnings (floor2-ratio, narrow rooms, floating) are left as-is
+  // so the auto-fix never radically reshapes what the user designed.
+  // Individual per-violation fixes still work for all violation types.
   if (fixAll || ids.has("floor1-too-small"))   fixFloor1TooSmall(next, appliedFixes);
-  if (fixAll || ids.has("floor2-ratio"))       fixFloor2Ratio(next, appliedFixes);
   if (fixAll || [...ids].some((id) => id.startsWith("cantilever-"))) {
     ["top", "bottom", "left", "right"].forEach((side) => {
       if (fixAll || ids.has(`cantilever-${side}`)) fixCantilever(next, side, appliedFixes);
     });
   }
-  if (fixAll || [...ids].some((id) => id.startsWith("floating-"))) {
+  // Individual-only fixes (warnings — only applied when caller targets them explicitly)
+  if (!fixAll && ids.has("floor2-ratio"))      fixFloor2Ratio(next, appliedFixes);
+  if (!fixAll && [...ids].some((id) => id.startsWith("floating-"))) {
     fixFloatingRooms(next, appliedFixes);
   }
-  if (fixAll || [...ids].some((id) => id.startsWith("room-narrow-"))) {
+  if (!fixAll && [...ids].some((id) => id.startsWith("room-narrow-"))) {
     fixNarrowRooms(next, appliedFixes);
   }
 
