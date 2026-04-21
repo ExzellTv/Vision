@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 // import { useUser } from "@clerk/clerk-react"; // DEMO MODE: Clerk disabled
 import { colors, fonts, radii } from "../../theme/tokens";
@@ -254,7 +253,7 @@ function FloorPlanThumb({ floorPlan }) {
 }
 
 /* ── Card thumbnail: floor plan if available, else silhouette ── */
-function CardGraphic({ project, index }) {
+function CardGraphic({ project, index, onDelete }) {
   const fp = project.floor_plan;
   const type = detectProjectType(project.name, project.notes);
 
@@ -272,7 +271,7 @@ function CardGraphic({ project, index }) {
     <div
       style={{
         position: "relative",
-        height: 175,
+        height: 220,
         background: "linear-gradient(160deg, #090f1c 0%, #0b1628 55%, #0d1a30 100%)",
         overflow: "hidden",
         flexShrink: 0,
@@ -308,110 +307,67 @@ function CardGraphic({ project, index }) {
         </svg>
       )}
 
-      {/* Stats pill — bottom right of graphic */}
-      {hasFp && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 10,
-            right: 10,
-            background: "rgba(10,18,32,0.82)",
-            border: "1px solid #2a3548",
-            borderRadius: 4,
-            padding: "3px 8px",
-            fontSize: 10,
-            fontFamily: fonts.data,
-            color: colors.textDim,
-            display: "flex",
-            gap: 8,
-          }}
-        >
-          {fp.rooms.length} rooms
-          {fp.totalSF ? ` · ${Math.round(fp.totalSF).toLocaleString()} sf` : ""}
-        </div>
-      )}
-
-      {/* Project type badge — top left */}
-      <div
-        style={{
+      {/* Location badge — top left */}
+      {project.location?.city && (
+        <div style={{
           position: "absolute",
           top: 10,
           left: 10,
-          background: "rgba(10,18,32,0.75)",
-          border: "1px solid #2a354888",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 5,
+          background: "rgba(10,18,32,0.78)",
+          border: "1px solid rgba(59,130,246,0.25)",
           borderRadius: 4,
-          padding: "2px 7px",
-          fontSize: 9,
-          fontFamily: fonts.data,
-          color: colors.textDim,
+          padding: "3px 9px",
+          fontSize: 10,
+          fontFamily: fonts.label,
+          color: colors.secondary,
+          fontWeight: 600,
+          letterSpacing: "0.06em",
           textTransform: "uppercase",
-          letterSpacing: "0.08em",
-        }}
-      >
-        {hasFp ? "Floor Plan" : type === "generic" ? "Structural" : type}
-      </div>
-
-      {/* Materials badge if present */}
-      {project.materials && project.materials.length > 0 && (
-        <div
-          style={{
-            position: "absolute",
-            top: 10,
-            right: 10,
-            background: "rgba(10,18,32,0.75)",
-            border: "1px solid #2a354888",
-            borderRadius: 4,
-            padding: "2px 7px",
-            fontSize: 9,
-            fontFamily: fonts.data,
-            color: "#2ed57388",
-            letterSpacing: "0.06em",
-          }}
-        >
-          {project.materials.length} layers
+        }}>
+          <svg width="10" height="12" viewBox="0 0 10 12" fill="none">
+            <path d="M5 0C2.79 0 1 1.79 1 4c0 3 4 8 4 8s4-5 4-8c0-2.21-1.79-4-4-4Z" fill={colors.secondary} />
+            <circle cx="5" cy="4" r="1.5" fill="rgba(10,18,32,0.9)" />
+          </svg>
+          {project.location.city}, {project.location.state}
         </div>
       )}
+
+      {/* Trashcan — top right */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete(project); }}
+        title="Delete"
+        style={{
+          position: "absolute",
+          top: 8,
+          right: 8,
+          background: "rgba(10,18,32,0.7)",
+          border: "1px solid rgba(239,68,68,0.3)",
+          borderRadius: 4,
+          color: colors.danger,
+          cursor: "pointer",
+          padding: "4px 6px",
+          display: "flex",
+          alignItems: "center",
+          opacity: 0.75,
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+        onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.75")}
+      >
+        <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+          <path d="M2 3h8M5 3V2h2v1M4.5 5v4M7.5 5v4M3 3l.5 7h5l.5-7"
+            stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </svg>
+      </button>
     </div>
   );
 }
 
 /* ── Individual project card ── */
-function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRename, onOpenSchedule }) {
+function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRename, onOpenSchedule, onAssessLocation }) {
   const [hovered, setHovered] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
-  const menuRef = useRef(null);
-  const btnRef = useRef(null);
-
-  const label = project.notes?.trim()
-    ? project.notes.slice(0, 72) + (project.notes.length > 72 ? "…" : "")
-    : "Structural analysis ready";
-
-  // Close menu on outside click or scroll
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target) &&
-          btnRef.current && !btnRef.current.contains(e.target)) {
-        setMenuOpen(false);
-      }
-    };
-    const scrollHandler = () => setMenuOpen(false);
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("scroll", scrollHandler, true);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("scroll", scrollHandler, true);
-    };
-  }, [menuOpen]);
-
-  const openMenu = (e) => {
-    e.stopPropagation();
-    if (menuOpen) { setMenuOpen(false); return; }
-    const rect = btnRef.current.getBoundingClientRect();
-    setMenuPos({ top: rect.bottom + 4, left: rect.right - 160 });
-    setMenuOpen(true);
-  };
 
   return (
     <>
@@ -430,106 +386,82 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
         cursor: "default",
       }}
     >
-      <CardGraphic project={project} index={index} />
+      <CardGraphic project={project} index={index} onDelete={onDelete} />
 
       {/* Info area */}
-      <div style={{ padding: "14px 16px 0" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 8,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 14,
-              fontWeight: 700,
-              color: colors.textBright,
-              lineHeight: 1.3,
-              flex: 1,
-            }}
-          >
+      <div style={{ padding: "18px 20px 0" }}>
+        {/* Name + pen */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
+          <div style={{ fontSize: 22, fontWeight: 700, color: colors.textBright, lineHeight: 1.2, flex: 1, minWidth: 0 }}>
             {project.name}
           </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); onRename(project); }}
+            title="Rename"
+            style={{
+              background: "none", border: "none",
+              color: colors.textDim, cursor: "pointer",
+              padding: "2px", borderRadius: 4,
+              display: "flex", alignItems: "center", flexShrink: 0,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = colors.textBright)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = colors.textDim)}
+          >
+            <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+              <path d="M8.5 1.5a1.5 1.5 0 0 1 2.12 2.12L4 10.24 1.5 10.5l.26-2.5L8.5 1.5Z"
+                stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" fill="none" />
+            </svg>
+          </button>
+        </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <span
-              style={{
-                fontSize: 11,
-                color: colors.textDim,
-                fontFamily: fonts.data,
-                marginTop: 1,
-              }}
-            >
-              {timeAgo(project.updated_at)}
-            </span>
-
-            {/* More options menu */}
-            <div style={{ position: "relative" }}>
-              <button
-                ref={btnRef}
-                onClick={openMenu}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: colors.textDim,
-                  cursor: "pointer",
-                  padding: "2px 4px",
-                  borderRadius: 4,
-                  lineHeight: 1,
-                  fontSize: 14,
-                  display: "flex",
-                  alignItems: "center",
-                }}
-              >
-                ⋯
-              </button>
+        {/* Stats grid */}
+        {(() => {
+          const fp = project.floor_plan;
+          const layers = project.materials?.length ?? 0;
+          const rooms = fp?.rooms?.length ?? 0;
+          const sf = fp?.totalSF || project.generate_params?.targetSF || 0;
+          const isReadyToBuild =
+            (fp?.rooms?.length > 0) &&
+            (project.plot != null && project.plot.lat != null && project.plot.lng != null) &&
+            (project.materials?.length > 0) &&
+            (project.schedule?.phases?.length > 0);
+          const dotColor = isReadyToBuild ? "#22c55e" : "#ef4444";
+          const badgeLabel = isReadyToBuild ? "Ready to Build" : "Not Ready";
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 0", marginBottom: 4 }}>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data, letterSpacing: "0.04em" }}>
+                  {layers} LAYER{layers !== 1 ? "S" : ""}
+                </span>
+              </div>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data, letterSpacing: "0.04em" }}>
+                  {rooms} ROOM{rooms !== 1 ? "S" : ""}
+                </span>
+              </div>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data, letterSpacing: "0.04em" }}>
+                  {sf ? Math.round(sf).toLocaleString() : "—"} SF
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, boxShadow: `0 0 6px ${dotColor}` }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: dotColor, fontFamily: fonts.label, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  {badgeLabel}
+                </span>
+              </div>
             </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            fontSize: 12,
-            color: colors.textDim,
-            marginTop: 5,
-            lineHeight: 1.5,
-          }}
-        >
-          {label}
-        </div>
-
-        {/* Location badge */}
-        {project.location?.city && (
-          <div style={{
-            display:    "inline-flex",
-            alignItems: "center",
-            gap:        4,
-            marginTop:  6,
-            padding:    "2px 8px",
-            borderRadius: 4,
-            background: "rgba(59,130,246,0.1)",
-            border:     "1px solid rgba(59,130,246,0.2)",
-            fontSize:   10,
-            fontFamily: fonts.label,
-            color:      colors.secondary,
-            fontWeight: 600,
-            letterSpacing: "0.04em",
-          }}>
-            📍 {project.location.city}, {project.location.state}
-          </div>
-        )}
+          );
+        })()}
       </div>
 
-      {/* Action button */}
-      <div style={{ padding: "12px 16px 16px", marginTop: "auto" }}>
+      {/* Action buttons */}
+      <div style={{ padding: "14px 20px 20px", marginTop: "auto", display: "flex", gap: 8 }}>
         <button
-          onClick={() => onSelect(project)}
+          onClick={() => onEditFloorPlan(project)}
           style={{
-            width: "100%",
-            padding: "10px 0",
+            flex: 1,
+            padding: "12px 0",
             background: "transparent",
             border: `1px solid ${colors.cardBorder}`,
             borderRadius: radii.lg,
@@ -541,7 +473,79 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: 8,
+            gap: 6,
+            transition: "background 0.15s ease, border-color 0.15s ease",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = colors.surfaceHover;
+            e.currentTarget.style.borderColor = colors.secondary + "70";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.borderColor = colors.cardBorder;
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+            <rect x="1" y="1" width="10" height="10" rx="1" stroke="currentColor" strokeWidth="1.1" />
+            <path d="M3 4h6M3 6h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.7" />
+          </svg>
+          Edit Floor Plan
+        </button>
+        <button
+          onClick={() => onOpenSchedule(project)}
+          style={{
+            flex: 1,
+            padding: "12px 0",
+            background: "transparent",
+            border: `1px solid ${colors.cardBorder}`,
+            borderRadius: radii.lg,
+            color: colors.textBright,
+            fontFamily: fonts.label,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            transition: "background 0.15s ease, border-color 0.15s ease",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = colors.surfaceHover;
+            e.currentTarget.style.borderColor = colors.secondary + "70";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.borderColor = colors.cardBorder;
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+            <rect x="1" y="2" width="10" height="9" rx="1" stroke="currentColor" strokeWidth="1.1" fill="none" />
+            <path d="M4 1v2M8 1v2M1 5h10" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+          </svg>
+          View Schedule
+        </button>
+      </div>
+
+      {/* Assess Location — full width */}
+      <div style={{ padding: "0 20px 20px" }}>
+        <button
+          onClick={() => onAssessLocation(project)}
+          style={{
+            width: "100%",
+            padding: "12px 0",
+            background: "transparent",
+            border: `1px solid ${colors.cardBorder}`,
+            borderRadius: radii.lg,
+            color: colors.textBright,
+            fontFamily: fonts.label,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
             transition: "background 0.15s ease, border-color 0.15s ease",
           }}
           onMouseEnter={(e) => {
@@ -554,135 +558,16 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
           }}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M7 1L13 12H1L7 1Z" stroke={colors.textBright} strokeWidth="1.2" fill="none" />
-            <line x1="7" y1="4" x2="7" y2="12" stroke={colors.textBright} strokeWidth="0.9" opacity="0.6" />
-            <line x1="4.5" y1="8" x2="9.5" y2="8" stroke={colors.textBright} strokeWidth="0.9" opacity="0.6" />
+            <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2" fill="none" />
+            <path d="M7 1C5.3 1 3.5 3 3.5 5.5C3.5 8.5 7 13 7 13C7 13 10.5 8.5 10.5 5.5C10.5 3 8.7 1 7 1Z"
+              stroke="currentColor" strokeWidth="1.2" fill="none" />
+            <circle cx="7" cy="5.5" r="1.3" fill="currentColor" opacity="0.8" />
           </svg>
-          Select Project to Analyze
+          Assess Location
         </button>
       </div>
     </div>
 
-    {/* Dropdown rendered in a portal to escape card's overflow:hidden */}
-    {menuOpen && createPortal(
-      <div
-        ref={menuRef}
-        style={{
-          position: "fixed",
-          top: menuPos.top,
-          left: menuPos.left,
-          background: "#111827",
-          border: `1px solid ${colors.cardBorder}`,
-          borderRadius: radii.lg,
-          zIndex: 9999,
-          minWidth: 160,
-          overflow: "hidden",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
-        }}
-      >
-        <button
-          onClick={() => { setMenuOpen(false); onEditFloorPlan(project); }}
-          style={{
-            width: "100%",
-            padding: "9px 14px",
-            background: "none",
-            border: "none",
-            color: colors.text,
-            fontFamily: fonts.label,
-            fontSize: 12,
-            textAlign: "left",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = colors.surfaceHover)}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <rect x="1" y="1" width="10" height="10" rx="1" stroke="currentColor" strokeWidth="1.1" />
-            <path d="M3 4h6M3 6h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.7" />
-          </svg>
-          Edit Floor Plan
-        </button>
-        <button
-          onClick={() => { setMenuOpen(false); onOpenSchedule(project); }}
-          style={{
-            width: "100%",
-            padding: "9px 14px",
-            background: "none",
-            border: "none",
-            color: colors.text,
-            fontFamily: fonts.label,
-            fontSize: 12,
-            textAlign: "left",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = colors.surfaceHover)}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <rect x="1" y="2" width="10" height="9" rx="1" stroke="currentColor" strokeWidth="1.1" fill="none" />
-            <path d="M4 1v2M8 1v2M1 5h10" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-            <path d="M3 7h2M7 7h2M3 9h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.7" />
-          </svg>
-          Open Schedule
-        </button>
-        <button
-          onClick={() => { setMenuOpen(false); onRename(project); }}
-          style={{
-            width: "100%",
-            padding: "9px 14px",
-            background: "none",
-            border: "none",
-            color: colors.text,
-            fontFamily: fonts.label,
-            fontSize: 12,
-            textAlign: "left",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = colors.surfaceHover)}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M8.5 1.5a1.5 1.5 0 0 1 2.12 2.12L4 10.24 1.5 10.5l.26-2.5L8.5 1.5Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" fill="none" />
-          </svg>
-          Rename
-        </button>
-        <div style={{ height: 1, background: colors.cardBorder, margin: "2px 0" }} />
-        <button
-          onClick={() => { setMenuOpen(false); onDelete(project); }}
-          style={{
-            width: "100%",
-            padding: "9px 14px",
-            background: "none",
-            border: "none",
-            color: colors.danger,
-            fontFamily: fonts.label,
-            fontSize: 12,
-            textAlign: "left",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = colors.dangerDim)}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M2 3h8M5 3V2h2v1M4.5 5v4M7.5 5v4M3 3l.5 7h5l.5-7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-          </svg>
-          Delete
-        </button>
-      </div>,
-      document.body
-    )}
     </>
   );
 }
@@ -1053,6 +938,15 @@ export default function ProjectsScreen() {
     navigate("/schedule");
   };
 
+  const handleAssessLocation = (project) => {
+    setProjectName(project.name);
+    setProjectId(project.id);
+    if (project.generate_params) setGenerateParams(project.generate_params);
+    if (project.location) setProjectLocation(project.location);
+    if (project.floor_plan) setFloorPlan(project.floor_plan);
+    navigate("/feasibility");
+  };
+
   const handleRenameConfirm = async (project, newName) => {
     await projectsApi.update(project.id, { name: newName });
     setProjects((prev) =>
@@ -1181,8 +1075,8 @@ export default function ProjectsScreen() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 20,
+              gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
+              gap: 24,
               paddingBottom: 40,
             }}
           >
@@ -1196,6 +1090,7 @@ export default function ProjectsScreen() {
                 onEditFloorPlan={handleEditFloorPlan}
                 onRename={setRenameTarget}
                 onOpenSchedule={handleOpenSchedule}
+                onAssessLocation={handleAssessLocation}
               />
             ))}
             <ImportCard />

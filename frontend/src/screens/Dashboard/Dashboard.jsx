@@ -487,8 +487,8 @@ export default function Dashboard() {
           </span>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
-          {MODULES.map((mod) => (
+        <div style={{ display: "grid", gridTemplateColumns: isHomeowner ? "repeat(2, 1fr)" : "repeat(3, 1fr)", gap: 16 }}>
+          {MODULES.filter((mod) => !(isHomeowner && mod.title === "Analysis Hub")).map((mod) => (
             <ModuleCard
               key={mod.path}
               mod={mod}
