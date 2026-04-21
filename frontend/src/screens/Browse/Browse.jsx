@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { colors, fonts } from "../../theme/tokens";
+import { projectsApi } from "../../services/api";
 
 const C = {
   bg: colors.bg,
@@ -57,7 +58,7 @@ const BUILDERS = [
     specialty: "Estate Homes",
     location: "University Park, TX",
     distance: "3.7 mi",
-    rating: 5.0,
+    rating: 5,
     reviews: 42,
     projectsCompleted: 31,
     verified: true,
@@ -116,11 +117,238 @@ const BUILDERS = [
 
 const SPECIALTIES = ["All Specialties", "Luxury Residential", "Urban Infill", "Estate Homes", "Production Homes", "Modern Architecture", "Traditional & Transitional"];
 
+// Returns { ready: bool, reasons: string[] } for a project
+function getProjectReadiness(proj) {
+  const reasons = [];
+  const fp = proj.floor_plan || proj.floorPlan;
+  if (!fp?.rooms?.length) reasons.push("No floor plan generated");
+  const mats = proj.materials;
+  if (!mats?.length) reasons.push("No materials selected");
+  const hasSchedule = proj.schedule != null || (proj.max_step ?? proj.maxStep ?? 0) >= 4;
+  if (!hasSchedule) reasons.push("No construction schedule");
+  return { ready: reasons.length === 0, reasons };
+}
+
+function timeAgo(dateStr) {
+  if (!dateStr) return "";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff / 60000);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  if (d >= 1) return `${d}d ago`;
+  if (h >= 1) return `${h}h ago`;
+  if (m >= 1) return `${m}m ago`;
+  return "just now";
+}
+
+function RequestModal({ builder, onClose }) {
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [sent, setSent] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await projectsApi.list();
+      setProjects(list || []);
+    } catch (err) {
+      setError(err.message || "Failed to load projects");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    globalThis.addEventListener("keydown", handler);
+    return () => globalThis.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const modal = (
+    <div
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.76)",
+        zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      {/* Backdrop click area */}
+      <button
+        aria-label="Close dialog"
+        onClick={onClose}
+        style={{ position: "absolute", inset: 0, background: "transparent", border: "none", cursor: "default" }}
+      />
+      <dialog
+        open
+        style={{
+          position: "relative",
+          background: C.card, border: `1px solid ${C.cardBorder}`, borderRadius: 12,
+          width: 500, maxHeight: 560, display: "flex", flexDirection: "column", overflow: "hidden",
+          padding: 0, margin: 0,
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+          padding: "18px 20px 14px", borderBottom: `1px solid ${C.cardBorder}`, flexShrink: 0,
+        }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.textBright, fontFamily: fonts.label }}>
+              Request Builder
+            </div>
+            <div style={{ fontSize: 11, color: C.text, marginTop: 3, fontFamily: fonts.label }}>
+              Select a project to send to <span style={{ color: C.textBright }}>{builder.name}</span>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent", border: "none", color: C.textDim,
+              fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px",
+            }}
+          >×</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {loading && (
+            <div style={{ padding: "52px 0", textAlign: "center", fontSize: 12, color: C.textDim, fontFamily: fonts.label }}>
+              Loading projects…
+            </div>
+          )}
+
+          {!loading && error && (
+            <div style={{ padding: "40px 24px", textAlign: "center" }}>
+              <div style={{ fontSize: 12, color: "#ff4757", marginBottom: 12, fontFamily: fonts.label }}>{error}</div>
+              <button
+                onClick={load}
+                style={{
+                  padding: "7px 18px", background: "transparent", border: `1px solid ${C.accent}`,
+                  borderRadius: 6, color: C.accent, fontSize: 12, cursor: "pointer", fontFamily: fonts.label,
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {!loading && !error && projects.length === 0 && (
+            <div style={{ padding: "52px 24px", textAlign: "center" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.textBright, marginBottom: 6, fontFamily: fonts.label }}>
+                No saved projects
+              </div>
+              <div style={{ fontSize: 11, color: C.textDim, lineHeight: 1.65, fontFamily: fonts.label }}>
+                Create a project in the Develop tab first, then return here to send it.
+              </div>
+            </div>
+          )}
+
+          {!loading && !error && projects.map((proj) => {
+            const { ready, reasons } = getProjectReadiness(proj);
+            const gp = proj.generate_params || {};
+            return (
+              <button
+                key={proj.id}
+                disabled={!ready}
+                onClick={() => setSent(proj)}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "14px 20px",
+                  borderBottom: `1px solid ${C.cardBorder}`,
+                  background: "transparent",
+                  border: "none",
+                  opacity: ready ? 1 : 0.65,
+                  cursor: ready ? "pointer" : "default",
+                  transition: "background 0.12s",
+                  fontFamily: fonts.label,
+                }}
+                onMouseEnter={(e) => { if (ready) e.currentTarget.style.background = "rgba(0,212,255,0.04)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.textBright, fontFamily: fonts.label, marginBottom: 3 }}>
+                      {proj.name || "Untitled Project"}
+                    </div>
+                    {gp.targetSF ? (
+                      <div style={{ fontSize: 10, color: C.textDim, fontFamily: fonts.label }}>
+                        {gp.targetSF.toLocaleString()} SF · {gp.bedrooms ?? "—"}bd / {gp.bathrooms ?? "—"}ba · {gp.stories ?? 1}-story
+                      </div>
+                    ) : null}
+                    {!ready && (
+                      <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
+                        {reasons.map((r) => (
+                          <div key={r} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                            <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#ff9f43", flexShrink: 0 }} />
+                            <span style={{ fontSize: 10, color: "#ff9f43", fontFamily: fonts.label }}>{r}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0, marginLeft: 16 }}>
+                    <div style={{ fontSize: 9, color: C.textDim, fontFamily: fonts.label }}>{timeAgo(proj.updated_at)}</div>
+                    {ready ? (
+                      <div style={{
+                        padding: "3px 8px", background: "rgba(46,213,115,0.1)", border: "1px solid rgba(46,213,115,0.25)",
+                        borderRadius: 4, fontSize: 10, fontWeight: 600, color: C.success, fontFamily: fonts.label,
+                      }}>
+                        READY
+                      </div>
+                    ) : (
+                      <div style={{
+                        padding: "3px 8px", background: "rgba(255,159,67,0.1)", border: "1px solid rgba(255,159,67,0.25)",
+                        borderRadius: 4, fontSize: 10, fontWeight: 600, color: "#ff9f43", fontFamily: fonts.label,
+                      }}>
+                        INCOMPLETE
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div style={{ borderTop: `1px solid ${C.cardBorder}`, padding: "14px 20px", flexShrink: 0 }}>
+          {sent ? (
+            <div style={{
+              padding: "10px 16px", background: "rgba(46,213,115,0.1)", border: "1px solid rgba(46,213,115,0.25)",
+              borderRadius: 8, fontSize: 13, color: C.success, fontFamily: fonts.label, textAlign: "center",
+            }}>
+              Request sent! <span style={{ color: C.textBright }}>{builder.name}</span> will review <span style={{ color: C.textBright }}>{sent.name}</span>.
+            </div>
+          ) : (
+            <button
+              onClick={onClose}
+              style={{
+                width: "100%", padding: "9px 0", background: "transparent",
+                border: `1px solid ${C.cardBorder}`, borderRadius: 8,
+                color: C.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: fonts.label,
+              }}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      </dialog>
+    </div>
+  );
+
+  return createPortal(modal, document.body);
+}
+
 export default function Browse() {
-  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSpecialty, setSelectedSpecialty] = useState("All Specialties");
   const [sortBy, setSortBy] = useState("distance");
+  const [requestBuilder, setRequestBuilder] = useState(null);
 
   const filteredBuilders = BUILDERS
     .filter((b) => {
@@ -131,15 +359,11 @@ export default function Browse() {
       return matchesSearch && matchesSpecialty;
     })
     .sort((a, b) => {
-      if (sortBy === "distance") return parseFloat(a.distance) - parseFloat(b.distance);
+      if (sortBy === "distance") return Number.parseFloat(a.distance) - Number.parseFloat(b.distance);
       if (sortBy === "rating") return b.rating - a.rating;
       if (sortBy === "projects") return b.projectsCompleted - a.projectsCompleted;
       return 0;
     });
-
-  const handleChat = (builder) => {
-    navigate("/chat", { state: { builder } });
-  };
 
   return (
     <div
@@ -273,8 +497,6 @@ export default function Browse() {
               borderRadius: 12,
               transition: "border-color 0.2s",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(0,212,255,0.3)")}
-            onMouseLeave={(e) => (e.currentTarget.style.borderColor = C.cardBorder)}
           >
             {/* Avatar */}
             <div
@@ -376,7 +598,7 @@ export default function Browse() {
             {/* Actions */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, flexShrink: 0 }}>
               <button
-                onClick={() => handleChat(builder)}
+                onClick={() => setRequestBuilder(builder)}
                 style={{
                   padding: "12px 24px",
                   background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
@@ -401,9 +623,9 @@ export default function Browse() {
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M12 7c0 2.5-2.239 4.5-5 4.5-.657 0-1.283-.11-1.857-.31L2 12.5l1.1-2.643A4.252 4.252 0 0 1 2 7c0-2.5 2.239-4.5 5-4.5s5 2 5 4.5z" stroke="#fff" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M7 1L2 4v7h10V4L7 1zM5 11V7h4v4H5z" stroke="#fff" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
-                Message
+                Request
               </button>
               <button
                 style={{

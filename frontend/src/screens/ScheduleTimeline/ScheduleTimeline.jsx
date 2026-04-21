@@ -430,6 +430,15 @@ function exportGanttPDF({ schedule, projectStart, totalWeeks, projectName, start
   win.document.close();
 }
 
+/* ─── Schedule localStorage cache ─── */
+const SCHEDULE_CACHE_KEY = "vision:schedule:v1";
+function readScheduleCache() {
+  try { return JSON.parse(localStorage.getItem(SCHEDULE_CACHE_KEY)) ?? null; } catch { return null; }
+}
+function writeScheduleCache(data) {
+  try { localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(data)); } catch { /* quota */ }
+}
+
 /* ─── Main Component ─── */
 function ScheduleTimelineInner() {
   const project        = useProject();
@@ -443,8 +452,8 @@ function ScheduleTimelineInner() {
   const disposedRef    = useRef(false);
   const resizeFnRef    = useRef(null); // stored so panel drags can trigger renderer resize
 
-  // Restore from saved schedule if available
-  const saved = project.savedSchedule;
+  // Restore from saved schedule (MongoDB) or fall back to localStorage cache
+  const saved = project.savedSchedule ?? readScheduleCache();
 
   const [startDateStr, setStartDateStr] = useState(
     () => saved?.startDate || TODAY.toISOString().slice(0, 10)
@@ -464,6 +473,17 @@ function ScheduleTimelineInner() {
   const [phaseNotes,     setPhaseNotes]     = useState(
     () => saved?.phaseNotes || {}
   );
+
+  // Write schedule state to localStorage whenever it changes so it survives navigation
+  // (MongoDB save is a separate explicit action; this is a silent background cache)
+  useEffect(() => {
+    writeScheduleCache({
+      startDate: startDateStr,
+      manualDone: [...manualDone],
+      durationOverrides,
+      phaseNotes,
+    });
+  }, [startDateStr, manualDone, durationOverrides, phaseNotes]);
   const [noteOpenId,     setNoteOpenId]     = useState(null);
   const [noteDraft,      setNoteDraft]      = useState("");
 

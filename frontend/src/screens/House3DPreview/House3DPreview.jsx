@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
@@ -61,17 +61,31 @@ function SectionLabel({ children }) {
   );
 }
 
+const PREFS_KEY = "vision:3d-prefs:v1";
+
+function read3DPrefs() {
+  try { return JSON.parse(localStorage.getItem(PREFS_KEY)) ?? {}; } catch { return {}; }
+}
+
 export default function House3DPreview() {
   const navigate = useNavigate();
   const project = useProject();
   const { isHomeowner, isBuilder } = useUserType();
 
-  // House configuration state
-  const [roofType, setRoofType] = useState("gable");
-  const [wallMaterial, setWallMaterial] = useState("vinyl");
-  const [roofMaterial, setRoofMaterial] = useState("asphaltShingle");
-  const [wallColor, setWallColor] = useState("#e8e2da");
-  const [roofColor, setRoofColor] = useState("#3a3a3a");
+  // House configuration state — initialised from localStorage so choices survive navigation
+  const _prefs = read3DPrefs();
+  const [roofType,     setRoofType]     = useState(_prefs.roofType     ?? "gable");
+  const [wallMaterial, setWallMaterial] = useState(_prefs.wallMaterial ?? "vinyl");
+  const [roofMaterial, setRoofMaterial] = useState(_prefs.roofMaterial ?? "asphaltShingle");
+  const [wallColor,    setWallColor]    = useState(_prefs.wallColor     ?? "#e8e2da");
+  const [roofColor,    setRoofColor]    = useState(_prefs.roofColor     ?? "#3a3a3a");
+
+  // Persist prefs whenever any of them change
+  useEffect(() => {
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify({ roofType, wallMaterial, roofMaterial, wallColor, roofColor }));
+    } catch { /* quota full — ignore */ }
+  }, [roofType, wallMaterial, roofMaterial, wallColor, roofColor]);
   // Cutaway view: hide the roof (and upper floors optionally) to peek inside.
   const [showRoof, setShowRoof] = useState(true);
   const [focusedStory, setFocusedStory] = useState(null); // null = all stories

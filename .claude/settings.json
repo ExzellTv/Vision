@@ -49,7 +49,30 @@
       "Bash(ls frontend/.env*)",
       "Bash(netstat -ano)",
       "Bash(awk '{print $5}')",
-      "Bash(xargs -I PID taskkill //F //PID PID)"
+      "Bash(xargs -I PID taskkill //F //PID PID)",
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(mkdir -p /tmp/design_pkg)",
+      "Read(//tmp/**)",
+      "Bash(cp \"C:\\\\Users\\\\exzell\\\\.claude\\\\projects\\\\c--Users-exzell-Documents-GitHub-BFI-Vision\\\\d528f7dd-293a-4e13-96ed-a7aab3ab7586\\\\tool-results\\\\webfetch-1776454880960-xoyemg.bin\" ./pkg.bin)",
+      "Bash(tar -tzf pkg.bin)",
+      "Bash(tar -xzf pkg.bin)",
+      "Read(//tmp/design_pkg/vision-design-system/**)",
+      "Read(//c/tmp/design_pkg/vision-design-system/**)",
+      "Bash(ffmpeg -version)",
+      "Read(//c/Program Files/Google/Chrome/Application/**)",
+      "Read(//c/Program Files \\(x86\\)/Google/Chrome/Application/**)",
+      "Read(//c/Program Files \\(x86\\)/Microsoft/Edge/Application/**)",
+      "Read(//c/Program Files/Microsoft/Edge/Application/**)",
+      "Bash(mkdir -p /tmp/hf_render)",
+      "Bash(cp -r \"/tmp/design_pkg/vision-design-system/project/animations/Home Facts\"/* /tmp/hf_render/)",
+      "Bash(mkdir -p /tmp/hf_render/rig)",
+      "Bash(npm init *)",
+      "Bash(node render.js \"/c/Users/exzell/Desktop/home-facts.mp4\")",
+      "Read(//c/Users/exzell/Desktop/**)",
+      "Bash(uvicorn app.main:app --reload --port 8000)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\exzell\\AppData\\Local\\Temp\\hf_render\\rig"
     ]
   }
 }

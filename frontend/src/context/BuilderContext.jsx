@@ -3,6 +3,16 @@ import { projectsApi } from "../services/api";
 
 const BuilderContext = createContext(null);
 
+const BUILDER_CACHE_KEY = "vision:builder:v1";
+
+function readBuilderCache() {
+  try { return JSON.parse(localStorage.getItem(BUILDER_CACHE_KEY)) ?? null; } catch { return null; }
+}
+
+function writeBuilderCache(projects) {
+  try { localStorage.setItem(BUILDER_CACHE_KEY, JSON.stringify(projects)); } catch { /* quota */ }
+}
+
 const INITIAL_PROJECTS = [
   // Active Projects
   {
@@ -102,7 +112,8 @@ const INITIAL_PROJECTS = [
 ];
 
 export function BuilderProvider({ children }) {
-  const [projects, setProjects] = useState(INITIAL_PROJECTS);
+  // Seed from cache so the UI renders immediately on first paint, then revalidate from API
+  const [projects, setProjects] = useState(() => readBuilderCache() ?? INITIAL_PROJECTS);
 
   const fetchApiProjects = () => {
     projectsApi.available()
@@ -130,17 +141,14 @@ export function BuilderProvider({ children }) {
         });
         setProjects((prev) => {
           const apiMap = new Map(mapped.map((m) => [m.id, m]));
-          // Update progress on any existing project whose ID came back from the API
           const updated = prev.map((p) => {
             const api = apiMap.get(p.id);
-            if (api) {
-              apiMap.delete(p.id);
-              return { ...p, progress: api.progress, progressTone: api.progressTone };
-            }
+            if (api) { apiMap.delete(p.id); return { ...p, progress: api.progress, progressTone: api.progressTone }; }
             return p;
           });
-          // Append any brand-new API projects not already tracked
-          return [...updated, ...Array.from(apiMap.values())];
+          const next = [...updated, ...Array.from(apiMap.values())];
+          writeBuilderCache(next);
+          return next;
         });
       })
       .catch(() => {});
