@@ -141,11 +141,17 @@ export function BuilderProvider({ children }) {
         });
         setProjects((prev) => {
           const apiMap = new Map(mapped.map((m) => [m.id, m]));
-          const updated = prev.map((p) => {
-            const api = apiMap.get(p.id);
-            if (api) { apiMap.delete(p.id); return { ...p, progress: api.progress, progressTone: api.progressTone }; }
-            return p;
-          });
+          // Drop projects deleted by the homeowner; keep mock entries (no id or req-* prefix)
+          const updated = prev
+            .filter((p) => !p.id || p.id.startsWith("req-") || apiMap.has(p.id))
+            .map((p) => {
+              const api = apiMap.get(p.id);
+              if (api) {
+                apiMap.delete(p.id);
+                return { ...p, progress: api.progress, progressTone: api.progressTone };
+              }
+              return p;
+            });
           const next = [...updated, ...Array.from(apiMap.values())];
           writeBuilderCache(next);
           return next;
