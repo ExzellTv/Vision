@@ -422,213 +422,63 @@ export default function LeafletMap({
         ))}
       </div>
 
-      {/* ── Layer Dropdown — fixed position ── */}
-      <div
-        ref={dropdownRef}
-        style={{ position: "absolute", top: 12, left: 12, zIndex: 400 }}
-      >
-        <button
-          onClick={() => setDropdownOpen((v) => !v)}
-            style={{
-              display:        "flex",
-              alignItems:     "center",
-              gap:            6,
-              padding:        "6px 12px",
-              borderRadius:   radii.md,
-              border:         `1px solid ${dropdownOpen ? colors.accent : colors.cardBorder}`,
-              background:     dropdownOpen ? `${colors.accent}18` : "rgba(26,34,51,0.88)",
-              color:          dropdownOpen ? colors.accent : colors.text,
-              fontSize:       11,
-              fontWeight:     700,
-              letterSpacing:  "0.6px",
-              cursor:         "pointer",
-              fontFamily:     fonts.label,
-              backdropFilter: "blur(10px)",
-              WebkitBackdropFilter: "blur(10px)",
-              transition:     "border-color 0.15s, color 0.15s, background 0.15s",
-            }}
-            title="Map Layers &amp; Filters"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                 stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="12 2 2 7 12 12 22 7 12 2" />
-              <polyline points="2 17 12 22 22 17" />
-              <polyline points="2 12 12 17 22 12" />
-            </svg>
-            LAYERS
-            <svg
-              width="10" height="10" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-              style={{
-                transform:  dropdownOpen ? "rotate(180deg)" : "rotate(0deg)",
-                transition: "transform 0.18s ease",
-                marginLeft: 2,
-              }}
-            >
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
-
-        {/* Dropdown panel */}
-        {dropdownOpen && (
+      {/* ── Map Legend — always visible, top-left ── */}
+      <div style={{ position: "absolute", top: 12, left: 12, zIndex: 400 }}>
+        <div style={{
+          background:     "rgba(26,34,51,0.92)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          border:         `1px solid ${colors.cardBorder}`,
+          borderRadius:   radii.lg,
+          padding:        "12px 14px",
+          minWidth:       185,
+        }}>
+          {/* Comparables legend */}
           <div style={{
-            position:       "absolute",
-            top:            "calc(100% + 6px)",
-            left:           0,
-            minWidth:       190,
-            background:     "rgba(26,34,51,0.97)",
-            backdropFilter: "blur(16px)",
-            WebkitBackdropFilter: "blur(16px)",
-            border:         `1px solid ${colors.cardBorder}`,
-            borderRadius:   radii.lg,
-            boxShadow:      "0 8px 32px rgba(0,0,0,0.55)",
-            overflow:       "hidden",
-            animation:      "vDropFadeIn 0.14s ease",
+            fontFamily: fonts.label, fontSize: 11, fontWeight: 700,
+            letterSpacing: "0.7px", color: colors.textDim,
+            textTransform: "uppercase", marginBottom: 8,
           }}>
-
-            {/* Map Layers section */}
-            <div style={{
-              padding: "8px 10px 5px",
-              fontFamily: fonts.label, fontSize: 9, fontWeight: 700,
-              letterSpacing: "1px", color: colors.textDim, textTransform: "uppercase",
-            }}>
-              Map Layers
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "0 8px 6px" }}>
-              {[
-                ["COMPS", showComps, () => setShowComps((v) => !v), colors.success],
-                ["LAND",  showLand,  () => setShowLand((v) => !v),  "#8b5cf6"],
-              ].map(([label, active, handler, accentCol]) => (
-                <button key={label} onClick={handler} style={overlayPill(active, accentCol)}>
-                  <span style={{
-                    width: 6, height: 6, borderRadius: "50%",
-                    background: active ? accentCol : colors.cardBorder,
-                    flexShrink: 0,
-                  }} />
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <DropdownDivider />
-
-            {/* Listing Filters section */}
-            <div style={{
-              padding: "5px 10px 5px",
-              fontFamily: fonts.label, fontSize: 9, fontWeight: 700,
-              letterSpacing: "1px", color: colors.textDim, textTransform: "uppercase",
-            }}>
-              Listing Filters
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "0 8px 10px" }}>
-
-              <button
-                onClick={() => setFilterOpen((v) => v === "land" ? null : "land")}
-                style={overlayPill(filterOpen === "land" || landFilterCount > 0, colors.warn)}
-              >
-                <span style={{
-                  width: 6, height: 6, borderRadius: "2px",
-                  background: (filterOpen === "land" || landFilterCount > 0) ? colors.warn : colors.cardBorder,
-                  transform: "rotate(45deg)", flexShrink: 0,
-                }} />
-                LAND LISTINGS
-                {landFilterCount > 0 && (
-                  <span style={{
-                    marginLeft: "auto", background: colors.warn, color: "#000",
-                    fontFamily: fonts.data, fontSize: 8, fontWeight: 700,
-                    borderRadius: 8, padding: "1px 5px", lineHeight: 1.4,
-                  }}>
-                    {landFilterCount}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => setFilterOpen((v) => v === "comp" ? null : "comp")}
-                style={overlayPill(filterOpen === "comp" || compFilterCount > 0, colors.accent)}
-              >
-                <span style={{
-                  width: 6, height: 6, borderRadius: "50%",
-                  background: (filterOpen === "comp" || compFilterCount > 0) ? colors.accent : colors.cardBorder,
-                  flexShrink: 0,
-                }} />
-                COMP LISTINGS
-                {compFilterCount > 0 && (
-                  <span style={{
-                    marginLeft: "auto", background: colors.accent, color: "#000",
-                    fontFamily: fonts.data, fontSize: 8, fontWeight: 700,
-                    borderRadius: 8, padding: "1px 5px", lineHeight: 1.4,
-                  }}>
-                    {compFilterCount}
-                  </span>
-                )}
-              </button>
-
-            </div>
+            Comp $/SF
           </div>
-        )}
+          {[
+            [colors.success, "< $207",     "Below Market"],
+            [colors.warn,    "$207–$212",  "At Market"],
+            [colors.danger,  "≥ $212",     "Above Market"],
+          ].map(([col, range, label]) => (
+            <div key={range} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+              <span style={{ width: 12, height: 12, borderRadius: "50%", background: col, flexShrink: 0 }} />
+              <span style={{ fontFamily: fonts.data, fontSize: 12, color: col, fontWeight: 700, minWidth: 60 }}>
+                {range}
+              </span>
+              <span style={{ fontFamily: fonts.label, fontSize: 11, color: colors.textDim }}>
+                {label}
+              </span>
+            </div>
+          ))}
 
-        {/* ── Comp marker legend — always visible below the LAYERS button ── */}
-        {showComps && (
+          {/* Divider */}
+          <div style={{ height: 1, background: colors.cardBorder, margin: "10px 0" }} />
+
+          {/* Land legend */}
           <div style={{
-            marginTop:      8,
-            background:     "rgba(26,34,51,0.88)",
-            backdropFilter: "blur(10px)",
-            WebkitBackdropFilter: "blur(10px)",
-            border:         `1px solid ${colors.cardBorder}`,
-            borderRadius:   radii.md,
-            padding:        "7px 10px",
-            minWidth:       160,
+            fontFamily: fonts.label, fontSize: 11, fontWeight: 700,
+            letterSpacing: "0.7px", color: colors.textDim,
+            textTransform: "uppercase", marginBottom: 8,
           }}>
-            <div style={{
-              fontFamily:    fonts.label,
-              fontSize:      8,
-              fontWeight:    700,
-              letterSpacing: "1px",
-              color:         colors.textDim,
-              textTransform: "uppercase",
-              marginBottom:  5,
-            }}>
-              Comp $/SF
-            </div>
-            {[
-              [colors.success, "< $207",       "Below Market"],
-              [colors.warn,    "$207 – $212",   "At Market"],
-              [colors.danger,  "≥ $212",        "Above Market"],
-            ].map(([col, range, label]) => (
-              <div key={range} style={{
-                display:     "flex",
-                alignItems:  "center",
-                gap:         6,
-                marginBottom: 3,
-              }}>
-                <span style={{
-                  width:        8,
-                  height:       8,
-                  borderRadius: "50%",
-                  background:   col,
-                  flexShrink:   0,
-                }} />
-                <span style={{
-                  fontFamily: fonts.data,
-                  fontSize:   9,
-                  color:      col,
-                  fontWeight: 700,
-                  minWidth:   52,
-                }}>
-                  {range}
-                </span>
-                <span style={{
-                  fontFamily: fonts.label,
-                  fontSize:   9,
-                  color:      colors.textDim,
-                }}>
-                  {label}
-                </span>
-              </div>
-            ))}
+            Land Listings
           </div>
-        )}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{
+              width: 12, height: 12, borderRadius: "2px",
+              background: "#8b5cf6", flexShrink: 0,
+              transform: "rotate(45deg)",
+            }} />
+            <span style={{ fontFamily: fonts.label, fontSize: 11, color: colors.textDim }}>
+              Vacant / Available Parcel
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* ── Filter Panel — draggable ── */}

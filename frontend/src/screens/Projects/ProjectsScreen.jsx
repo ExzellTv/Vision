@@ -422,9 +422,7 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
           const sf = fp?.totalSF || project.generate_params?.targetSF || 0;
           const isReadyToBuild =
             (fp?.rooms?.length > 0) &&
-            (project.plot != null && project.plot.lat != null && project.plot.lng != null) &&
-            (project.materials?.length > 0) &&
-            (project.schedule?.phases?.length > 0);
+            (project.plot != null && project.plot.lat != null && project.plot.lng != null);
           const dotColor = isReadyToBuild ? "#22c55e" : "#ef4444";
           const badgeLabel = isReadyToBuild ? "Ready to Build" : "Not Ready";
           return (
@@ -943,7 +941,12 @@ export default function ProjectsScreen() {
     setProjectId(project.id);
     if (project.generate_params) setGenerateParams(project.generate_params);
     if (project.location) setProjectLocation(project.location);
-    if (project.floor_plan) setFloorPlan(project.floor_plan);
+    if (project.story_plans?.length > 0) {
+      setStoryPlans(project.story_plans);
+    } else if (project.floor_plan) {
+      setFloorPlan(project.floor_plan);
+    }
+    if (project.materials?.length > 0) setMaterials(project.materials);
     navigate("/feasibility");
   };
 

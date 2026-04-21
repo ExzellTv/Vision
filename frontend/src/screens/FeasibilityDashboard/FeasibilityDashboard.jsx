@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
@@ -45,26 +46,26 @@ function SubScoreBar({ label, level, color }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
       <span style={{
-        fontFamily: fonts.label, fontSize: 10, color: colors.textDim,
-        whiteSpace: "nowrap", minWidth: 70,
+        fontFamily: fonts.label, fontSize: 12, color: colors.textDim,
+        whiteSpace: "nowrap", minWidth: 80,
       }}>
         {label}
       </span>
       <div style={{
-        flex: 1, height: 4, borderRadius: 2,
+        flex: 1, height: 5, borderRadius: 3,
         background: colors.cardBorder, overflow: "hidden",
       }}>
         <div style={{
           width:      level === "High" ? "85%" : level === "Med" ? "55%" : "30%",
           height:     "100%",
-          borderRadius: 2,
+          borderRadius: 3,
           background: color,
           transition: "width 0.4s ease",
         }} />
       </div>
       <span style={{
-        fontFamily: fonts.data, fontSize: 10, fontWeight: 600,
-        color, minWidth: 28, textAlign: "right",
+        fontFamily: fonts.data, fontSize: 12, fontWeight: 600,
+        color, minWidth: 32, textAlign: "right",
       }}>
         {level}
       </span>
@@ -75,6 +76,7 @@ function SubScoreBar({ label, level, color }) {
 /* ── Main screen ─────────────────────────────────────────────────────────── */
 export default function FeasibilityDashboard() {
   const project = useProject();
+  const navigate = useNavigate();
 
   // ── Live map data — populated when user searches a city ──
   const [liveComps,   setLiveComps]   = useState([]);
@@ -137,8 +139,17 @@ export default function FeasibilityDashboard() {
   const [radiusEnabled, setRadiusEnabled] = useState(true); // radius toggle
 
   // ── Select Plot state ────────────────────────────────────────────────────
-  const [plotSaved,  setPlotSaved]  = useState(false);
-  const [plotSaving, setPlotSaving] = useState(false);
+  const [plotSaved,    setPlotSaved]    = useState(false);
+  const [plotSaving,   setPlotSaving]   = useState(false);
+  const [dbProject, setDbProject] = useState(null);
+
+  // Fetch full project from DB on mount — used for readiness check and plot auto-restore
+  useEffect(() => {
+    if (!project.projectId) return;
+    projectsApi.getPublic(project.projectId)
+      .then((p) => setDbProject(p))
+      .catch(() => {});
+  }, [project.projectId]);
 
   // Reset saved state when user picks a different parcel
   useEffect(() => { setPlotSaved(false); }, [selLand]);
@@ -169,6 +180,10 @@ export default function FeasibilityDashboard() {
   const storeBaths   = project.floorPlan?.rooms?.filter((r) => r.type === "bathroom").length || 2;
   const style        = project.floorPlan?.style || "traditional";
   const projectName  = project.projectName || "New Project";
+
+  const isReadyToBuild = dbProject != null &&
+    (dbProject.floor_plan?.rooms?.length > 0) &&
+    (dbProject.plot?.lat != null && dbProject.plot?.lng != null);
 
   const totalSF   = storeSF;
   const stories   = storeStories;
@@ -405,7 +420,7 @@ export default function FeasibilityDashboard() {
           }}>
             <h2 style={{
               margin: 0, fontFamily: fonts.label,
-              fontSize: 18, fontWeight: 700, color: colors.textBright,
+              fontSize: 22, fontWeight: 700, color: colors.textBright,
             }}>
               {projectName} — Feasibility
             </h2>
@@ -415,7 +430,7 @@ export default function FeasibilityDashboard() {
           </div>
           <div style={{
             display: "flex", alignItems: "center", gap: 8, marginTop: 4,
-            fontFamily: fonts.data, fontSize: 11, color: colors.textDim,
+            fontFamily: fonts.data, fontSize: 13, color: colors.textDim,
           }}>
             <svg width="10" height="10" viewBox="0 0 24 24" fill={colors.textDim}>
               <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
@@ -433,6 +448,95 @@ export default function FeasibilityDashboard() {
           <FeasibilityGauge score={displayScore} size={110} />
         </div>
 
+        {/* ── How Your Score Is Calculated ── */}
+        <div style={{
+          background: colors.surface,
+          border: `1px solid ${colors.cardBorder}`,
+          borderRadius: radii.md,
+          padding: "12px 14px",
+        }}>
+          <div style={{
+            fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
+            color: colors.textDim, textTransform: "uppercase",
+            letterSpacing: "0.8px", marginBottom: 12,
+          }}>
+            How Your Score Is Calculated
+          </div>
+          {[
+            {
+              label: "Sales Comparison",
+              weight: "50%",
+              color: colors.secondary,
+              desc: "Recent nearby home sales — the heaviest factor, reflecting what buyers actually paid.",
+            },
+            {
+              label: "Cost Approach",
+              weight: "30%",
+              color: "#8b5cf6",
+              desc: "Estimated cost to build from scratch, anchoring value to real construction costs.",
+            },
+            {
+              label: "Income Approach",
+              weight: "20%",
+              color: colors.accent,
+              desc: "Projected rental or resale return, gauging investment potential.",
+            },
+          ].map(({ label, weight, color, desc }) => (
+            <div key={label} style={{ marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                <span style={{ fontFamily: fonts.label, fontSize: 13, fontWeight: 700, color }}>
+                  {label}
+                </span>
+                <span style={{
+                  fontFamily: fonts.data, fontSize: 12, fontWeight: 700,
+                  color, background: `${color}18`, borderRadius: 3,
+                  padding: "2px 7px",
+                }}>
+                  {weight}
+                </span>
+              </div>
+              <p style={{
+                margin: 0, fontFamily: fonts.label, fontSize: 12,
+                color: colors.textDim, lineHeight: 1.55,
+              }}>
+                {desc}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* ── 3-Approach Blend ── */}
+        {valuation && (
+          <div style={{
+            padding: "10px 12px",
+            background: colors.surface,
+            border: `1px solid ${colors.cardBorder}`,
+            borderRadius: radii.md,
+          }}>
+            <div style={{
+              fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
+              color: colors.textDim, textTransform: "uppercase",
+              letterSpacing: "0.8px", marginBottom: 8,
+            }}>
+              3-Approach Blend
+            </div>
+            {[
+              ["SCA  50%", valuation.scaValue,   colors.secondary],
+              ["Cost 30%", valuation.costValue,   "#8b5cf6"],
+              ["Inc  20%", valuation.incomeValue, colors.accent],
+            ].map(([label, val, col]) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>
+                  {label}
+                </span>
+                <span style={{ fontFamily: fonts.data, fontSize: 12, fontWeight: 600, color: col }}>
+                  {fmtK(val)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* ── Sub-scores ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", gap: 12 }}>
@@ -449,7 +553,7 @@ export default function FeasibilityDashboard() {
         <div>
           <div style={{
             display: "flex", alignItems: "center", gap: 6, marginBottom: 14,
-            fontFamily: fonts.label, fontSize: 13, fontWeight: 700,
+            fontFamily: fonts.label, fontSize: 15, fontWeight: 700,
             color: colors.textBright,
           }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -489,15 +593,15 @@ export default function FeasibilityDashboard() {
                 alignItems: "baseline",
               }}>
                 <div>
-                  <div style={{ fontFamily: fonts.label, fontSize: 12, color: colors.textDim }}>
+                  <div style={{ fontFamily: fonts.label, fontSize: 14, color: colors.textDim }}>
                     Land Acquisition
                   </div>
-                  <div style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim }}>
+                  <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>
                     {selLand.lot_sf.toLocaleString()} SF · {selLand.zoning}
                   </div>
                 </div>
                 <span style={{
-                  fontFamily: fonts.data, fontSize: 18, fontWeight: 700,
+                  fontFamily: fonts.data, fontSize: 20, fontWeight: 700,
                   color: colors.textBright,
                 }}>
                   {fmtUSD(selLand.price)}
@@ -526,15 +630,15 @@ export default function FeasibilityDashboard() {
             alignItems: "baseline", marginBottom: 12,
           }}>
             <div>
-              <div style={{ fontFamily: fonts.label, fontSize: 12, color: colors.textDim }}>
+              <div style={{ fontFamily: fonts.label, fontSize: 14, color: colors.textDim }}>
                 Est. Const. Cost
               </div>
-              <div style={{ fontFamily: fonts.data, fontSize: 11, color: colors.textDim }}>
+              <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>
                 ${displayCostPSF} / sqft
               </div>
             </div>
             <span style={{
-              fontFamily: fonts.data, fontSize: 18, fontWeight: 700,
+              fontFamily: fonts.data, fontSize: 20, fontWeight: 700,
               color: colors.textBright,
             }}>
               ${displayCost.toLocaleString()}
@@ -547,15 +651,15 @@ export default function FeasibilityDashboard() {
             alignItems: "baseline", marginBottom: 12,
           }}>
             <div>
-              <div style={{ fontFamily: fonts.label, fontSize: 12, color: colors.textDim }}>
+              <div style={{ fontFamily: fonts.label, fontSize: 14, color: colors.textDim }}>
                 Market Value (ARV)
               </div>
-              <div style={{ fontFamily: fonts.data, fontSize: 11, color: colors.success }}>
+              <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.success }}>
                 {valuation ? `${nearbyComps.length} comps · blended` : `+${DEMO.marketYoy}% YoY`}
               </div>
             </div>
             <span style={{
-              fontFamily: fonts.data, fontSize: 18, fontWeight: 700,
+              fontFamily: fonts.data, fontSize: 20, fontWeight: 700,
               color: colors.textBright,
             }}>
               ${displayARV.toLocaleString()}
@@ -568,13 +672,13 @@ export default function FeasibilityDashboard() {
             alignItems: "baseline",
           }}>
             <div>
-              <div style={{ fontFamily: fonts.label, fontSize: 12, color: colors.textDim }}>
+              <div style={{ fontFamily: fonts.label, fontSize: 14, color: colors.textDim }}>
                 Net Margin
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
               <span style={{
-                fontFamily: fonts.data, fontSize: 18, fontWeight: 700,
+                fontFamily: fonts.data, fontSize: 20, fontWeight: 700,
                 color: valuation
                   ? (valuation.margin > 15 ? colors.success
                      : valuation.margin > 5 ? colors.warn
@@ -583,7 +687,7 @@ export default function FeasibilityDashboard() {
               }}>
                 {displayMargin}%
               </span>
-              <div style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>
+              <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>
                 {valuation
                   ? `ROI ${valuation.roi.toFixed(1)}%`
                   : `Confidence: +/-${DEMO.marginConfidence}%`
@@ -592,43 +696,49 @@ export default function FeasibilityDashboard() {
             </div>
           </div>
 
-          {/* 3-approach breakdown — only when live valuation is active */}
-          {valuation && (
-            <div style={{
-              marginTop: 12, padding: "10px 12px",
-              background: colors.surface,
-              border:     `1px solid ${colors.cardBorder}`,
-              borderRadius: radii.md,
-            }}>
-              <div style={{
-                fontFamily: fonts.label, fontSize: 9, fontWeight: 700,
-                color: colors.textDim, textTransform: "uppercase",
-                letterSpacing: "0.8px", marginBottom: 6,
-              }}>
-                3-Approach Blend
-              </div>
-              {[
-                ["SCA  50%", valuation.scaValue,   colors.secondary],
-                ["Cost 30%", valuation.costValue,   "#8b5cf6"],
-                ["Inc  20%", valuation.incomeValue, colors.accent],
-              ].map(([label, val, col]) => (
-                <div key={label} style={{
-                  display: "flex", justifyContent: "space-between", marginBottom: 2,
-                }}>
-                  <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>
-                    {label}
-                  </span>
-                  <span style={{ fontFamily: fonts.data, fontSize: 10, fontWeight: 600, color: col }}>
-                    {fmtK(val)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* ── Action Buttons ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: "auto" }}>
+
+          {/* Choose Builders — enabled only when project is Ready to Build */}
+          <button
+            onClick={() => isReadyToBuild && navigate("/browse")}
+            disabled={!isReadyToBuild}
+            title={!isReadyToBuild ? "Complete all project steps to enable" : ""}
+            style={{
+              padding: "12px 0",
+              background: isReadyToBuild
+                ? "linear-gradient(135deg, #2563eb, #1d4ed8)"
+                : colors.surface,
+              border: `1px solid ${isReadyToBuild ? "transparent" : colors.cardBorder}`,
+              borderRadius: radii.md,
+              color: isReadyToBuild ? "#fff" : colors.textDim,
+              fontFamily: fonts.label, fontSize: 14, fontWeight: 700,
+              cursor: isReadyToBuild ? "pointer" : "not-allowed",
+              textAlign: "center", letterSpacing: "0.3px",
+              opacity: isReadyToBuild ? 1 : 0.5,
+              transition: "all 0.2s",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
+              <circle cx="8" cy="7" r="3" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              <path d="M2 17c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              <circle cx="14" cy="6" r="2" stroke="currentColor" strokeWidth="1.2" fill="none" opacity="0.7" />
+              <path d="M14 10c2 0 4 1.2 4 3" stroke="currentColor" strokeWidth="1.2" fill="none" opacity="0.7" />
+            </svg>
+            Choose Builders
+          </button>
+          {!isReadyToBuild && (
+            <p style={{
+              margin: "-4px 0 0", fontFamily: fonts.label,
+              fontSize: 10, color: colors.textDim,
+              textAlign: "center", letterSpacing: "0.03em",
+            }}>
+              Complete all project steps to unlock
+            </p>
+          )}
 
           {/* Select Plot — only when a parcel is selected and project is loaded */}
           {selLand && project.projectId && (
