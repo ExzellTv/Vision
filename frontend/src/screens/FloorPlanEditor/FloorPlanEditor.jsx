@@ -3713,6 +3713,18 @@ export default function FloorPlanEditor() {
           display: "flex", alignItems: "center", justifyContent: "space-between",
         }}>
           <span style={{ ...panelLabel, fontSize: 11 }}>Floor Navigation</span>
+          <button
+            onClick={() => navigate(-1)}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              background: "transparent", border: "1px solid #1a2236",
+              borderRadius: 6, color: "#6b7a96", fontSize: 12,
+              fontWeight: 600, padding: "5px 12px", cursor: "pointer",
+              fontFamily: fonts.label,
+            }}
+          >
+            ← Back
+          </button>
         </div>
 
         {/* Level tabs */}
@@ -3732,18 +3744,18 @@ export default function FloorPlanEditor() {
             <span style={panelLabel}>Floor Properties</span>
           </div>
           <div style={propRow}>
-            <span style={{ fontSize: 12, color: "#8a9bb0", fontFamily: fonts.label }}>Floor Height</span>
-            <span style={{ fontFamily: fonts.data, fontSize: 12, color: "#e8ecf4", fontWeight: 600 }}>10 ft</span>
+            <span style={{ fontSize: 13, color: "#8a9bb0", fontFamily: fonts.label }}>Floor Height</span>
+            <span style={{ fontFamily: fonts.data, fontSize: 13, color: "#e8ecf4", fontWeight: 600 }}>10 ft</span>
           </div>
           <div style={propRow}>
-            <span style={{ fontSize: 12, color: "#8a9bb0", fontFamily: fonts.label }}>Elevation</span>
-            <span style={{ fontFamily: fonts.data, fontSize: 12, color: "#e8ecf4", fontWeight: 600 }}>
+            <span style={{ fontSize: 13, color: "#8a9bb0", fontFamily: fonts.label }}>Elevation</span>
+            <span style={{ fontFamily: fonts.data, fontSize: 13, color: "#e8ecf4", fontWeight: 600 }}>
               {(activeStory * 10).toFixed(2)} ft
             </span>
           </div>
           <div style={{ ...propRow, borderBottom: "none" }}>
-            <span style={{ fontSize: 12, color: "#8a9bb0", fontFamily: fonts.label }}>Status</span>
-            <span style={{ fontFamily: fonts.label, fontSize: 11, fontWeight: 700, color: "#00d4ff",
+            <span style={{ fontSize: 13, color: "#8a9bb0", fontFamily: fonts.label }}>Status</span>
+            <span style={{ fontFamily: fonts.label, fontSize: 12, fontWeight: 700, color: "#00d4ff",
               background: "rgba(0,212,255,0.08)", padding: "2px 8px", borderRadius: 4 }}>
               {activeStory === 0 ? "Primary" : "Upper"}
             </span>
@@ -3767,9 +3779,9 @@ export default function FloorPlanEditor() {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                     <div style={{ width: 7, height: 7, borderRadius: "50%", background: room.color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 12, color: "#c8d0e0", fontFamily: fonts.label }}>{room.label}</span>
+                    <span style={{ fontSize: 13, color: "#c8d0e0", fontFamily: fonts.label }}>{room.label}</span>
                   </div>
-                  <span style={{ fontFamily: fonts.data, fontSize: 11, color: "#8a9bb0" }}>
+                  <span style={{ fontFamily: fonts.data, fontSize: 12, color: "#8a9bb0" }}>
                     {Math.round(room.area)} ft²
                   </span>
                 </div>
@@ -3782,7 +3794,7 @@ export default function FloorPlanEditor() {
           {activePlan && (
             <div style={{ padding: "10px 16px", borderTop: "1px solid #1a2236", marginTop: 4 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 12, color: "#8a9bb0", fontFamily: fonts.label }}>Total Footprint</span>
+                <span style={{ fontSize: 13, color: "#8a9bb0", fontFamily: fonts.label }}>Total Footprint</span>
                 <span style={{ fontFamily: fonts.data, fontSize: 14, fontWeight: 700, color: "#00d4ff" }}>
                   {totalSF.toLocaleString()} ft²
                 </span>

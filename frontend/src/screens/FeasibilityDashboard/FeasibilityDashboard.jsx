@@ -424,9 +424,18 @@ export default function FeasibilityDashboard() {
             }}>
               {projectName} — Feasibility
             </h2>
-            <span style={{ color: colors.textDim, cursor: "pointer", fontSize: 18, letterSpacing: 2 }}>
-              ...
-            </span>
+            <button
+              onClick={() => navigate(-1)}
+              style={{
+                display: "flex", alignItems: "center", gap: 5,
+                background: "transparent", border: `1px solid ${colors.cardBorder}`,
+                borderRadius: 6, color: colors.textDim, fontSize: 12,
+                fontFamily: fonts.label, fontWeight: 600, padding: "4px 10px",
+                cursor: "pointer",
+              }}
+            >
+              ← Back
+            </button>
           </div>
           <div style={{
             display: "flex", alignItems: "center", gap: 8, marginTop: 4,
