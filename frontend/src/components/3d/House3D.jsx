@@ -821,6 +821,7 @@ function Scene({
           roofColor={houseProps.roofColor}
           showRoof={houseProps.showRoof}
           showPillars={houseProps.showPillars}
+          layerProgress={houseProps.layerProgress}
         />
       ) : (
         <HouseCSG {...houseProps} />
@@ -1048,6 +1049,7 @@ export default function House3D({
   interactive = false,
   floorPlan = null,
   storyPlans = null,
+  layerProgress = null,
   style = {},
   className = "",
 }) {
@@ -1106,6 +1108,7 @@ export default function House3D({
     storyPlans,
     showRoof,
     showPillars,
+    layerProgress,
   };
 
   return (

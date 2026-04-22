@@ -69,7 +69,23 @@
       "Bash(npm init *)",
       "Bash(node render.js \"/c/Users/exzell/Desktop/home-facts.mp4\")",
       "Read(//c/Users/exzell/Desktop/**)",
-      "Bash(uvicorn app.main:app --reload --port 8000)"
+      "Bash(uvicorn app.main:app --reload --port 8000)",
+      "Bash(python -c \"import sys; print\\(sys.version\\); import fastapi; print\\('fastapi', fastapi.__version__\\); import uvicorn; print\\('uvicorn', uvicorn.__version__\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://127.0.0.1:8000/docs)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(curl -s http://localhost:5173/src/screens/ScheduleTimeline/ScheduleTimeline.jsx)",
+      "Bash(curl -s -X POST -F \"file=@/dev/null;filename=test.dxf\" http://127.0.0.1:8000/api/floorplan/import)",
+      "Bash(curl -s -o - -w \"HTTP %{http_code}\\\\n\" -X POST -F \"file=@/dev/null;filename=test.dxf\" http://127.0.0.1:8000/api/floorplan/import)",
+      "Bash(echo \"\")",
+      "Bash(curl -s -o - -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -F \"file=@/tmp/empty.dxf\" http://127.0.0.1:8000/api/floorplan/import)",
+      "Bash(taskkill //PID 30548 //F)",
+      "Bash(python -c ' *)",
+      "Bash(curl -s -o - -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -F \"file=@/tmp/sample.dxf\" http://127.0.0.1:8000/api/floorplan/import)",
+      "Read(//c/tmp/**)",
+      "Bash(curl -v -s -o - -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -F \"file=@/tmp/sample.dxf\" http://127.0.0.1:8000/api/floorplan/import)",
+      "Bash(curl -s -o - -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -F \"file=@C:/Users/exzell/AppData/Local/Temp/sample.dxf\" http://127.0.0.1:8000/api/floorplan/import)",
+      "Bash(taskkill //PID 12232 //F)",
+      "Bash(curl -s -o - -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -F \"file=@C:/Users/exzell/AppData/Local/Temp/sample.dxf;filename=foo.exe\" http://127.0.0.1:8000/api/floorplan/import)"
     ],
     "additionalDirectories": [
       "c:\\Users\\exzell\\AppData\\Local\\Temp\\hf_render\\rig"

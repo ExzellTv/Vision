@@ -65,6 +65,27 @@ export const floorplanApi = {
     if (!res.ok) throw new Error(`DXF export failed: ${res.status}`);
     return res.blob();
   },
+  importModel: async (file) => {
+    const form = new FormData();
+    form.append("file", file);
+    const headers = {};
+    if (_getToken) {
+      try {
+        const token = await _getToken();
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+      } catch (_) {}
+    }
+    const res = await fetch(`${BASE}/floorplan/import`, {
+      method: "POST",
+      headers,
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Import failed: ${res.status}`);
+    }
+    return res.json();
+  },
 };
 
 // Structural

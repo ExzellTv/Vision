@@ -1,12 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 // import { useUser } from "@clerk/clerk-react"; // DEMO MODE: Clerk disabled
 import { colors, fonts, radii } from "../../theme/tokens";
-import { projectsApi } from "../../services/api";
+import { projectsApi, floorplanApi } from "../../services/api";
 import { useProject } from "../../hooks/useProjectStore";
 import NewProjectModal from "../../components/shared/NewProjectModal";
 import HomeownerProjectModal from "../../components/shared/HomeownerProjectModal";
 import { useUserType } from "../../context/UserTypeContext";
+
+// Accepted structural-model extensions for the import card
+const IMPORT_ACCEPT = ".dxf,.dwg,.rvt,.3dm,.ifc,.skp";
 
 /* ── helpers ── */
 function timeAgo(dateStr) {
@@ -571,20 +574,69 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
   );
 }
 
-/* ── Import placeholder card ── */
-function ImportCard() {
+/* ── Import Structural Model card — click or drop to upload a CAD file ── */
+function ImportCard({ onImported }) {
+  const inputRef = useRef(null);
   const [hovered, setHovered] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+
+  const handleFile = useCallback(async (file) => {
+    if (!file) return;
+    setError(null);
+    setResult(null);
+    setUploading(true);
+    try {
+      const res = await floorplanApi.importModel(file);
+      setResult({ filename: file.filename || file.name, size: file.size, ...res });
+      onImported?.(res);
+    } catch (err) {
+      setError(err.message || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }, [onImported]);
+
+  const openPicker = useCallback(() => {
+    if (uploading) return;
+    inputRef.current?.click();
+  }, [uploading]);
+
+  const onInputChange = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+    // Reset so selecting the same file twice still fires change.
+    e.target.value = "";
+  }, [handleFile]);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  const onKeyDown = useCallback((e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openPicker(); }
+  }, [openPicker]);
+
+  const accentBorder = dragging ? colors.secondary : hovered ? colors.secondary + "70" : colors.cardBorder;
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={openPicker}
+      onKeyDown={onKeyDown}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); }}
+      onDrop={onDrop}
       style={{
-        border: `2px dashed ${dragging ? colors.secondary : hovered ? colors.secondary + "70" : colors.cardBorder}`,
+        border: `2px dashed ${accentBorder}`,
         borderRadius: radii.xl,
         display: "flex",
         flexDirection: "column",
@@ -593,15 +645,24 @@ function ImportCard() {
         gap: 14,
         padding: "40px 24px",
         minHeight: 290,
-        cursor: "pointer",
+        cursor: uploading ? "wait" : "pointer",
         transition: "border-color 0.2s ease, background 0.2s ease",
         background: dragging
           ? "rgba(59,130,246,0.06)"
           : hovered
           ? "rgba(59,130,246,0.03)"
           : "transparent",
+        outline: "none",
       }}
     >
+      <input
+        ref={inputRef}
+        type="file"
+        accept={IMPORT_ACCEPT}
+        onChange={onInputChange}
+        style={{ display: "none" }}
+      />
+
       <div
         style={{
           width: 50,
@@ -614,20 +675,81 @@ function ImportCard() {
           justifyContent: "center",
         }}
       >
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-          <path d="M6 5h6l4 4v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" stroke={colors.textDim} strokeWidth="1.2" fill="none" />
-          <path d="M12 5v4h4" stroke={colors.textDim} strokeWidth="1.2" strokeLinejoin="round" />
-          <path d="M11 12v4M9 14l2-2 2 2" stroke={colors.textDim} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        {uploading ? (
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" style={{ animation: "spin 1s linear infinite" }}>
+            <circle cx="11" cy="11" r="8" stroke={colors.secondary} strokeWidth="2" opacity="0.3" />
+            <path d="M11 3a8 8 0 0 1 8 8" stroke={colors.secondary} strokeWidth="2" strokeLinecap="round" />
+            <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+          </svg>
+        ) : (
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+            <path d="M6 5h6l4 4v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" stroke={colors.textDim} strokeWidth="1.2" fill="none" />
+            <path d="M12 5v4h4" stroke={colors.textDim} strokeWidth="1.2" strokeLinejoin="round" />
+            <path d="M11 12v4M9 14l2-2 2 2" stroke={colors.textDim} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
       </div>
+
       <div style={{ textAlign: "center" }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: colors.textBright, marginBottom: 7 }}>
-          Import Structural Model
+          {uploading ? "Uploading…" : "Import Structural Model"}
         </div>
-        <div style={{ fontSize: 12, color: colors.textDim, lineHeight: 1.65, maxWidth: 195 }}>
-          Drop your Revit, AutoCAD, or Rhino files here to start a new analysis
+        <div style={{ fontSize: 12, color: colors.textDim, lineHeight: 1.65, maxWidth: 220 }}>
+          {uploading
+            ? "Parsing your model…"
+            : "Click to browse, or drop a Revit, AutoCAD, or Rhino file (.dxf, .dwg, .rvt, .3dm, .ifc, .skp)"}
         </div>
       </div>
+
+      {result && !uploading && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            width: "100%",
+            maxWidth: 260,
+            padding: "10px 12px",
+            borderRadius: 8,
+            background: "rgba(46,213,115,0.08)",
+            border: "1px solid rgba(46,213,115,0.25)",
+            fontSize: 11,
+            color: colors.textBright,
+            lineHeight: 1.5,
+          }}
+        >
+          <div style={{ fontWeight: 700, color: "#2ed573", marginBottom: 4 }}>
+            ✓ Imported {result.filename}
+          </div>
+          {result.summary?.entity_count != null && (
+            <div style={{ color: colors.textDim, fontFamily: fonts.data }}>
+              {result.summary.entity_count.toLocaleString()} entities
+              {result.summary.layers?.length ? ` · ${result.summary.layers.length} layers` : ""}
+              {result.summary.bounding_box ? ` · ${Math.round(result.summary.bounding_box.width)}×${Math.round(result.summary.bounding_box.height)}` : ""}
+            </div>
+          )}
+          {result.message && !result.summary && (
+            <div style={{ color: colors.textDim }}>{result.message}</div>
+          )}
+        </div>
+      )}
+
+      {error && !uploading && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            width: "100%",
+            maxWidth: 260,
+            padding: "10px 12px",
+            borderRadius: 8,
+            background: "rgba(255,71,87,0.08)",
+            border: "1px solid rgba(255,71,87,0.25)",
+            fontSize: 11,
+            color: "#ff6b7a",
+            lineHeight: 1.5,
+          }}
+        >
+          {error}
+        </div>
+      )}
     </div>
   );
 }

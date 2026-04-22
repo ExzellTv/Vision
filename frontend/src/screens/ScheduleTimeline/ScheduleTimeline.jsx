@@ -1,18 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, Component } from "react";
 import { useNavigate } from "react-router-dom";
-import * as THREE from "three";
 import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
 import { projectsApi } from "../../services/api";
 import { BUILD_COST_PSF } from "../FeasibilityDashboard/valuationEngine";
 import StatusBadge from "../../components/shared/StatusBadge";
+import House3D from "../../components/3d/House3D";
+import { resolveHouseColors } from "../../lib/housePrefs";
 
-import {
-  createLayerMaterials, MATERIAL_KEY_MAP, MATERIALS_DATA,
-  updateDims, updateRooms, rebuildLayerGroups,
-  buildScene, setupLighting, createOrbitControls,
-} from "../LayerEditor/LayerEditor";
+import { MATERIALS_DATA } from "../LayerEditor/LayerEditor";
 
 /* ─── Error Boundary ─── */
 class ScheduleErrorBoundary extends Component {
@@ -42,33 +39,36 @@ class ScheduleErrorBoundary extends Component {
   }
 }
 
-/* ─── Construction phase config — 13 phases, ~34 weeks total ───────────────
- *  layerIdx: index into project.materials + layerGroups for 3D reveal.
- *            null = no direct material layer (permits, MEP rough-in, etc.)
+/* ─── Construction phase config — 14 phases, ~38 weeks total ───────────────
+ *  layerIdx: legacy material layer index (kept for material-upgrade cost multipliers).
+ *  reveal:   array of PlanHouse geometry-layer tags unlocked when this phase starts.
+ *            Tags match { layer: "..." } on meshes emitted by buildHouseGeometry —
+ *            foundation, floor, exterior, interior, roof, openings, porch, canopy,
+ *            pillar, driveway, furniture.
  *  category: industry CPM category label (shown in Gantt)
  * ─────────────────────────────────────────────────────────────────────── */
 const LAYER_PHASE_CONFIG = [
   // ── SITEWORK ──────────────────────────────────────────────────────────
-  { layerIdx: null, name: "Permitting & Site Prep",       durationWeeks: 2,  category: "SITEWORK" },
-  { layerIdx: null, name: "Excavation & Grading",         durationWeeks: 2,  category: "SITEWORK" },
+  { layerIdx: null, reveal: [],                             name: "Permitting & Site Prep",            durationWeeks: 2, category: "SITEWORK" },
+  { layerIdx: null, reveal: ["driveway"],                   name: "Excavation & Grading",              durationWeeks: 2, category: "SITEWORK" },
   // ── FOUNDATION ────────────────────────────────────────────────────────
-  { layerIdx: 0,    name: "Foundation (Form, Pour, Cure)",durationWeeks: 4,  category: "FOUNDATION" },
+  { layerIdx: 0,    reveal: ["foundation", "floor"],        name: "Foundation (Form, Pour, Cure)",     durationWeeks: 4, category: "FOUNDATION" },
   // ── STRUCTURE ─────────────────────────────────────────────────────────
-  { layerIdx: 1,    name: "Structural Framing",           durationWeeks: 5,  category: "STRUCTURE" },
-  { layerIdx: 7,    name: "Roofing & Sheathing",          durationWeeks: 3,  category: "STRUCTURE" },
-  { layerIdx: 2,    name: "Exterior Sheathing & Wrap",    durationWeeks: 2,  category: "STRUCTURE" },
+  { layerIdx: 1,    reveal: ["exterior", "interior", "pillar"], name: "Structural Framing",           durationWeeks: 5, category: "STRUCTURE" },
+  { layerIdx: 7,    reveal: ["roof", "canopy"],             name: "Roofing & Sheathing",               durationWeeks: 3, category: "STRUCTURE" },
+  { layerIdx: 2,    reveal: [],                             name: "Exterior Sheathing & Wrap",         durationWeeks: 2, category: "STRUCTURE" },
   // ── MEP ROUGH-IN ──────────────────────────────────────────────────────
-  { layerIdx: null, name: "Rough MEP (Plumbing, Elec, HVAC)", durationWeeks: 4, category: "MEP" },
+  { layerIdx: null, reveal: [],                             name: "Rough MEP (Plumbing, Elec, HVAC)",  durationWeeks: 4, category: "MEP" },
   // ── ENCLOSURE ─────────────────────────────────────────────────────────
-  { layerIdx: 3,    name: "Insulation",                  durationWeeks: 2,  category: "ENCLOSURE" },
-  { layerIdx: 4,    name: "Drywall (Hang, Tape, Finish)", durationWeeks: 3,  category: "ENCLOSURE" },
+  { layerIdx: 3,    reveal: [],                             name: "Insulation",                        durationWeeks: 2, category: "ENCLOSURE" },
+  { layerIdx: 4,    reveal: [],                             name: "Drywall (Hang, Tape, Finish)",      durationWeeks: 3, category: "ENCLOSURE" },
   // ── FINISHES ──────────────────────────────────────────────────────────
-  { layerIdx: 5,    name: "Exterior Cladding & Siding",  durationWeeks: 3,  category: "FINISHES" },
-  { layerIdx: null, name: "Interior Finish Carpentry",   durationWeeks: 3,  category: "FINISHES" },
-  { layerIdx: 6,    name: "Paint & Interior Finish",     durationWeeks: 2,  category: "FINISHES" },
+  { layerIdx: 5,    reveal: [],                             name: "Exterior Cladding & Siding",        durationWeeks: 3, category: "FINISHES" },
+  { layerIdx: null, reveal: ["porch"],                      name: "Interior Finish Carpentry",         durationWeeks: 3, category: "FINISHES" },
+  { layerIdx: 6,    reveal: ["openings"],                   name: "Paint & Interior Finish",           durationWeeks: 2, category: "FINISHES" },
   // ── CLOSEOUT ──────────────────────────────────────────────────────────
-  { layerIdx: null, name: "Fixtures, Trim & Final MEP",  durationWeeks: 2,  category: "CLOSEOUT" },
-  { layerIdx: null, name: "Final Inspection & Punch List",durationWeeks: 1,  category: "CLOSEOUT" },
+  { layerIdx: null, reveal: ["furniture"],                  name: "Fixtures, Trim & Final MEP",        durationWeeks: 2, category: "CLOSEOUT" },
+  { layerIdx: null, reveal: [],                             name: "Final Inspection & Punch List",     durationWeeks: 1, category: "CLOSEOUT" },
 ];
 
 // Pinned to today in the app
@@ -449,14 +449,6 @@ function writeScheduleCache(data) {
 function ScheduleTimelineInner() {
   const project        = useProject();
   const { isHomeowner } = useUserType();
-  const canvasRef      = useRef(null);
-  const sceneRef       = useRef(null);
-  const layerGroupsRef = useRef([]);
-  const matsRef        = useRef(null);
-  const controlsRef    = useRef(null);
-  const animFrameRef   = useRef(null);
-  const disposedRef    = useRef(false);
-  const resizeFnRef    = useRef(null); // stored so panel drags can trigger renderer resize
 
   // Restore from saved schedule (MongoDB) or fall back to localStorage cache (project-scoped)
   const saved = project.savedSchedule ?? readScheduleCache(project.projectId);
@@ -656,10 +648,13 @@ function ScheduleTimelineInner() {
     })?.name ?? (timeSlider >= totalWeeks ? "Complete" : schedule[0]?.name ?? "");
   }, [timeSlider, schedule, projectStart, totalWeeks]);
 
-  // Fetch schedule from MongoDB on mount so notes/overrides/done persist per-project across reloads
+  // Fetch schedule from MongoDB on mount so notes/overrides/done persist per-project across reloads.
+  // Use getPublic so builders viewing a homeowner's project (where the doc is owned by a different
+  // user_id) still receive the real floor_plan / story_plans / materials — otherwise .get 404s and
+  // the 3D preview falls back to the builder's own local/demo project data.
   useEffect(() => {
     if (!project.projectId) return;
-    projectsApi.get(project.projectId)
+    projectsApi.getPublic(project.projectId)
       .then((doc) => {
         // Restore schedule fields (notes, overrides, manual done)
         const s = doc?.schedule;
@@ -695,149 +690,35 @@ function ScheduleTimelineInner() {
     setTimeSlider(Math.min(totalWeeks || endWeek, endWeek));
   }, [manualDone, schedule, projectStart, totalWeeks]);
 
-  /* ─── Three.js Init: Full LayerEditor Model ─── */
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    disposedRef.current = false;
-
-    updateDims(project.footprintWidth, project.footprintDepth);
-    updateRooms(project.floorPlan?.rooms, project.storyPlans);
-
-    const { renderer, scene, camera } = buildScene(canvas);
-    const mats = createLayerMaterials();
-    matsRef.current = mats;
-    setupLighting(scene);
-
-    const foundationType = project.materials?.[0]?.materialIndex ?? 0;
-    const roofType = project.materials?.[7]?.materialIndex ?? 0;
-    const layerGroups = rebuildLayerGroups(scene, mats, foundationType, roofType);
-    layerGroupsRef.current = layerGroups;
-
-    // Apply user-selected materials for non-foundation/roof layers
-    (project.materials || []).forEach((m, i) => {
-      if (i === 0 || i === 7 || i >= 8 || !m) return;
-      const matKey = MATERIAL_KEY_MAP[i]?.[m.materialIndex ?? 0];
-      if (matKey && mats[matKey] && layerGroups[i]) {
-        layerGroups[i].traverse((child) => {
-          if (child.isMesh) child.material = mats[matKey];
-        });
-      }
-    });
-
-    // Apply custom paint colors (wall color on paint layer 6, roof color on roof layer 7)
-    const wallColor = (project.materials || [])[6]?.wallColor;
-    const roofColor = (project.materials || [])[7]?.roofColor;
-    if (wallColor && layerGroups[6]) {
-      const wc = new THREE.Color(wallColor);
-      layerGroups[6].traverse((child) => {
-        if (child.isMesh) {
-          child.material = child.material.clone();
-          child.material.color = wc;
-          child.material.needsUpdate = true;
-        }
-      });
-    }
-    if (roofColor && layerGroups[7]) {
-      const rc = new THREE.Color(roofColor);
-      layerGroups[7].traverse((child) => {
-        if (child.isMesh) {
-          child.material = child.material.clone();
-          child.material.color = rc;
-          child.material.needsUpdate = true;
-        }
-      });
-    }
-
-    // Clone materials so per-layer opacity changes don't bleed across layers
-    layerGroups.forEach(g => {
-      if (!g) return;
-      g.traverse(child => {
-        if (child.isMesh && child.material) child.material = child.material.clone();
-      });
-    });
-
-    // Initially hide all layers (schedule slider reveals them)
-    layerGroups.forEach(g => { if (g) g.visible = false; });
-
-    const controls = createOrbitControls(camera, canvas);
-    controlsRef.current = controls;
-    sceneRef.current = { renderer, scene, camera };
-
-    const resize = () => {
-      if (disposedRef.current) return;
-      const p = canvas.parentElement;
-      if (!p) return;
-      renderer.setSize(p.clientWidth, p.clientHeight);
-      camera.aspect = p.clientWidth / p.clientHeight;
-      camera.updateProjectionMatrix();
-    };
-    resizeFnRef.current = resize;
-    resize();
-    window.addEventListener("resize", resize);
-
-    const animate = () => {
-      if (disposedRef.current) return;
-      animFrameRef.current = requestAnimationFrame(animate);
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    return () => {
-      disposedRef.current = true;
-      window.removeEventListener("resize", resize);
-      cancelAnimationFrame(animFrameRef.current);
-      controls.dispose();
-      renderer.dispose();
-      scene.traverse(obj => {
-        if (obj.geometry) obj.geometry.dispose();
-        if (obj.material) {
-          if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
-          else obj.material.dispose();
-        }
-      });
-      sceneRef.current = null;
-    };
-  }, []); // eslint-disable-line
-
-  /* ─── Sync layer visibility with timeline slider ─── */
-  useEffect(() => {
-    const groups = layerGroupsRef.current;
-    if (!groups || groups.length === 0) return;
-
+  /* ─── Compute per-layer reveal progress from the timeline slider ───
+   *  Each construction phase drives a 0..1 progress value across its week
+   *  window; that progress is handed to PlanHouse per geometry-layer tag, so
+   *  instead of every wall/roof piece popping in at once the build unfolds
+   *  piece-by-piece as the active phase ticks forward. When a phase is
+   *  complete the layer renders fully; before a phase starts it stays hidden. */
+  const layerProgress = useMemo(() => {
+    const map = {};
     LAYER_PHASE_CONFIG.forEach((cfg, phaseIdx) => {
       const phase = schedule[phaseIdx];
-      // Skip phases with no direct 3D layer (permits, MEP, carpentry, etc.)
-      if (!phase || cfg.layerIdx == null || !groups[cfg.layerIdx]) return;
-
-      const phaseStartWeek = weeksBetween(projectStart, phase.startDate);
-      const phaseEndWeek = weeksBetween(projectStart, phase.endDate);
-
-      if (timeSlider >= phaseEndWeek) {
-        groups[cfg.layerIdx].visible = true;
-        groups[cfg.layerIdx].traverse(child => {
-          if (child.isMesh && child.material) {
-            child.material.transparent = false;
-            child.material.opacity = 1;
-            child.material.needsUpdate = true;
-          }
-        });
-      } else if (timeSlider >= phaseStartWeek) {
-        groups[cfg.layerIdx].visible = true;
-        const span = phaseEndWeek - phaseStartWeek;
-        const progress = span > 0 ? (timeSlider - phaseStartWeek) / span : 1;
-        groups[cfg.layerIdx].traverse(child => {
-          if (child.isMesh && child.material) {
-            child.material.transparent = true;
-            child.material.opacity = 0.3 + progress * 0.7;
-            child.material.needsUpdate = true;
-          }
-        });
-      } else {
-        groups[cfg.layerIdx].visible = false;
-      }
+      if (!phase || !cfg.reveal?.length) return;
+      const startWk = weeksBetween(projectStart, phase.startDate);
+      const endWk   = weeksBetween(projectStart, phase.endDate);
+      const span    = Math.max(1e-6, endWk - startWk);
+      // Manual "done" override jumps straight to 1; otherwise interpolate on the slider.
+      const p = phase.status === "complete"
+        ? 1
+        : Math.max(0, Math.min(1, (timeSlider - startWk) / span));
+      cfg.reveal.forEach((layer) => {
+        map[layer] = Math.max(map[layer] ?? 0, p);
+      });
     });
+    return map;
   }, [timeSlider, schedule, projectStart]);
+
+  // Shared color resolution — matches /preview3d and the builder dashboard.
+  // Prefers /preview3d localStorage picks, then per-project materials, then defaults.
+  const { wallColor: sceneWallColor, roofColor: sceneRoofColor } =
+    resolveHouseColors({ materials: project.materials });
 
   const handleSave = useCallback(async () => {
     setSaving(true); setSaveStatus(null);
@@ -899,12 +780,6 @@ function ScheduleTimelineInner() {
     `;
     document.head.appendChild(s);
   }, []);
-
-  // Re-fit the Three.js renderer whenever panel split changes
-  useEffect(() => {
-    const id = requestAnimationFrame(() => { resizeFnRef.current?.(); });
-    return () => cancelAnimationFrame(id);
-  }, [leftPct, topPct]);
 
   const navigate  = useNavigate();
   const sliderPct = totalWeeks > 0 ? (timeSlider / totalWeeks) * 100 : 0;
@@ -1042,13 +917,24 @@ function ScheduleTimelineInner() {
       {/* ── Main content row ── */}
       <div ref={mainRowRef} style={{ display: "flex", flex: `${topPct} 1 0`, minHeight: 0, overflow: "hidden" }}>
 
-        {/* Left — 3D Viewport: flush, no individual border */}
+        {/* Left — 3D Viewport: same plan-driven model as /preview3d, with
+            construction phases progressively revealing layers via `visibleLayers`. */}
         <div style={{ flex: `${leftPct} 1 0`, minWidth: 280, position: "relative", overflow: "hidden", background: colors.panel }}>
-          <canvas
-            ref={canvasRef}
-            style={{ width: "100%", height: "100%", display: "block", cursor: "grab" }}
+          <House3D
+            width={project.footprintWidth}
+            depth={project.footprintDepth}
+            stories={project.stories || 1}
+            floorPlan={project.floorPlan}
+            storyPlans={project.storyPlans}
+            wallColor={sceneWallColor}
+            roofColor={sceneRoofColor}
+            layerProgress={layerProgress}
+            showGround
+            showSky
+            interactive={false}
+            style={{ width: "100%", height: "100%" }}
           />
-          <div style={{ position: "absolute", top: 12, left: 12, display: "flex", alignItems: "center", gap: 8, background: "rgba(15,20,32,0.88)", padding: "6px 12px", borderRadius: radii.md, border: `1px solid ${colors.panelBorder}` }}>
+          <div style={{ position: "absolute", top: 12, left: 12, display: "flex", alignItems: "center", gap: 8, background: "rgba(15,20,32,0.88)", padding: "6px 12px", borderRadius: radii.md, border: `1px solid ${colors.panelBorder}`, zIndex: 2 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: colors.accent }} />
             <span style={{ fontFamily: fonts.label, fontSize: 11, color: colors.accent, fontWeight: 600 }}>{sliderPhase}</span>
             <span style={{ fontFamily: fonts.data, fontSize: 10, color: colors.textDim }}>{sliderDate}</span>

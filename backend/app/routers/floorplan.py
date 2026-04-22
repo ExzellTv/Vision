@@ -2,10 +2,11 @@
 Floor Plan Router — generate, import, CRUD, versioning, and DXF export.
 """
 
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 import io
 import zipfile
+from pathlib import Path
 
 from app.schemas.api import (
     FloorplanGenerateRequest,
@@ -69,14 +70,118 @@ def export_dxf_all(req: DXFExportAllRequest) -> StreamingResponse:
     )
 
 
-@router.post("/import")
-def import_floorplan(file: UploadFile = File(...)) -> dict:
-    """Import a floor plan file (placeholder)."""
+SUPPORTED_IMPORT_EXTS = {".dxf", ".dwg", ".rvt", ".3dm", ".ifc", ".skp"}
+MAX_IMPORT_BYTES = 50 * 1024 * 1024  # 50 MB cap — guards against accidental huge uploads
+
+
+def _collect_dxf_points(entities) -> tuple[list[float], list[float]]:
+    """Pull (x, y) coords from whichever positional attribute each entity carries."""
+    xs: list[float] = []
+    ys: list[float] = []
+    for e in entities:
+        dxf = getattr(e, "dxf", None)
+        if dxf is None:
+            continue
+        for attr in ("start", "end", "insert", "center"):
+            pt = getattr(dxf, attr, None)
+            if pt is None:
+                continue
+            try:
+                xs.append(float(pt[0]))
+                ys.append(float(pt[1]))
+            except (TypeError, IndexError):
+                pass
+    return xs, ys
+
+
+def _parse_dxf_summary(data: bytes) -> dict:
+    """Parse a DXF payload into an entity/layer/bbox summary. Raises on parse error."""
+    import ezdxf
+    import tempfile, os
+    from ezdxf import recover
+
+    # Write to a temp file — ezdxf's file-based reader handles both ASCII and
+    # binary DXF and performs auto-recovery on malformed files. The in-memory
+    # `ezdxf.read(StringIO(...))` path silently drops entities for some versions.
+    tmp = tempfile.NamedTemporaryFile(suffix=".dxf", delete=False)
+    try:
+        tmp.write(data); tmp.close()
+        try:
+            doc, _auditor = recover.readfile(tmp.name)
+        except Exception as err:
+            raise HTTPException(status_code=422, detail=f"DXF parse failed: {err}") from err
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+    entities = list(doc.modelspace())
+    layers = [layer.dxf.name for layer in doc.layers]
+    xs, ys = _collect_dxf_points(entities)
+
+    bbox = None
+    if xs and ys:
+        bbox = {
+            "min_x": min(xs), "max_x": max(xs),
+            "min_y": min(ys), "max_y": max(ys),
+            "width":  max(xs) - min(xs),
+            "height": max(ys) - min(ys),
+        }
+
     return {
-        "status": "stub",
-        "filename": file.filename,
-        "message": "File import not yet implemented.",
+        "dxf_version":  doc.dxfversion,
+        "entity_count": len(entities),
+        "layers":       layers[:50],  # cap so a pathological file doesn't bloat the response
+        "layer_count":  len(layers),
+        "bounding_box": bbox,
     }
+
+
+@router.post("/import")
+async def import_floorplan(file: UploadFile = File(...)) -> dict:
+    """Import a structural-model file from the user's computer.
+
+    DXF files are parsed with `ezdxf` to extract entity counts, layers, and
+    a bounding box — useful feedback for the import card. Other formats are
+    acknowledged but not parsed (the native readers aren't available in the
+    FastAPI container).
+    """
+    filename = file.filename or "upload"
+    ext = Path(filename).suffix.lower()
+
+    if ext not in SUPPORTED_IMPORT_EXTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{ext}'. Accepted: {', '.join(sorted(SUPPORTED_IMPORT_EXTS))}",
+        )
+
+    data = await file.read()
+    if len(data) > MAX_IMPORT_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds 50 MB import limit")
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    response: dict = {
+        "status": "ok",
+        "filename": filename,
+        "ext": ext,
+        "size_bytes": len(data),
+    }
+
+    if ext == ".dxf":
+        summary = _parse_dxf_summary(data)
+        response["summary"] = summary
+        response["message"] = (
+            f"Imported {summary['entity_count']} entities across {summary['layer_count']} layers."
+        )
+    else:
+        response["message"] = (
+            f"{ext.upper().lstrip('.')} file received. Full conversion for this format isn't "
+            f"enabled in this build; use .dxf for a parsed summary."
+        )
+
+    return response
 
 
 @router.get("/{id}")

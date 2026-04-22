@@ -7,6 +7,7 @@ import House3D from "../../components/3d/House3D";
 import { renderWithAI, RENDER_STYLES } from "../../lib/myArchitectAI";
 import { validateStructure } from "../../lib/structuralValidator";
 import { autoFixStoryPlans } from "../../lib/autoFix";
+import { read3DPrefs, write3DPrefs, resolveHouseColors } from "../../lib/housePrefs";
 
 /**
  * House3DPreview - Modern 3D house preview screen
@@ -61,30 +62,28 @@ function SectionLabel({ children }) {
   );
 }
 
-const PREFS_KEY = "vision:3d-prefs:v1";
-
-function read3DPrefs() {
-  try { return JSON.parse(localStorage.getItem(PREFS_KEY)) ?? {}; } catch { return {}; }
-}
-
 export default function House3DPreview() {
   const navigate = useNavigate();
   const project = useProject();
   const { isHomeowner, isBuilder } = useUserType();
 
-  // House configuration state — initialised from localStorage so choices survive navigation
+  // House configuration — initialised through the shared resolver so prefs
+  // from a previous visit win, then project materials, then defaults. This is
+  // the same resolution every other <House3D> consumer uses, which keeps the
+  // schedule 3D viewer and the builder dashboard in sync with whatever the
+  // user picks here.
   const _prefs = read3DPrefs();
+  const _initial = resolveHouseColors({ materials: project.materials });
   const [roofType,     setRoofType]     = useState(_prefs.roofType     ?? "gable");
-  const [wallMaterial, setWallMaterial] = useState(_prefs.wallMaterial ?? "vinyl");
-  const [roofMaterial, setRoofMaterial] = useState(_prefs.roofMaterial ?? "asphaltShingle");
-  const [wallColor,    setWallColor]    = useState(_prefs.wallColor     ?? "#e8e2da");
-  const [roofColor,    setRoofColor]    = useState(_prefs.roofColor     ?? "#3a3a3a");
+  const [wallMaterial, setWallMaterial] = useState(_initial.wallMaterial);
+  const [roofMaterial, setRoofMaterial] = useState(_initial.roofMaterial);
+  const [wallColor,    setWallColor]    = useState(_initial.wallColor);
+  const [roofColor,    setRoofColor]    = useState(_initial.roofColor);
 
-  // Persist prefs whenever any of them change
+  // Persist prefs whenever any of them change so every other screen resolves
+  // to the same colors on next read.
   useEffect(() => {
-    try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify({ roofType, wallMaterial, roofMaterial, wallColor, roofColor }));
-    } catch { /* quota full — ignore */ }
+    write3DPrefs({ roofType, wallMaterial, roofMaterial, wallColor, roofColor });
   }, [roofType, wallMaterial, roofMaterial, wallColor, roofColor]);
   // Cutaway view: hide the roof (and upper floors optionally) to peek inside.
   const [showRoof, setShowRoof] = useState(true);
