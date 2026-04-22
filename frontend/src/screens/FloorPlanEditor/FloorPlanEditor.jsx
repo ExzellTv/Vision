@@ -2127,7 +2127,7 @@ export default function FloorPlanEditor() {
   const drawPreviewRef = useRef(null); // mirrors drawingPreview (ref for stable callbacks)
   const previewCanvasRef = useRef(null); // custom block modal preview canvas
   const [libTab, setLibTab] = useState("elements");
-  const [zoom, setZoom] = useState(1.4); // 1:35 default scale
+  const [zoom, setZoom] = useState(1.0);
   const [saving, setSaving] = useState(false);
   const ragViolations = project.ragViolations ?? [];
   const setRagViolations = project.setRagViolations;
@@ -2289,6 +2289,15 @@ export default function FloorPlanEditor() {
     setSelectedItemIdx(-1);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePlan, activeStory]);
+
+  /* Reset to fit-view whenever a new plan loads — zoom=1 lets the renderer's
+     own fit-scale show the whole plan; pan=0 keeps it centered. */
+  useEffect(() => {
+    if (!activePlan) return;
+    setZoom(1.0);
+    setPanOffset({ x: 0, y: 0 });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePlan?.id]);
 
   /* ─── Custom block preview renderer ─── */
   const renderCustomPreview = useCallback(() => {
@@ -3589,7 +3598,9 @@ export default function FloorPlanEditor() {
         <div style={{
           height: 48, flexShrink: 0,
           display: "flex", alignItems: "center", gap: 4,
-          padding: "0 12px", background: "#0b1018", borderBottom: "1px solid #1a2236",
+          padding: "0 12px",
+          background: "#0b1018", borderBottom: "1px solid #1a2236",
+          position: "relative",
         }}>
           {[
             { key: "select", Icon: SelectIcon },
@@ -3684,41 +3695,45 @@ export default function FloorPlanEditor() {
             </div>
           )}
 
-          {/* Structural validation badge — hidden after fix until next check */}
-          {placedItems.length > 0 && !fixApplied && (
-            <ValidationBadge
-              validation={validation}
-              onClick={() => setShowValidationPanel(!showValidationPanel)}
-            />
+          {/* Spacer */}
+          <div style={{ flex: 1 }} />
+
+          {/* Export DXF */}
+          {activePlan && (
+            <button onClick={handleExportDxf} disabled={exportingDxf || !activePlan} style={{
+              height: 36, padding: "0 12px", borderRadius: 6,
+              border: "1px solid #2a3548", background: "transparent",
+              color: exportingDxf ? "#4a8a99" : colors.text,
+              fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
+              cursor: (exportingDxf || !activePlan) ? "default" : "pointer",
+              letterSpacing: "0.3px", display: "flex", alignItems: "center", gap: 5,
+              transition: "all 0.2s", whiteSpace: "nowrap", boxSizing: "border-box",
+            }}
+              onMouseEnter={(e) => { if (!exportingDxf && activePlan) { e.currentTarget.style.borderColor = "#2ed573"; e.currentTarget.style.color = "#2ed573"; } }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#2a3548"; e.currentTarget.style.color = colors.text; }}
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <path d="M2 9.5v1.5h9V9.5M6.5 1v7M4 6l2.5 2.5L9 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              {exportingDxf ? "Exporting…" : "Export DXF"}
+            </button>
           )}
 
-          {/* Fix button — only shown for issues the button can actually resolve */}
-          {!fixApplied && (() => {
-            const fixableStructural = (validation.issues || []).filter(
-              (i) => i.roomId && ["dimensions", "structural", "proportions", "placement"].includes(i.category)
-            ).length;
-            const total = ragViolations.length + fixableStructural;
-            if (total === 0) return null;
-            return (
-              <button
-                onClick={handleComplianceFix}
-                disabled={fixingCompliance}
-                style={{
-                  padding: "5px 12px", borderRadius: 6, border: "1px solid rgba(251,191,36,0.4)",
-                  background: fixingCompliance ? "rgba(251,191,36,0.1)" : "rgba(251,191,36,0.08)",
-                  color: fixingCompliance ? "#9a7c10" : "#fbbf24",
-                  fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
-                  cursor: fixingCompliance ? "default" : "pointer",
-                  display: "flex", alignItems: "center", gap: 5,
-                  transition: "all 0.2s",
-                }}
-              >
-                {fixingCompliance ? "Fixing…" : `⚡ Fix ${total} Issue${total > 1 ? "s" : ""}`}
-              </button>
-            );
-          })()}
+          {/* Build My Home / Save to Project */}
+          {activePlan && (
+            <button onClick={handleSaveToEdit} disabled={saving} style={{
+              height: 36, padding: "0 18px", borderRadius: 6, border: "none",
+              background: saving ? "rgba(0,212,255,0.3)" : "linear-gradient(135deg, #00d4ff, #0099cc)",
+              color: saving ? "#4a8a99" : "#0d1117",
+              fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
+              cursor: saving ? "default" : "pointer", letterSpacing: "0.3px",
+              transition: "all 0.2s", whiteSpace: "nowrap", boxSizing: "border-box",
+            }}>
+              {saving ? "Saving…" : isHomeowner ? "Build My Home →" : "Save to Project →"}
+            </button>
+          )}
 
-          {/* Fix result log */}
+          {/* Fix result log — absolutely positioned, doesn't affect toolbar layout */}
           {complianceFixLog && (
             <div style={{
               position: "absolute", top: 48, left: "50%", transform: "translateX(-50%)",
@@ -3744,41 +3759,6 @@ export default function FloorPlanEditor() {
                 </div>
               )}
             </div>
-          )}
-
-          {/* Spacer + actions */}
-          <div style={{ flex: 1 }} />
-          {activePlan && (
-            <>
-<button onClick={handleExportDxf} disabled={exportingDxf || !activePlan} style={{
-                padding: "6px 14px", borderRadius: 6,
-                border: "1px solid #2a3548",
-                background: "transparent",
-                color: exportingDxf ? "#4a8a99" : colors.text,
-                fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
-                cursor: (exportingDxf || !activePlan) ? "default" : "pointer",
-                letterSpacing: "0.3px", display: "flex", alignItems: "center", gap: 5,
-                transition: "all 0.2s",
-              }}
-                onMouseEnter={(e) => { if (!exportingDxf && activePlan) { e.currentTarget.style.borderColor = "#2ed573"; e.currentTarget.style.color = "#2ed573"; } }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#2a3548"; e.currentTarget.style.color = colors.text; }}
-              >
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                  <path d="M2 9.5v1.5h9V9.5M6.5 1v7M4 6l2.5 2.5L9 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                {exportingDxf ? "Exporting…" : "Export DXF"}
-              </button>
-              <button onClick={handleSaveToEdit} disabled={saving} style={{
-                padding: "6px 18px", borderRadius: 6, border: "none",
-                background: saving ? "rgba(0,212,255,0.3)" : "linear-gradient(135deg, #00d4ff, #0099cc)",
-                color: saving ? "#4a8a99" : "#0d1117",
-                fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
-                cursor: saving ? "default" : "pointer", letterSpacing: "0.3px",
-                transition: "all 0.2s",
-              }}>
-                {saving ? "Saving…" : isHomeowner ? "Build My Home →" : "Save to Project →"}
-              </button>
-            </>
           )}
         </div>
 
@@ -4005,6 +3985,45 @@ export default function FloorPlanEditor() {
               {activeStory === 0 ? "Primary" : "Upper"}
             </span>
           </div>
+
+          {/* Validation badge + fix button — shown below Status when issues exist */}
+          {placedItems.length > 0 && !fixApplied && (
+            <div style={{ padding: "10px 16px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+              <ValidationBadge
+                validation={validation}
+                onClick={() => setShowValidationPanel(!showValidationPanel)}
+              />
+              {(() => {
+                const fixableStructural = (validation.issues || []).filter(
+                  (i) => i.roomId && ["dimensions", "structural", "proportions", "placement"].includes(i.category)
+                ).length;
+                const total = ragViolations.length + fixableStructural;
+                if (total === 0) return null;
+                return (
+                  <button
+                    onClick={handleComplianceFix}
+                    disabled={fixingCompliance}
+                    style={{
+                      width: "100%", height: 36, padding: "0 16px", borderRadius: 8,
+                      border: fixingCompliance ? "1px solid rgba(251,191,36,0.15)" : "1px solid rgba(251,191,36,0.35)",
+                      background: fixingCompliance
+                        ? "rgba(251,191,36,0.05)"
+                        : "linear-gradient(135deg, rgba(251,191,36,0.18) 0%, rgba(251,191,36,0.08) 100%)",
+                      color: fixingCompliance ? "rgba(251,191,36,0.4)" : "#fbbf24",
+                      fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
+                      cursor: fixingCompliance ? "default" : "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                      transition: "all 0.2s", whiteSpace: "nowrap", boxSizing: "border-box",
+                      letterSpacing: "0.02em",
+                      boxShadow: fixingCompliance ? "none" : "0 0 12px rgba(251,191,36,0.12)",
+                    }}
+                  >
+                    {fixingCompliance ? "Fixing…" : `⚡ Fix ${total} Issue${total > 1 ? "s" : ""}`}
+                  </button>
+                );
+              })()}
+            </div>
+          )}
         </div>
 
         {/* Component Properties */}

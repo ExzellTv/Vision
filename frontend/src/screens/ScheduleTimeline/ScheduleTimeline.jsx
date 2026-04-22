@@ -938,6 +938,23 @@ function ScheduleTimelineInner() {
           </div>
 
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap" }}>
+            {/* Back button — builder only */}
+            {!isHomeowner && (
+              <button
+                onClick={() => navigate(-1)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  background: "transparent", border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: 6, color: colors.textDim, fontSize: 12,
+                  fontWeight: 600, padding: "4px 10px", cursor: "pointer",
+                  fontFamily: fonts.label, transition: "all 0.15s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.accent; e.currentTarget.style.color = colors.accent; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = colors.textDim; }}
+              >
+                ← Back
+              </button>
+            )}
             {/* Project start date picker — builder only; homeowner sees static label */}
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.6px" }}>

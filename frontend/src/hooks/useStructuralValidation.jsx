@@ -491,7 +491,9 @@ export function ValidationBadge({ validation, onClick }) {
           display: "flex",
           alignItems: "center",
           gap: 6,
-          padding: "6px 12px",
+          height: 36,
+          padding: "0 12px",
+          boxSizing: "border-box",
           background: "rgba(46, 213, 115, 0.1)",
           border: "1px solid rgba(46, 213, 115, 0.25)",
           borderRadius: 6,
@@ -508,6 +510,9 @@ export function ValidationBadge({ validation, onClick }) {
   }
 
   const hasErrors = errors.length > 0;
+  const color = hasErrors ? "#ff4757" : "#ff9f43";
+  const bg = hasErrors ? "rgba(255,71,87,0.08)" : "rgba(255,159,67,0.08)";
+  const border = hasErrors ? "rgba(255,71,87,0.22)" : "rgba(255,159,67,0.22)";
 
   return (
     <div
@@ -515,25 +520,27 @@ export function ValidationBadge({ validation, onClick }) {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 6,
-        padding: "6px 12px",
-        background: hasErrors ? "rgba(255, 71, 87, 0.1)" : "rgba(255, 159, 67, 0.1)",
-        border: `1px solid ${hasErrors ? "rgba(255, 71, 87, 0.25)" : "rgba(255, 159, 67, 0.25)"}`,
-        borderRadius: 6,
+        gap: 8,
+        height: 36,
+        padding: "0 12px",
+        boxSizing: "border-box",
+        background: bg,
+        border: `1px solid ${border}`,
+        borderRadius: 8,
         cursor: onClick ? "pointer" : "default",
+        userSelect: "none",
       }}
     >
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-        <path
-          d="M6 1L11 10H1L6 1Z"
-          stroke={hasErrors ? "#ff4757" : "#ff9f43"}
-          strokeWidth="1.2"
-          fill="none"
-        />
-      </svg>
-      <span style={{ fontSize: 11, color: hasErrors ? "#ff4757" : "#ff9f43", fontWeight: 500 }}>
+      {/* dot indicator */}
+      <span style={{
+        width: 7, height: 7, borderRadius: "50%",
+        background: color,
+        boxShadow: `0 0 6px ${color}`,
+        flexShrink: 0,
+      }} />
+      <span style={{ fontSize: 11, color, fontWeight: 600, letterSpacing: "0.02em", whiteSpace: "nowrap" }}>
         {errors.length > 0 && `${errors.length} error${errors.length > 1 ? "s" : ""}`}
-        {errors.length > 0 && warnings.length > 0 && ", "}
+        {errors.length > 0 && warnings.length > 0 && " · "}
         {warnings.length > 0 && `${warnings.length} warning${warnings.length > 1 ? "s" : ""}`}
       </span>
     </div>

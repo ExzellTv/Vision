@@ -1,10 +1,24 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import { builderRequestsApi } from "../services/api";
+import { builderRequestsApi, projectsApi } from "../services/api";
 
 const BuilderContext = createContext(null);
 
 const BUILDER_CACHE_KEY = "vision:builder";
 const BUILDER_CACHE_SCHEMA = 2; // increment whenever the cached shape changes
+const FINISHED_KEY = "vision:builder:finished"; // persists finished project IDs across reloads
+
+function readFinishedIds() {
+  try { return new Set(JSON.parse(localStorage.getItem(FINISHED_KEY)) ?? []); }
+  catch { return new Set(); }
+}
+
+function addFinishedId(id) {
+  try {
+    const ids = readFinishedIds();
+    ids.add(id);
+    localStorage.setItem(FINISHED_KEY, JSON.stringify([...ids]));
+  } catch { /* quota */ }
+}
 
 function readBuilderCache() {
   try {
@@ -58,10 +72,12 @@ export function BuilderProvider({ children }) {
           feasibility: { score: 0, zoning: "Pending" },
         }));
 
-        // DB is the source of truth — rebuild state entirely from API response.
-        // Cache is only used for instant first paint; it never overrides live data.
-        const next = [...approvedMapped, ...pendingMapped];
-        writeBuilderCache(approvedMapped);
+        // Filter out any projects the builder has already finished
+        const finishedIds = readFinishedIds();
+        const filteredApproved = approvedMapped.filter((p) => !finishedIds.has(p.id));
+        const filteredPending  = pendingMapped.filter((p)  => !finishedIds.has(p.id));
+        const next = [...filteredApproved, ...filteredPending];
+        writeBuilderCache(filteredApproved);
         setProjects(next);
       })
       .catch(() => {});
@@ -100,8 +116,21 @@ export function BuilderProvider({ children }) {
     });
   };
 
+  const finishProject = (projectId) => {
+    // Remember this project is finished so re-fetches keep filtering it out
+    addFinishedId(projectId);
+    // Optimistically remove from local state so the card disappears immediately
+    setProjects((prev) => {
+      const next = prev.filter((p) => p.id !== projectId);
+      writeBuilderCache(next.filter((p) => p.status !== "New Request"));
+      return next;
+    });
+    // Persist completed status to MongoDB (fire-and-forget — local state already updated)
+    projectsApi.finish(projectId).catch(() => {});
+  };
+
   return (
-    <BuilderContext.Provider value={{ projects, approveRequest, denyRequest, refreshProjects: fetchApiProjects }}>
+    <BuilderContext.Provider value={{ projects, approveRequest, denyRequest, finishProject, refreshProjects: fetchApiProjects }}>
       {children}
     </BuilderContext.Provider>
   );

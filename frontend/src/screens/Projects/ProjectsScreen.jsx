@@ -418,7 +418,8 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
         {(() => {
           const fp = project.floor_plan;
           const layers = project.materials?.length ?? 0;
-          const rooms = fp?.rooms?.length ?? 0;
+          const ROOM_TYPES = new Set(["bedroom","bathroom","kitchen","living","dining","garage","hallway","closet","laundry","entry","stair","office"]);
+          const rooms = (fp?.rooms ?? []).filter((r) => r.isRoom === true || ROOM_TYPES.has((r.type || "").toLowerCase())).length;
           const sf = fp?.totalSF || project.generate_params?.targetSF || 0;
           const isReadyToBuild =
             (fp?.rooms?.length > 0) &&

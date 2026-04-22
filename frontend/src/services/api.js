@@ -146,6 +146,8 @@ export const projectsApi = {
   update: (id, data) => request(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   updateSchedule: (id, schedule) => request(`/projects/${id}/schedule`, { method: "PATCH", body: JSON.stringify({ schedule }) }),
   delete: (id) => request(`/projects/${id}`, { method: "DELETE" }),
+  finish: (id) => request(`/projects/${id}/finish`, { method: "PATCH" }),
+  completedCount: () => request("/projects/completed-count"),
 };
 
 export const builderRequestsApi = {

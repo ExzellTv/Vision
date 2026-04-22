@@ -67,6 +67,8 @@ class ProjectUpdate(BaseModel):
     diagnosis_cache: list[dict[str, Any]] | None = None
     location: dict[str, Any] | None = None  # { "city": "Detroit", "state": "MI" }
     plot: dict[str, Any] | None = None  # selected land parcel { address, lat, lng, price, lot_sf, zoning, url }
+    status: str | None = None            # e.g. "completed"
+    completed_at: str | None = None      # ISO timestamp set when builder finishes
 
 
 class ProjectScheduleUpdate(BaseModel):
@@ -84,7 +86,7 @@ async def list_projects(
 ) -> list[dict]:
     """List all projects belonging to the current user."""
     user_id = _resolve_user_id(user)
-    cursor = db.projects.find({"user_id": user_id}).sort("updated_at", -1)
+    cursor = db.projects.find({"user_id": user_id, "status": {"$ne": "completed"}}).sort("updated_at", -1)
     docs = await cursor.to_list(200)
     return [_to_json(d) for d in docs]
 
@@ -115,6 +117,13 @@ async def create_project(
     result = await db.projects.insert_one(doc)
     doc["_id"] = result.inserted_id
     return _to_json(doc)
+
+
+@router.get("/completed-count")
+async def completed_project_count(db=Depends(get_db)) -> dict:
+    """Return the total number of completed projects across all users."""
+    count = await db.projects.count_documents({"status": "completed"})
+    return {"count": count}
 
 
 @router.get("/available")
@@ -206,6 +215,28 @@ async def update_project(
     result = await db.projects.find_one_and_update(
         {"_id": oid, "user_id": user_id},
         {"$set": updates},
+        return_document=True,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return _to_json(result)
+
+
+@router.patch("/{project_id}/finish")
+async def finish_project(
+    project_id: str,
+    db=Depends(get_db),
+) -> dict:
+    """Mark a project as completed. No ownership check — builders call this on homeowner projects."""
+    try:
+        oid = ObjectId(project_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid project ID")
+
+    now = datetime.now(timezone.utc)
+    result = await db.projects.find_one_and_update(
+        {"_id": oid},
+        {"$set": {"status": "completed", "completed_at": now, "updated_at": now}},
         return_document=True,
     )
     if result is None:

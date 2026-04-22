@@ -82,7 +82,7 @@ function ProgressCircle({ percentage, tone }) {
   );
 }
 
-function ProjectCard({ project }) {
+function ProjectCard({ project, onFinish }) {
   const badgeStyle = statusStyles[project.statusTone] || statusStyles.accent;
   const navigate = useNavigate();
 
@@ -179,28 +179,51 @@ function ProjectCard({ project }) {
             Review Request
           </button>
         ) : (
-          <button
-            onClick={() => navigate(`/client-project/${project.id}`)}
-            style={{
-              color: colors.textBright,
-              background: "rgba(0, 212, 255, 0.16)",
-              borderRadius: radii.md,
-              border: "none",
-              padding: "8px 16px",
-              fontSize: "0.875rem",
-              fontWeight: "bold",
-              cursor: "pointer",
-              transition: "background 0.3s ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "rgba(0, 212, 255, 0.24)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "rgba(0, 212, 255, 0.16)";
-            }}
-          >
-            View project
-          </button>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              onClick={() => navigate(`/client-project/${project.id}`)}
+              style={{
+                color: colors.textBright,
+                background: "rgba(0, 212, 255, 0.16)",
+                borderRadius: radii.md,
+                border: "none",
+                padding: "8px 16px",
+                fontSize: "0.875rem",
+                fontWeight: "bold",
+                cursor: "pointer",
+                transition: "background 0.3s ease",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0, 212, 255, 0.24)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(0, 212, 255, 0.16)"; }}
+            >
+              View project
+            </button>
+            {project.progress >= 10 && (() => {
+              const done = project.progress >= 100;
+              return (
+                <button
+                  onClick={(e) => { if (!done) return; e.stopPropagation(); onFinish(project.id, project.name); }}
+                  disabled={!done}
+                  title={done ? "Mark project as complete" : `Project must be 100% complete (currently ${project.progress}%)`}
+                  style={{
+                    color: done ? "#4ade80" : "#4b5563",
+                    background: done ? "rgba(74, 222, 128, 0.12)" : "rgba(255,255,255,0.03)",
+                    borderRadius: radii.md,
+                    border: `1px solid ${done ? "rgba(74, 222, 128, 0.3)" : "rgba(255,255,255,0.08)"}`,
+                    padding: "8px 14px",
+                    fontSize: "0.875rem",
+                    fontWeight: "bold",
+                    cursor: done ? "pointer" : "not-allowed",
+                    transition: "background 0.3s ease",
+                  }}
+                  onMouseEnter={(e) => { if (done) e.currentTarget.style.background = "rgba(74, 222, 128, 0.22)"; }}
+                  onMouseLeave={(e) => { if (done) e.currentTarget.style.background = "rgba(74, 222, 128, 0.12)"; }}
+                >
+                  Finish
+                </button>
+              );
+            })()}
+          </div>
         )}
       </div>
     </div>
@@ -208,8 +231,15 @@ function ProjectCard({ project }) {
 }
 
 export default function ProjectsPage() {
-  const { projects, refreshProjects } = useBuilderStore();
+  const { projects, refreshProjects, finishProject } = useBuilderStore();
   const [scheduleMap, setScheduleMap] = useState({});
+  const [confirmFinish, setConfirmFinish] = useState(null);
+  const [completedCount, setCompletedCount] = useState(0);
+
+  useEffect(() => {
+    projectsApi.completedCount().then((d) => setCompletedCount(d.count ?? 0)).catch(() => {});
+  }, []);
+
   const activeProjects = projects.filter((p) => p.status !== "New Request");
   const pendingRequests = projects.filter((p) => p.status === "New Request");
 
@@ -302,7 +332,7 @@ export default function ProjectsPage() {
           {[
             { label: "Active projects", value: activeProjects.length },
             { label: "Pending requests", value: pendingRequests.length },
-            { label: "Completed builds", value: 41 },
+            { label: "Completed builds", value: completedCount },
           ].map((stat) => (
             <div
               key={stat.label}
@@ -338,10 +368,77 @@ export default function ProjectsPage() {
           {activeProjects.map((project) => {
             const sched = scheduleMap[project.id];
             const enriched = sched ? { ...project, phase: sched.phase, progress: sched.progress } : project;
-            return <ProjectCard key={project.id} project={enriched} />;
+            return (
+              <ProjectCard
+                key={project.id}
+                project={enriched}
+                onFinish={(id, name) => setConfirmFinish({ id, name })}
+              />
+            );
           })}
         </div>
       </main>
+
+      {/* Finish Project confirmation modal */}
+      {confirmFinish && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(7, 10, 15, 0.75)",
+            backdropFilter: "blur(6px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+          onClick={() => setConfirmFinish(null)}
+        >
+          <div
+            style={{
+              background: "linear-gradient(160deg, #0d1117 0%, #111827 100%)",
+              border: "1px solid rgba(74, 222, 128, 0.25)",
+              borderRadius: radii.lg,
+              padding: "36px 40px",
+              maxWidth: 420,
+              width: "90%",
+              boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ margin: "0 0 12px 0", color: "#f0fdf4", fontFamily: "'Newsreader', serif", fontWeight: 500, fontSize: "1.5rem" }}>
+              Mark as complete?
+            </h2>
+            <p style={{ margin: "0 0 28px 0", color: "#9ca3af", fontSize: "0.95rem", lineHeight: 1.6 }}>
+              <strong style={{ color: "#e5e7eb" }}>{confirmFinish.name}</strong> will be marked as a completed build and removed from your active projects. The project data is preserved in the system.
+            </p>
+            <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setConfirmFinish(null)}
+                style={{
+                  padding: "10px 20px", borderRadius: radii.md,
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: "transparent", color: "#9ca3af",
+                  fontSize: "0.875rem", fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  finishProject(confirmFinish.id);
+                  setCompletedCount((n) => n + 1);
+                  setConfirmFinish(null);
+                }}
+                style={{
+                  padding: "10px 24px", borderRadius: radii.md,
+                  border: "1px solid rgba(74, 222, 128, 0.4)",
+                  background: "rgba(74, 222, 128, 0.15)", color: "#4ade80",
+                  fontSize: "0.875rem", fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                Yes, finish project
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

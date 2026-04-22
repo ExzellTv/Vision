@@ -584,6 +584,14 @@ export default function ClientProject() {
             </p>
           </div>
           <div style={{ display: "flex", gap: "12px" }}>
+             <button
+               onClick={() => navigate(-1)}
+               style={{ padding: "10px 20px", background: "transparent", border: `1px solid rgba(255,255,255,0.1)`, borderRadius: radii.md, color: colors.textDim, fontWeight: "bold", cursor: "pointer", transition: "all 0.15s" }}
+               onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#00d4ff"; e.currentTarget.style.color = "#00d4ff"; }}
+               onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = colors.textDim; }}
+             >
+               ← Back
+             </button>
              <button style={{ padding: "10px 20px", background: "rgba(255,255,255,0.05)", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, color: colors.textBright, fontWeight: "bold", cursor: "pointer" }}>
                Generate Report
              </button>
@@ -697,23 +705,39 @@ export default function ClientProject() {
           {/* Feasibility & Location */}
           <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
             <WidgetCard title="Feasibility Scan">
-              <div style={{ display: "flex", alignItems: "center", gap: "20px", marginBottom: "24px" }}>
-                <div style={{ width: "80px", height: "80px", borderRadius: "50%", border: `6px solid ${colors.success}`, display: "flex", alignItems: "center", justifyContent: "center", color: colors.success, fontSize: "1.75rem", fontWeight: "bold", fontFamily: fonts.data }}>
-                  {project.feasibility.score}
-                </div>
-                <div>
-                  <div style={{ color: colors.textBright, fontWeight: "bold", fontSize: "1.125rem", marginBottom: 4 }}>High Viability</div>
-                  <div style={{ fontSize: "0.875rem" }}>Based on automated lot & structural checks</div>
-                </div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                {[['Zoning', project.feasibility.zoning], ['Environmental', project.feasibility.environmental], ['Structural QA', project.feasibility.structural]].map(([lbl, val], i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "rgba(0,0,0,0.2)", borderRadius: radii.md }}>
-                    <span style={{ color: colors.textDim, fontSize: "0.875rem" }}>{lbl}</span>
-                    <span style={{ color: colors.success, fontWeight: "bold", fontSize: "0.875rem" }}>{val}</span>
-                  </div>
-                ))}
-              </div>
+              {(() => {
+                const plot = project._plot;
+                const hasPlot = plot?.lat != null && plot?.lng != null;
+                const score = hasPlot ? 82 : 0;
+                const viabilityLabel = hasPlot ? "High Viability" : "Not Yet Assessed";
+                const viabilityNote  = hasPlot ? "Based on selected lot & structural checks" : "No lot selected yet";
+                const ringColor = hasPlot ? colors.success : colors.textDim;
+                const zoning      = plot?.zoning    ?? "Pending";
+                const environmental = hasPlot ? "Clear"    : "Pending";
+                const structuralQA  = hasPlot ? "Verified" : "Pending";
+                const rowColor = (val) => val === "Pending" ? colors.warn : colors.success;
+                return (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: "20px", marginBottom: "24px" }}>
+                      <div style={{ width: "80px", height: "80px", borderRadius: "50%", border: `6px solid ${ringColor}`, display: "flex", alignItems: "center", justifyContent: "center", color: ringColor, fontSize: "1.75rem", fontWeight: "bold", fontFamily: fonts.data }}>
+                        {score}
+                      </div>
+                      <div>
+                        <div style={{ color: colors.textBright, fontWeight: "bold", fontSize: "1.125rem", marginBottom: 4 }}>{viabilityLabel}</div>
+                        <div style={{ fontSize: "0.875rem" }}>{viabilityNote}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                      {[["Zoning", zoning], ["Environmental", environmental], ["Structural QA", structuralQA]].map(([lbl, val], i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "rgba(0,0,0,0.2)", borderRadius: radii.md }}>
+                          <span style={{ color: colors.textDim, fontSize: "0.875rem" }}>{lbl}</span>
+                          <span style={{ color: rowColor(val), fontWeight: "bold", fontSize: "0.875rem" }}>{val}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
             </WidgetCard>
             
             <WidgetCard style={{ justifySelf: "stretch" }}>
