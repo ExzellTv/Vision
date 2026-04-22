@@ -154,6 +154,7 @@ export function ProjectProvider({ children }) {
   const [buildingContext, setBuildingContextRaw] = useState(DEFAULT_BUILDING_CONTEXT);
   const [savedSchedule, setSavedSchedule] = useState(null);   // persisted schedule from MongoDB
   const [projectLocation, setProjectLocation] = useState(null); // { city, state } — set at project creation, never touched by FloorPlanEditor
+  const [ragViolations, setRagViolations] = useState([]);      // RAG compliance violations from StructuralIntelligence
   const [demoLoaded, setDemoLoaded] = useState(false);        // prevent double-load
 
   const setBuildingContext = useCallback((updates) => {
@@ -231,6 +232,7 @@ export function ProjectProvider({ children }) {
     setBuildingContextRaw(DEFAULT_BUILDING_CONTEXT);
     setSavedSchedule(null);
     setProjectLocation(null);
+    setRagViolations([]);
   }, []);
 
   /* Wrap setters to normalize API data */
@@ -282,6 +284,7 @@ export function ProjectProvider({ children }) {
     buildingContext, setBuildingContext,
     savedSchedule, setSavedSchedule,
     projectLocation, setProjectLocation,
+    ragViolations, setRagViolations,
     resetProject,
     persistNow,
     // Derived

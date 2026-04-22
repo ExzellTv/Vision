@@ -1,0 +1,75 @@
+[IRC R301.1] Scope. The provisions of this code shall apply to the construction, alteration, movement, enlargement, replacement, repair, equipment, use and occupancy, location, removal and demolition of detached one- and two-family dwellings and townhouses.
+
+[IRC R302.1] Exterior walls. Construction, projections, openings and penetrations of exterior walls of dwellings and accessory structures shall comply with Table R302.1(1).
+
+[IRC R303.1] Habitable rooms. All habitable rooms shall have an aggregate glazing area of not less than 8 percent of the floor area of such rooms. Natural ventilation shall be through windows, doors, louvers or other approved openings to the outdoor air. The minimum openable area to the outdoors shall be 4 percent of the floor area being ventilated.
+
+[IRC R303.4] Mechanical ventilation. Where the air infiltration rate of a dwelling unit is 5 air changes per hour or less where tested with a blower door, the dwelling unit shall be provided with whole-house mechanical ventilation.
+
+[IRC R304.1] Minimum room areas. Every dwelling unit shall have at least one habitable room that shall have not less than 120 square feet of gross floor area.
+
+[IRC R304.2] Other habitable rooms. Other habitable rooms shall have a floor area of not less than 70 square feet.
+
+[IRC R304.3] Minimum dimensions. Habitable rooms shall not be less than 7 feet in any horizontal dimension.
+
+[IRC R304.4] Height effect on room area. Portions of a room with a sloping ceiling measuring less than 5 feet or a furred ceiling measuring less than 7 feet from the finished floor to the finished ceiling shall not be considered as contributing to the minimum required habitable area for that room.
+
+[IRC R305.1] Minimum ceiling height. Habitable space, hallways, and portions of basements containing these spaces shall have a ceiling height of not less than 7 feet. Bathrooms, toilet rooms and laundry rooms shall have a ceiling height of not less than 6 feet 8 inches.
+
+[IRC R305.1.1] Basements. Portions of basements that do not contain habitable space, hallways, bathrooms, toilet rooms, and laundry rooms shall have a ceiling height of not less than 6 feet 8 inches.
+
+[IRC R310.1] Emergency escape and rescue openings required. Basements, habitable attics and every sleeping room shall have not less than one operable emergency escape and rescue opening. Emergency escape and rescue openings shall open directly into a public way, or to a yard or court that opens to a public way.
+
+[IRC R310.2] Emergency escape and rescue openings. Emergency escape and rescue openings shall have a minimum net clear opening of 5.7 square feet. The minimum net clear opening height shall be 24 inches. The minimum net clear opening width shall be 20 inches. The bottom of the clear opening shall not be greater than 44 inches measured from the finished floor to the bottom of the clear opening.
+
+[IRC R311.2] Egress door. At least one egress door shall be provided for each dwelling unit. The egress door shall be side-hinged, and shall provide a minimum clear width of 32 inches when measured between the face of the door and the stop, with the door open 90 degrees. The minimum clear height of the door opening shall not be less than 78 inches.
+
+[IRC R311.7] Stairways. Stairways shall not be less than 36 inches in clear width at all points above the permitted handrail height and below the required headroom height. Handrails shall not project more than 4.5 inches on either side of the stairway.
+
+[IRC R311.7.4] Stair treads and risers. Stair riser heights shall be 7-3/4 inches maximum and 4 inches minimum. Stair tread depths shall be 10 inches minimum.
+
+[IRC R311.7.8] Headroom. The minimum headroom in all parts of the stairway shall not be less than 6 feet 8 inches measured vertically from the sloped line adjoining the tread nosing or from the floor surface of the landing or platform.
+
+[IRC R312.1] Guards required. Guards shall be located along open-sided walking surfaces, including mezzanines, equipment platforms, stairs, ramps and landings, that are located more than 30 inches measured vertically to the floor or grade below at any point within 36 inches horizontally to the edge of the open side.
+
+[IRC R312.1.3] Guard opening limitations. Required guards shall not have openings that allow passage of a sphere 4 inches in diameter from the walking surface to the required guard height.
+
+[IRC R313.1] Townhouse automatic fire sprinkler systems. An automatic residential fire sprinkler system shall be installed in townhouses.
+
+[IRC R314.1] Smoke alarms. Smoke alarms shall be provided in accordance with Section R314.
+
+[IRC R314.3] Location. Smoke alarms shall be installed in the following locations: In each sleeping room. Outside each separate sleeping area in the immediate vicinity of the bedrooms. On each additional story of the dwelling, including basements and habitable attics.
+
+[IRC R315.1] Carbon monoxide alarms. Carbon monoxide alarms shall be installed in dwelling units that contain a fuel-fired appliance or have an attached garage.
+
+[IRC R401.1] Foundation requirements. Foundation construction shall be capable of accommodating all loads and of transmitting the resulting loads to the supporting soil.
+
+[IRC R403.1] Footings. All exterior walls shall be supported on continuous solid or fully grouted masonry or concrete footings, wood foundations, or other approved structural systems which shall be of sufficient design to accommodate all loads according to Section R301 and to transmit the resulting loads to the soil within the limitations as determined from the character of the soil.
+
+[IRC R602.3] Stud size, height and spacing. The size, height and spacing of studs shall be in accordance with Table R602.3(5).
+
+[IRC R802.1] Attic spaces. Enclosed attic spaces shall be provided with cross ventilation for each separate space by ventilating openings protected against the entrance of rain and snow.
+
+[IRC R1001.1] Masonry fireplaces. Masonry fireplaces shall be constructed in accordance with this section and the applicable provisions of Chapter 7.
+
+[IRC Table R302.1] Fire-resistance ratings for exterior walls based on fire separation distance. Walls with fire separation distance less than 3 feet shall have 1-hour fire-resistance-rated construction. Projections shall not be permitted where the fire separation distance is less than 2 feet.
+
+[IRC R302.5] Dwelling-garage opening and penetration protection. Openings from a private garage directly into a room used for sleeping purposes shall not be permitted. Other openings between the garage and dwelling shall be equipped with solid wood doors not less than 1-3/8 inches in thickness, solid or honeycomb-core steel doors not less than 1-3/8 inches thick, or 20-minute fire-rated doors.
+
+[IRC R303.3] Bathrooms. Bathrooms, water closet compartments and other similar rooms shall be provided with aggregate glazing area in windows of not less than 3 square feet, one-half of which must be openable. Exception: The glazed areas shall not be required where artificial light and a local exhaust system are provided.
+
+[IRC R309.1] Floor surface. Garage floor surfaces shall be of approved noncombustible material. The area of floor used for parking of automobiles or other vehicles shall be sloped to facilitate the movement of liquids to a drain or toward the main vehicle entry doorway.
+
+[IRC R309.2] Carports. Carports shall be open on at least two sides. Carport floor surfaces shall be of approved noncombustible material.
+
+[IRC R406.1] Concrete and masonry foundation waterproofing. In addition to the damp-proofing required in Section R405.1, concrete and masonry foundations that retain earth and enclose interior spaces and floors below grade shall be waterproofed with a membrane extending from the top of the footing to the finished grade.
+
+[IRC R502.1] Floors. Floor systems shall be designed and constructed in accordance with the provisions of this section or in accordance with AF&PA SDPWS.
+
+[IRC R602.10] Wall bracing. Buildings shall be braced in accordance with this section or, when applicable, Section R602.12.
+
+[IRC R703.1] General. Exterior walls shall provide the building with a weather-resistant exterior wall envelope.
+
+[IRC R902.1] Roofing materials. Roofing materials shall conform to the required fire classification for the structure or the required rating for the roof system as required by Table R902.1.1.
+
+[IRC R903.1] Weather protection. Roof decks shall be covered with approved roof coverings secured to the building or structure.

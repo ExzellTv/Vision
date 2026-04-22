@@ -154,6 +154,8 @@ function deriveContextFromProject(project) {
       lotWidth:  gp.lotWidth  || null,
       lotDepth:  gp.lotDepth  || null,
     },
+    // ── Location for jurisdiction-aware RAG compliance ──
+    location: project.projectLocation ?? project.location ?? null,
   };
 }
 
@@ -304,7 +306,7 @@ function DiagnosisModal({ diagnoses, open, onClose }) {
 }
 
 // ─── ComplianceScreen ────────────────────────────────────────────────────────
-function ComplianceScreen({ selectedProject, setSelectedProject, projects, projectContext }) {
+function ComplianceScreen({ selectedProject, setSelectedProject, projects, projectContext, onViolations }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [checks, setChecks] = useState([]);
@@ -362,6 +364,12 @@ function ComplianceScreen({ selectedProject, setSelectedProject, projects, proje
         setLoads(data.loads || null);
         setGoverning(data.governing_combination || null);
         setLastResult(data);
+        if (onViolations) {
+          // Deterministic path returns checks[].status; RAG path returns violations[]
+          const fromChecks = (data.checks || []).filter(c => c.status === "FAIL" || c.status === "WARNING");
+          const fromRag = data.violations || [];
+          onViolations([...fromChecks, ...fromRag]);
+        }
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
@@ -673,7 +681,7 @@ export default function StructuralIntelligence() {
 
       {/* ── Compliance Panel ── */}
       <div style={{ flex: 1, overflow: "auto" }}>
-        <ComplianceScreen selectedProject={selectedProject} setSelectedProject={setSelectedProject} projects={mongoProjects} projectContext={selectedProjectContext} />
+        <ComplianceScreen selectedProject={selectedProject} setSelectedProject={setSelectedProject} projects={mongoProjects} projectContext={selectedProjectContext} onViolations={project.setRagViolations} />
       </div>
     </div>
   );

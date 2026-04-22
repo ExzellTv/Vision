@@ -432,8 +432,14 @@ function exportGanttPDF({ schedule, projectStart, totalWeeks, projectName, start
 
 /* ─── Schedule localStorage cache ─── */
 const SCHEDULE_CACHE_KEY = "vision:schedule:v1";
-function readScheduleCache() {
-  try { return JSON.parse(localStorage.getItem(SCHEDULE_CACHE_KEY)) ?? null; } catch { return null; }
+function readScheduleCache(projectId) {
+  try {
+    const data = JSON.parse(localStorage.getItem(SCHEDULE_CACHE_KEY)) ?? null;
+    if (!data) return null;
+    // Reject cache if it belongs to a different project
+    if (projectId && data.projectId && data.projectId !== projectId) return null;
+    return data;
+  } catch { return null; }
 }
 function writeScheduleCache(data) {
   try { localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(data)); } catch { /* quota */ }
@@ -452,12 +458,19 @@ function ScheduleTimelineInner() {
   const disposedRef    = useRef(false);
   const resizeFnRef    = useRef(null); // stored so panel drags can trigger renderer resize
 
-  // Restore from saved schedule (MongoDB) or fall back to localStorage cache
-  const saved = project.savedSchedule ?? readScheduleCache();
+  // Restore from saved schedule (MongoDB) or fall back to localStorage cache (project-scoped)
+  const saved = project.savedSchedule ?? readScheduleCache(project.projectId);
 
-  const [startDateStr, setStartDateStr] = useState(
-    () => saved?.startDate || TODAY.toISOString().slice(0, 10)
-  );
+  const [startDateStr, setStartDateStr] = useState(() => {
+    const savedStart = saved?.startDate;
+    const hasSavedProgress = (saved?.manualDone || []).length > 0;
+    // If saved start is in the past and no phases were manually marked done,
+    // reset to today so a fresh project doesn't appear fully complete.
+    if (savedStart && new Date(savedStart) < TODAY && !hasSavedProgress) {
+      return TODAY.toISOString().slice(0, 10);
+    }
+    return savedStart || TODAY.toISOString().slice(0, 10);
+  });
   const [timeSlider,   setTimeSlider]   = useState(1);
   const [saving,       setSaving]       = useState(false);
   const [saveStatus,   setSaveStatus]   = useState(null);
@@ -478,6 +491,7 @@ function ScheduleTimelineInner() {
   // (MongoDB save is a separate explicit action; this is a silent background cache)
   useEffect(() => {
     writeScheduleCache({
+      projectId: project.projectId ?? null,
       startDate: startDateStr,
       manualDone: [...manualDone],
       durationOverrides,

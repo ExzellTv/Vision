@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Gemini / Google AI
     gemini_api_key: str = ""
 
+    # Cerebras AI (jurisdiction-aware compliance RAG)
+    cerebras_api_key: str = ""
+
     # Optional services
     redis_url: str = "redis://localhost:6379/0"
     aps_client_id: str = ""

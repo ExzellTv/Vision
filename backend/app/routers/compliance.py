@@ -1,12 +1,13 @@
 """
-Compliance Router — Gemini Pro RAG evaluation of structural code compliance.
+Compliance Router — jurisdiction-aware RAG (Cerebras) + deterministic structural checks.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Any
 from pydantic import BaseModel
 
-from app.services.compliance_rag import evaluate_compliance, diagnose_issues
+from app.mongodb import get_db
+from app.services.compliance_rag import evaluate_compliance, evaluate_compliance_rag, diagnose_issues, generate_fix_patches
 
 router = APIRouter()
 
@@ -24,17 +25,46 @@ class DiagnosisRequest(BaseModel):
 
 
 @router.post("/check")
-async def check_compliance(req: ComplianceCheckRequest) -> dict:
+async def check_compliance(req: ComplianceCheckRequest, db=Depends(get_db)) -> dict:
     """
-    Evaluate all 7 compliance checks for a project using Gemini Pro
-    with the structural RAG knowledge base.
+    Evaluate compliance for a project.
+    If city + state are present in building_context.location, uses Cerebras RAG
+    with jurisdiction-specific building codes. Otherwise falls back to deterministic checks.
     """
+    ctx = req.building_context or {}
+    location = ctx.get("location") or {}
+    city = location.get("city", "").strip()
+    state = location.get("state", "").strip()
+
     try:
-        result = await evaluate_compliance(req.project_id, req.building_context)
+        if city and state:
+            result = await evaluate_compliance_rag(city, state, ctx, db)
+        else:
+            result = await evaluate_compliance(req.project_id, ctx)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Compliance evaluation failed: {exc}")
+    return result
+
+
+class ComplianceFixRequest(BaseModel):
+    violations: list[dict[str, Any]]
+    rooms: list[dict[str, Any]]
+    location: dict[str, Any]
+
+
+@router.post("/fix")
+async def fix_compliance(req: ComplianceFixRequest) -> dict:
+    """
+    Generate room-dimension patches to resolve RAG compliance violations.
+    Calls Cerebras with the violations + current rooms to produce the minimum
+    set of resize operations needed. Returns patches + list of unfixable violations.
+    """
+    try:
+        result = await generate_fix_patches(req.violations, req.rooms, req.location)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Compliance fix generation failed: {exc}")
     return result
 
 

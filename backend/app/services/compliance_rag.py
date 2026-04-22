@@ -1,10 +1,11 @@
 """
-Compliance RAG Service — JSON knowledge base + Gemini Pro evaluation.
+Compliance RAG Service — jurisdiction-aware RAG with Cerebras + structural analytics.
 
-Loads structural_rag_knowledge.json at import time, builds a prompt with the
-full knowledge base + building context, and asks Gemini Pro to evaluate all
-7 compliance checks.  Metrics and loads are returned directly from the
-building context (no LLM needed for numbers).
+Two evaluation paths:
+  1. evaluate_compliance_rag() — city/state aware, retrieves real code excerpts,
+     calls Cerebras llama3.1-8b for verdict. Used when location is known.
+  2. evaluate_compliance() — deterministic structural checks (existing fallback).
+     Used when no location is provided.
 """
 
 import json
@@ -12,6 +13,7 @@ import logging
 from pathlib import Path
 
 import google.generativeai as genai
+import httpx
 
 from app.config import settings
 
@@ -728,3 +730,255 @@ def _fallback_diagnosis(item: dict) -> dict:
         "severity": "critical" if status == "FAIL" else "moderate",
         "recommendations": list(fb["recommendations"]),
     }
+
+
+# ─── Compliance Auto-Fix (Cerebras) ──────────────────────────────────────────
+
+_FIX_PROMPT = """\
+You are a residential floor plan auto-fix engine.
+
+Location: {location}
+
+Compliance violations to resolve:
+{violations}
+
+Current floor plan rooms:
+{rooms}
+
+Your job: generate the MINIMUM set of room resize operations to resolve the violations above.
+
+Rules:
+- Only resize existing rooms — never add or remove rooms
+- Only increase dimensions, never shrink (resizing up fixes minimum size violations)
+- If a violation cannot be fixed by resizing (e.g. missing egress window, setback issue), list it in "unfixable"
+- Use the exact room id values from the rooms list above
+- new_w and new_h must be numbers (feet), rounded to nearest 0.5
+
+Return ONLY valid JSON — no markdown, no fences:
+{{
+  "patches": [
+    {{
+      "room_id": "",
+      "room_name": "",
+      "field": "w | h | both",
+      "new_w": 0.0,
+      "new_h": 0.0,
+      "reason": "",
+      "code_reference": ""
+    }}
+  ],
+  "unfixable": [
+    "description of violation that cannot be resolved by resizing"
+  ]
+}}
+"""
+
+
+async def generate_fix_patches(violations: list, rooms: list, location: dict) -> dict:
+    """
+    Call Cerebras to generate room-dimension patches for RAG compliance violations.
+    Returns { patches: [...], unfixable: [...] }
+    """
+    if not settings.cerebras_api_key:
+        logger.warning("CEREBRAS_API_KEY not set — cannot generate fix patches")
+        return {"patches": [], "unfixable": ["Cerebras API key not configured"]}
+
+    location_str = f"{location.get('city', '')}, {location.get('state', '')}"
+    prompt = _FIX_PROMPT.format(
+        location=location_str,
+        violations=json.dumps(violations, indent=2),
+        rooms=json.dumps(rooms, indent=2),
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "https://api.cerebras.ai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.cerebras_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "llama3.1-8b",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.1,
+                    "max_tokens": 2048,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            raw = data["choices"][0]["message"]["content"].strip()
+
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1]
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+            raw = raw.strip()
+
+            result = json.loads(raw)
+            return {
+                "patches": result.get("patches", []),
+                "unfixable": result.get("unfixable", []),
+            }
+
+    except json.JSONDecodeError as e:
+        logger.error("Cerebras fix JSON parse error: %s", e)
+    except Exception as e:
+        logger.error("Cerebras fix error: %s", e)
+
+    return {"patches": [], "unfixable": ["Fix generation failed — try re-running compliance check"]}
+
+
+# ─── Jurisdiction-Aware RAG Evaluator (Cerebras) ─────────────────────────────
+
+_COMPLIANCE_SYSTEM_PROMPT = """\
+You are an expert residential architectural compliance engine.
+
+Your purpose is to determine whether a residential floor plan is:
+- COMPLIANT
+- NON-COMPLIANT
+- PARTIALLY COMPLIANT (some rules cannot be verified due to missing data)
+
+IMPORTANT: This is evaluation only. Do NOT suggest fixes or redesigns.
+
+------------------------------------------------------------
+RETRIEVED BUILDING CODE EXCERPTS (jurisdiction-specific):
+------------------------------------------------------------
+{excerpts}
+
+------------------------------------------------------------
+FLOOR PLAN TO EVALUATE:
+------------------------------------------------------------
+Location: {location}
+
+{floor_plan}
+
+------------------------------------------------------------
+EVALUATION RULES
+------------------------------------------------------------
+Check (when present in retrieved code excerpts):
+- Room size minimums
+- Ceiling height requirements
+- Egress requirements (window/door escape)
+- Stair safety and geometry
+- Fire safety requirements
+- Setbacks / zoning rules (if provided)
+- Stories limits
+
+STRICT RULE: You MUST NOT assume building codes.
+You MUST ONLY use the retrieved code excerpts above.
+If a rule is not present in the excerpts, mark it as UNVERIFIABLE.
+
+RAG priority: City municipal code > State amendments > IRC baseline.
+
+------------------------------------------------------------
+OUTPUT FORMAT (STRICT JSON ONLY — no markdown, no fences)
+------------------------------------------------------------
+{{
+  "location": {{"state": "", "city": ""}},
+  "verdict": "COMPLIANT | NON-COMPLIANT | PARTIALLY COMPLIANT",
+  "confidence": 0.0,
+  "summary": {{"total_rules_checked": 0, "violations_found": 0, "unverifiable_rules": 0}},
+  "violations": [
+    {{
+      "rule": "",
+      "severity": "HIGH | MEDIUM | LOW",
+      "location_reference": "",
+      "code_reference": "",
+      "explanation": ""
+    }}
+  ],
+  "unverifiable_checks": [""],
+  "safe_areas": [""]
+}}
+"""
+
+
+def _build_compliance_query(ctx: dict) -> str:
+    """Build a semantic query string from floor plan context for vector retrieval."""
+    parts = []
+    rooms = ctx.get("rooms") or []
+    if rooms:
+        types = list({(r.get("type") or r.get("label") or "room").lower() for r in rooms})
+        parts.append("room requirements: " + ", ".join(types))
+    total_sf = ctx.get("total_sf") or ctx.get("totalSF", 0)
+    stories = ctx.get("stories", 1)
+    if total_sf:
+        parts.append(f"total area {total_sf} square feet")
+    parts.append(f"{stories} story residential dwelling")
+    parts.append("minimum room size egress ceiling height setback zoning fire safety")
+    return " ".join(parts)
+
+
+async def evaluate_compliance_rag(city: str, state: str, ctx: dict, db) -> dict:
+    """
+    Evaluate compliance using jurisdiction-specific building codes via Cerebras RAG.
+
+    1. Load city + state code chunks into the vector store (cached in MongoDB)
+    2. Retrieve top-k relevant excerpts via TF-IDF cosine similarity
+    3. Build prompt and call Cerebras llama3.1-8b
+    4. Parse and return JSON verdict
+    """
+    from app.services.vector_store import code_store
+    from app.services.code_ingestion import load_jurisdiction_into_store
+
+    # Ensure jurisdiction codes are loaded
+    await load_jurisdiction_into_store(city, state, db, code_store)
+
+    # Retrieve relevant excerpts
+    query = _build_compliance_query(ctx)
+    excerpts = code_store.retrieve(query, city, state, top_k=10)
+
+    floor_plan_text = _build_floor_plan_narrative(ctx)
+    excerpts_text = "\n\n---\n\n".join(excerpts) if excerpts else "No jurisdiction-specific codes retrieved. Using IRC baseline only."
+
+    prompt = _COMPLIANCE_SYSTEM_PROMPT.format(
+        location=f"{city}, {state}",
+        excerpts=excerpts_text,
+        floor_plan=floor_plan_text,
+    )
+
+    if not settings.cerebras_api_key:
+        logger.warning("CEREBRAS_API_KEY not set — falling back to deterministic checks")
+        return await evaluate_compliance(building_context_override=ctx)
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "https://api.cerebras.ai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.cerebras_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "llama3.1-8b",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.1,
+                    "max_tokens": 4096,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            raw = data["choices"][0]["message"]["content"].strip()
+
+            # Strip markdown fences if present
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1]
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+            raw = raw.strip()
+
+            result = json.loads(raw)
+            # Tag the result so the frontend knows it came from RAG
+            result["_source"] = "cerebras_rag"
+            result["_jurisdiction"] = {"city": city, "state": state}
+            result["_excerpts_used"] = len(excerpts)
+            return result
+
+    except json.JSONDecodeError as e:
+        logger.error("Cerebras JSON parse error: %s", e)
+    except Exception as e:
+        logger.error("Cerebras RAG error: %s", e)
+
+    # Fallback to deterministic checks on any error
+    return await evaluate_compliance(building_context_override=ctx)

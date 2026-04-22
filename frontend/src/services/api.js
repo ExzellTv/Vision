@@ -130,6 +130,10 @@ export const complianceApi = {
     method: "POST",
     body: JSON.stringify({ analysis_type: analysisType, results, project_id: 1, ...(buildingContext && { building_context: buildingContext }) }),
   }),
+  fix: (violations, rooms, location) => request("/compliance/fix", {
+    method: "POST",
+    body: JSON.stringify({ violations, rooms, location }),
+  }),
 };
 
 // Projects (MongoDB-backed, requires auth)
