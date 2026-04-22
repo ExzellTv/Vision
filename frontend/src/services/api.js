@@ -150,6 +150,23 @@ export const projectsApi = {
   completedCount: () => request("/projects/completed-count"),
 };
 
+export const chatApi = {
+  listConversations: () => request("/chat/conversations"),
+  listArchived: () => request("/chat/conversations/archived"),
+  getMessages: (convId) => request(`/chat/conversations/${convId}/messages`),
+  sendMessage: (convId, text, senderRole) =>
+    request(`/chat/conversations/${convId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ text, sender_role: senderRole }),
+    }),
+  archiveConversation: (convId) =>
+    request(`/chat/conversations/${convId}/archive`, { method: "PATCH" }),
+  unarchiveConversation: (convId) =>
+    request(`/chat/conversations/${convId}/unarchive`, { method: "PATCH" }),
+  deleteConversation: (convId) =>
+    request(`/chat/conversations/${convId}`, { method: "DELETE" }),
+};
+
 export const builderRequestsApi = {
   create: (data) => request("/builder-requests", { method: "POST", body: JSON.stringify(data) }),
   list: () => request("/builder-requests"),

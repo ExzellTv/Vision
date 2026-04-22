@@ -120,4 +120,49 @@ async def update_request_status(
         raise HTTPException(status_code=400, detail="status must be 'approved' or 'denied'")
     oid = ObjectId(request_id)
     await db.builder_requests.update_one({"_id": oid}, {"$set": {"status": new_status}})
+
+    if new_status == "approved":
+        req = await db.builder_requests.find_one({"_id": oid})
+        if req:
+            now = datetime.now(timezone.utc)
+            existing = await db.conversations.find_one({
+                "project_id": req.get("project_id"),
+                "homeowner_id": req.get("homeowner_id"),
+            })
+            if not existing:
+                result = await db.conversations.insert_one({
+                    "project_id": req.get("project_id", ""),
+                    "project_name": req.get("project_name", ""),
+                    "homeowner_id": req.get("homeowner_id", ""),
+                    "builder_id": req.get("builder_id", ""),
+                    "builder_name": req.get("builder_name", ""),
+                    "created_at": now,
+                    "last_message_at": now,
+                })
+
+                # Send builder intro message
+                builder_name = req.get("builder_name", "Your builder")
+                company = req.get("builder_company", "")
+                project_name = req.get("project_name", "your project")
+                address = req.get("address", "")
+
+                company_line = f" at {company}" if company else ""
+                location_line = f" in {address}" if address else ""
+
+                intro = (
+                    f"Hi! I'm {builder_name}{company_line} — I've just accepted your request for "
+                    f"{project_name}{location_line}. 🎉\n\n"
+                    f"I'm excited to work with you on this build. Feel free to reach out here anytime "
+                    f"with questions, updates, or anything you'd like to discuss. "
+                    f"Let's make this project a great one!"
+                )
+
+                await db.messages.insert_one({
+                    "conversation_id": str(result.inserted_id),
+                    "sender_id": req.get("builder_id", "system"),
+                    "sender_role": "builder",
+                    "text": intro,
+                    "created_at": now,
+                })
+
     return {"ok": True}

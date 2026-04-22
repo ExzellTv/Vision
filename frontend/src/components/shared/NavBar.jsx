@@ -2,6 +2,11 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { colors, fonts } from "../../theme/tokens";
 import { useUserType } from "../../context/UserTypeContext";
+import { useBuilderStore } from "../../context/BuilderContext";
+import { chatApi } from "../../services/api";
+
+const CHAT_SEEN_KEY_HO = "vision:chat:last_seen:homeowner";
+const CHAT_SEEN_KEY_BD = "vision:chat:last_seen:builder";
 
 const LOGO = "/VisionLogo.png";
 
@@ -23,10 +28,42 @@ export default function NavBar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isHomeowner, isBuilder, clearUserType } = useUserType();
+  const { projects: builderProjects = [] } = useBuilderStore();
+  const pendingCount = builderProjects.filter(p => p.status === "New Request").length;
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [chatUnread, setChatUnread] = useState(false);
   const dropdownRef = useRef(null);
+  const chatPollRef = useRef(null);
 
   const isActive = (link) => link.match.includes(location.pathname);
+
+  const chatPath = isBuilder ? "/builderchat" : "/chat";
+  const onChatPage = location.pathname === chatPath;
+  const seenKey = isBuilder ? CHAT_SEEN_KEY_BD : CHAT_SEEN_KEY_HO;
+
+  // Clear dot the moment user lands on their chat page
+  useEffect(() => {
+    if (onChatPage) setChatUnread(false);
+  }, [onChatPage]);
+
+  // Poll every 10s when off chat page — compare server timestamps only
+  useEffect(() => {
+    if (onChatPage) return;
+    const check = async () => {
+      try {
+        const convs = await chatApi.listConversations();
+        const lastSeenMs = parseInt(localStorage.getItem(seenKey) || "0", 10);
+        const latestMsgMs = convs.reduce((max, c) => {
+          const t = c.last_message_at ? new Date(c.last_message_at).getTime() : 0;
+          return t > max ? t : max;
+        }, 0);
+        setChatUnread(latestMsgMs > 0 && latestMsgMs > lastSeenMs);
+      } catch (_) {}
+    };
+    check();
+    chatPollRef.current = setInterval(check, 10000);
+    return () => clearInterval(chatPollRef.current);
+  }, [onChatPage, seenKey]);
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -112,7 +149,25 @@ export default function NavBar() {
                 if (!active) e.currentTarget.style.color = colors.textDim;
               }}
             >
-              {link.label}
+              <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                {link.label}
+                {link.label === "Requests" && pendingCount > 0 && (
+                  <span style={{
+                    position: "absolute", top: -6, right: -10,
+                    width: 7, height: 7, borderRadius: "50%",
+                    background: "#ef4444",
+                    boxShadow: "0 0 6px rgba(239,68,68,0.7)",
+                  }} />
+                )}
+                {link.label === "Chat" && chatUnread && (
+                  <span style={{
+                    position: "absolute", top: -6, right: -10,
+                    width: 7, height: 7, borderRadius: "50%",
+                    background: "#ef4444",
+                    boxShadow: "0 0 6px rgba(239,68,68,0.7)",
+                  }} />
+                )}
+              </span>
             </button>
           );
         })}

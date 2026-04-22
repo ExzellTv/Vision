@@ -241,6 +241,22 @@ async def finish_project(
     )
     if result is None:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # Auto-message the homeowner via the project's conversation
+    conv = await db.conversations.find_one({"project_id": project_id})
+    if conv:
+        await db.messages.insert_one({
+            "conversation_id": str(conv["_id"]),
+            "sender_id": "system",
+            "sender_role": "builder",
+            "text": "🏗️ This project has been marked as complete. Thank you for building with Vision — it's been a pleasure working on your home!",
+            "created_at": now,
+        })
+        await db.conversations.update_one(
+            {"_id": conv["_id"]},
+            {"$set": {"last_message_at": now}},
+        )
+
     return _to_json(result)
 
 

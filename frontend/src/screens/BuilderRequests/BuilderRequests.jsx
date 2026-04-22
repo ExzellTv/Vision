@@ -138,7 +138,7 @@ export default function BuilderRequests() {
                   borderRadius: radii.md,
                   background: "rgba(13, 17, 23, 0.4)",
                   border: expandedId === req.id ? `1px solid ${colors.accent}` : `1px solid ${colors.cardBorder}`,
-                  overflow: "hidden",
+                  overflow: "visible",
                   transition: "border-color 0.2s ease",
                 }}
               >

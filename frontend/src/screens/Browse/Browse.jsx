@@ -189,10 +189,13 @@ function RequestModal({ builder, onClose }) {
   }, [onClose, selected, confirmed]);
 
   // ── Detail view (after picking a project) ──────────────────────────────────
+  const ROOM_TYPES = new Set(["bedroom","bathroom","kitchen","living","dining","garage","hallway","closet","laundry","entry","stair","office"]);
+
   const DetailView = ({ proj }) => {
     const gp = proj.generate_params || {};
     const fp = proj.floor_plan || proj.floorPlan || {};
-    const rooms = fp.rooms || [];
+    const allItems = fp.rooms || [];
+    const rooms = allItems.filter(r => r.isRoom === true || ROOM_TYPES.has((r.type || "").toLowerCase()));
     const bedrooms = rooms.filter((r) => r.type?.toLowerCase().includes("bed")).length || gp.bedrooms || "—";
     const bathrooms = gp.bathrooms || "—";
     const computedSF = rooms.reduce((s, r) => s + (r.w || r.width || 0) * (r.h || r.height || r.depth || 0), 0);
@@ -219,7 +222,7 @@ function RequestModal({ builder, onClose }) {
     ];
 
     return (
-      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
         {/* Back + title */}
         <div style={{
           display: "flex", alignItems: "center", gap: 10,

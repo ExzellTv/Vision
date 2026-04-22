@@ -8,7 +8,7 @@ from app.config import settings
 from app.database import Base, engine
 from app.models import *  # noqa: F401,F403 — register all models
 from app.routers import floorplan, structural, cost, market, risk, zoning, schedule, ingest, map_data
-from app.routers import compliance, projects, seed, csv_import, builder_requests
+from app.routers import compliance, projects, seed, csv_import, builder_requests, chat
 from app import mongodb
 from app.services import ml_predictor
 
@@ -78,6 +78,7 @@ app.include_router(projects.router, prefix="/api/projects", tags=["Projects"])
 app.include_router(seed.router,     prefix="/api/seed-data", tags=["Seed"])
 app.include_router(csv_import.router, prefix="/api/import/csv", tags=["CSV Import"])
 app.include_router(builder_requests.router, prefix="/api/builder-requests", tags=["Builder Requests"])
+app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 
 
 @app.get("/api/health")
