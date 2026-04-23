@@ -19,7 +19,18 @@
       "Bash(curl -s http://localhost:8000/api/structural/sections)",
       "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} sections loaded'\\)\")",
       "Bash(curl -s http://localhost:8000/api/zoning/templates)",
-      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} zoning templates loaded'\\)\")"
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} zoning templates loaded'\\)\")",
+      "Bash(git fetch:*)",
+      "Bash(find *)",
+      "Bash(xargs cat *)",
+      "Read(//private/tmp/**)",
+      "Bash(kill 57479 57503)",
+      "Bash(pip3 install *)",
+      "Bash(echo \"backend pid: $!\")",
+      "Bash(./node_modules/.bin/vite)",
+      "Bash(echo \"frontend pid: $!\")",
+      "Bash(pkill -f \"uvicorn app.main:app\")",
+      "Bash(echo \"pid: $!\")"
     ]
   }
 }
