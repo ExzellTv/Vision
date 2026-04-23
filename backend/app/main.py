@@ -1,8 +1,11 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.database import Base, engine
@@ -85,3 +88,30 @@ app.include_router(image.router, prefix="/api/image", tags=["Image Generation"])
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "version": "1.0.0"}
+
+
+# ── Production SPA serving ───────────────────────────────────────────────────
+# When the frontend has been built (frontend/dist/ exists), serve the static
+# bundle and fall back to index.html for any non-/api route so React Router
+# owns the client-side paths. Skipped entirely in dev — /api is all the
+# backend needs to expose. The `/assets` mount handles the hashed JS/CSS
+# emitted by Vite; the catch-all serves index.html for everything else.
+_frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if _frontend_dist.is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=_frontend_dist / "assets"),
+        name="assets",
+    )
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str, request: Request):
+        # Let API routes 404 normally rather than being swallowed by the SPA.
+        if full_path.startswith("api/"):
+            return FileResponse(_frontend_dist / "index.html", status_code=404)
+        # Serve a real file if one exists (favicon, logo, robots.txt, etc.)
+        candidate = _frontend_dist / full_path
+        if candidate.is_file():
+            return FileResponse(candidate)
+        # Otherwise hand the client the SPA shell.
+        return FileResponse(_frontend_dist / "index.html")

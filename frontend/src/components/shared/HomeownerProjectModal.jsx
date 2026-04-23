@@ -496,14 +496,15 @@ Never invent room types, furniture, styles, or garage options that aren't in the
         marginBottom: 10,
       }}>
         {!isUser && (
-          <div style={{
-            width: 22, height: 22, borderRadius: "50%",
-            background: "rgba(59,130,246,0.15)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0, marginTop: 2,
-          }}>
-            <SparkleIcon size={11} />
-          </div>
+          <img
+            src="/SpecialLogo.png"
+            alt="AI assistant"
+            style={{
+              width: 21, height: 21, borderRadius: "50%",
+              objectFit: "cover",
+              flexShrink: 0, marginTop: 2,
+            }}
+          />
         )}
         <div style={{
           maxWidth: "82%",

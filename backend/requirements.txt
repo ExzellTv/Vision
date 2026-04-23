@@ -25,3 +25,5 @@ google-generativeai>=0.8.0
 joblib>=1.4.0
 # DXF floor plan export
 ezdxf>=1.3.0
+# Async static file serving (FastAPI StaticFiles dependency for production SPA hosting)
+aiofiles>=23.0.0
