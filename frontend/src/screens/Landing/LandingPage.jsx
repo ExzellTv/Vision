@@ -725,7 +725,7 @@ export default function LandingPage() {
       {/* ── Navigation ── */}
       <nav style={s.nav}>
         <div style={s.navLogo} onClick={() => navigate("/")}>
-          <img src="/VisionLogo.png" alt="Vision" style={{ height: 28, width: "auto", objectFit: "contain" }} />
+          <img src="/SpecialLogo.png" alt="Vision" style={{ height: 28, width: "auto", objectFit: "contain" }} />
         </div>
         <div style={s.navLinks}>
           {["Features", "Workflow", "Intelligence", "Pricing"].map((lbl) => (
@@ -1313,7 +1313,7 @@ export default function LandingPage() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <img src="/VisionLogo.png" alt="Vision" style={{ height: 22, opacity: 0.6 }} />
+            <img src="/SpecialLogo.png" alt="Vision" style={{ height: 22, opacity: 0.6 }} />
           </div>
           <div style={{ display: "flex", gap: 28 }}>
             {["Privacy", "Terms", "Docs", "Contact"].map((l) => (

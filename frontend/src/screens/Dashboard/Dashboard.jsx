@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 // import { useUser } from "@clerk/clerk-react"; // DEMO MODE: Clerk disabled
 import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
-import { projectsApi } from "../../services/api";
+import { projectsApi, costApi } from "../../services/api";
 import NewProjectModal from "../../components/shared/NewProjectModal";
 import HomeownerProjectModal from "../../components/shared/HomeownerProjectModal";
 import { useUserType } from "../../context/UserTypeContext";
@@ -327,10 +327,7 @@ function projectToRow(p) {
   const acres = Math.round((lotW * lotD / 43560) * 100) / 100;
 
   const totalSF = fp.totalSF || gp.targetSF || 2200;
-  // Rough $/SF: use layer cost if available, else derived estimate
-  const mats = p.materials || [];
-  const layerTotal = mats.reduce((s, m) => s + (m.cost_per_sf || 0), 0);
-  const cost = layerTotal > 0 ? Math.round(layerTotal) : Math.round(85 + totalSF / 100);
+  const cost = null; // populated asynchronously via ML cost prediction
 
   const rawScore = fp.score ? fp.score * 100 : null;
   // Seed a deterministic score from name length + totalSF to avoid random flicker
@@ -360,10 +357,41 @@ export default function Dashboard() {
 
   useEffect(() => {
     let alive = true;
-    const load = () => {
-      projectsApi.list()
-        .then(ps => { if (alive) { setRecentProjects(ps.slice(0, 5).map(projectToRow)); setRecentLoading(false); } })
-        .catch(() => { if (alive) setRecentLoading(false); });
+    const load = async () => {
+      try {
+        const ps = await projectsApi.list();
+        if (!alive) return;
+        const rows = ps.slice(0, 5).map(projectToRow);
+        setRecentProjects(rows);
+        setRecentLoading(false);
+
+        // Fetch location-aware construction $/SF for each project
+        ps.slice(0, 5).forEach(async (p, i) => {
+          const gp = p.generate_params || {};
+          const fp = p.floor_plan || {};
+          const lat = p.plot?.lat || gp.lat || gp.latitude || 32.7767;
+          const lng = p.plot?.lng || gp.lng || gp.longitude || -96.7970;
+          const sf  = fp.totalSF || gp.targetSF || 2200;
+          try {
+            const res = await costApi.predict({
+              square_footage: sf,
+              bedrooms:  gp.beds || gp.bedrooms || 3,
+              bathrooms: gp.baths || gp.bathrooms || 2,
+              latitude:  lat,
+              longitude: lng,
+              quality_score: 5.0,
+            });
+            const psf = res.feasibility?.construction_psf || res.cost_per_sf;
+            if (alive && psf) {
+              setRecentProjects(prev =>
+                prev.map((r, j) => j === i ? { ...r, cost: Math.round(psf) } : r)
+              );
+            }
+          } catch { /* silently skip on error */ }
+        });
+      } catch {
+        if (alive) setRecentLoading(false);
+      }
     };
     load();
     // Poll every 30s so the list stays fresh without a full page reload
@@ -722,7 +750,7 @@ function RecentRow({ project: p, index, navigate }) {
             fontFamily: fonts.data,
           }}
         >
-          ${p.cost}/SF
+          {p.cost != null ? `$${p.cost}/SF` : "—"}
         </div>
         <div
           style={{

@@ -8,7 +8,7 @@ import { chatApi } from "../../services/api";
 const CHAT_SEEN_KEY_HO = "vision:chat:last_seen:homeowner";
 const CHAT_SEEN_KEY_BD = "vision:chat:last_seen:builder";
 
-const LOGO = "/VisionLogo.png";
+const LOGO = "/SpecialLogo.png";
 
 const HOMEOWNER_LINKS = [
   { label: "Dashboard", path: "/dashboard", match: ["/dashboard"] },

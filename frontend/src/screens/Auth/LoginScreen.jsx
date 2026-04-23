@@ -7,7 +7,7 @@ import { useSignIn, useSignUp } from "@clerk/clerk-react";
 function VisionLogo() {
   return (
     <img
-      src="/VisionLogo.png"
+      src="/SpecialLogo.png"
       alt="Vision"
       style={{ height: 80, width: "auto", objectFit: "contain", marginBottom: 24 }}
     />

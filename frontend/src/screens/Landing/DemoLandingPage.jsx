@@ -283,12 +283,9 @@ export default function DemoLandingPage() {
           transition: "opacity 0.8s ease 0.1s",
         }}
       >
-        <img
-          src="/VisionLogo.png"
-          alt="Vision"
-          style={{ height: 30, width: "auto", objectFit: "contain" }}
-          onError={(e) => { e.target.style.display = "none"; }}
-        />
+        <span style={{ fontFamily: C.serif, fontSize: 48, letterSpacing: "-0.02em" }}>
+          <span style={{ color: C.lightText }}>Vis</span><span style={{ color: C.darkText }}>ion</span>
+        </span>
       </div>
 
       {/* Bottom center credit */}

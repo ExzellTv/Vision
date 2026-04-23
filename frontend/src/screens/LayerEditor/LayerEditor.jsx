@@ -1929,7 +1929,7 @@ export default function LayerEditor() {
             borderBottom: "1px solid #1a2236",
             display: "flex", alignItems: "center", gap: 10,
           }}>
-            <img src="/VisionLogo.png" alt="Vision" style={{ height: 20, width: "auto", objectFit: "contain", display: "block" }} />
+            <img src="/SpecialLogo.png" alt="Vision" style={{ height: 20, width: "auto", objectFit: "contain", display: "block" }} />
             <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, flex: 1 }}>LAYER EDITOR</span>
             <span style={{
               fontSize: 10, fontFamily: fonts.data, color: colors.accent,
