@@ -71,8 +71,7 @@ const LAYER_PHASE_CONFIG = [
   { layerIdx: null, reveal: [],                             name: "Final Inspection & Punch List",     durationWeeks: 1, category: "CLOSEOUT" },
 ];
 
-// Pinned to today in the app
-const TODAY = new Date("2026-03-07");
+const TODAY = new Date();
 
 /* ─── CPM category colours — mirrors industry schedule swim-lane colours ─── */
 const CATEGORY_COLOR = {
