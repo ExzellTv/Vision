@@ -188,6 +188,14 @@ export const chatApi = {
     request(`/chat/conversations/${convId}`, { method: "DELETE" }),
 };
 
+export const imageApi = {
+  renderWithFlux: (screenshotBase64, style = "modern exterior") =>
+    request("/image/render", {
+      method: "POST",
+      body: JSON.stringify({ screenshot_base64: screenshotBase64, style }),
+    }),
+};
+
 export const builderRequestsApi = {
   create: (data) => request("/builder-requests", { method: "POST", body: JSON.stringify(data) }),
   list: () => request("/builder-requests"),

@@ -4,7 +4,16 @@ import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
 import House3D from "../../components/3d/House3D";
-import { renderWithAI, RENDER_STYLES } from "../../lib/myArchitectAI";
+import { imageApi } from "../../services/api";
+
+const RENDER_STYLES = [
+  { key: "modern exterior", label: "Modern" },
+  { key: "contemporary",    label: "Contemporary" },
+  { key: "traditional",     label: "Traditional" },
+  { key: "minimalist",      label: "Minimalist" },
+  { key: "luxury",          label: "Luxury" },
+  { key: "craftsman",       label: "Craftsman" },
+];
 import { validateStructure } from "../../lib/structuralValidator";
 import { autoFixStoryPlans } from "../../lib/autoFix";
 import { read3DPrefs, write3DPrefs, resolveHouseColors } from "../../lib/housePrefs";
@@ -117,7 +126,7 @@ export default function House3DPreview() {
     setAiError(null);
     setAiResult(null);
     try {
-      const result = await renderWithAI(screenshot, aiStyle);
+      const result = await imageApi.renderWithFlux(screenshot, aiStyle);
       setAiResult(result);
     } catch (err) {
       setAiError(err.message || "Render failed");
@@ -883,23 +892,24 @@ export default function House3DPreview() {
             {/* Render result */}
             {aiResult && (
               <div style={{ marginTop: 8, borderRadius: 8, overflow: "hidden", border: "1px solid #2a3548" }}>
-                {aiResult.demo && (
-                  <div style={{
-                    padding: "4px 8px", background: "rgba(255,159,67,0.1)",
-                    borderBottom: "1px solid rgba(255,159,67,0.2)",
-                    fontSize: 9, color: colors.warn, fontWeight: 600, textAlign: "center",
-                  }}>
-                    DEMO — Set API key for real renders
-                  </div>
-                )}
                 <img
                   src={aiResult.url}
                   alt="AI Render"
-                  style={{
-                    width: "100%", height: "auto", display: "block",
-                    filter: aiResult.demo ? "saturate(1.2) contrast(1.05)" : "none",
-                  }}
+                  style={{ width: "100%", height: "auto", display: "block" }}
                 />
+                <a
+                  href={aiResult.url}
+                  download="vision-render.png"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: "block", padding: "6px 0", textAlign: "center",
+                    background: "rgba(0,212,255,0.08)", borderTop: "1px solid #2a3548",
+                    fontSize: 10, color: colors.accent, fontWeight: 600, textDecoration: "none",
+                  }}
+                >
+                  Download Render
+                </a>
               </div>
             )}
 

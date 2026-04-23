@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     cesium_ion_token: str = ""
     hasdata_api_key: str = ""
 
+    # Replicate AI (ControlNet rendering)
+    replicate_api_token: str = ""
+
     @property
     def mongodb_uri(self) -> str:
         """Alias — routers that use mongodb_uri get the same value as mongodb_url."""
