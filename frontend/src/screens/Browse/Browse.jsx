@@ -74,7 +74,7 @@ function RequestModal({ builder, onClose }) {
         );
         setSentProjectIds(ids);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [builder.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -89,7 +89,7 @@ function RequestModal({ builder, onClose }) {
   }, [onClose, selected, confirmed]);
 
   // ── Detail view (after picking a project) ──────────────────────────────────
-  const ROOM_TYPES = new Set(["bedroom","bathroom","kitchen","living","dining","garage","hallway","closet","laundry","entry","stair","office"]);
+  const ROOM_TYPES = new Set(["bedroom", "bathroom", "kitchen", "living", "dining", "garage", "hallway", "closet", "laundry", "entry", "stair", "office"]);
 
   const DetailView = ({ proj }) => {
     const gp = proj.generate_params || {};
@@ -521,21 +521,37 @@ export default function Browse() {
       }}
     >
       {/* Header */}
-      <div style={{ marginBottom: 32 }}>
-        <h1
-          style={{
-            margin: "0 0 8px",
-            fontSize: 28,
-            fontWeight: 700,
-            color: C.textBright,
-            fontFamily: "'DM Serif Display', Georgia, serif",
-          }}
-        >
-          Browse Builders
-        </h1>
-        <p style={{ margin: 0, fontSize: 14, color: C.text }}>
-          Find trusted residential builders near you in the Dallas area
-        </p>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          marginBottom: 32,
+        }}
+      >
+        <div>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 32,
+              fontWeight: 800,
+              color: C.textBright,
+              letterSpacing: "-0.5px",
+              lineHeight: 1.1,
+            }}
+          >
+            Browse Builders
+          </h1>
+          <p
+            style={{
+              margin: "8px 0 0",
+              fontSize: 14,
+              color: C.textDim,
+            }}
+          >
+            Find trusted residential builders near you in the Dallas area
+          </p>
+        </div>
       </div>
 
       {/* Search/Filter bar */}

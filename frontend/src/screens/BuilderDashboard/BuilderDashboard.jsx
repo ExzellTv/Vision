@@ -307,12 +307,12 @@ export default function ProjectsPage() {
         >
           <h1
             style={{
-              margin: "0 0 8px 0",
-              fontSize: "2.25rem",
+              margin: 0,
+              fontSize: 32,
+              fontWeight: 800,
               color: colors.textBright,
-              letterSpacing: "-0.02em",
-              fontFamily: "'Newsreader', serif",
-              fontWeight: 500,
+              letterSpacing: "-0.5px",
+              lineHeight: 1.1,
             }}
           >
             My Projects
