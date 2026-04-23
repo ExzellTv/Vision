@@ -115,7 +115,16 @@ export default function BuilderRequests() {
       <main style={{ position: "relative", zIndex: 1, margin: "0 auto", width: "100%", maxWidth: "1100px", padding: "40px 24px" }}>
         
         <div style={{ marginBottom: "40px" }}>
-          <h1 style={{ margin: "0 0 8px 0", fontSize: "2rem", color: colors.textBright, fontFamily: "'Newsreader', serif", fontWeight: 500 }}>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 32,
+              fontWeight: 800,
+              color: colors.textBright,
+              letterSpacing: "-0.5px",
+              lineHeight: 1.1,
+            }}
+          >
             Inbound Client Requests
           </h1>
           <p style={{ margin: 0, fontSize: "1rem", color: colors.textDim }}>
