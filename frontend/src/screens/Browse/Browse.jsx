@@ -764,40 +764,23 @@ export default function Browse() {
 
             {/* Actions */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, flexShrink: 0 }}>
-              {hasComplianceIssues && (
-                <div style={{
-                  fontSize: 11, color: "#f59e0b", fontFamily: fonts.label, textAlign: "center",
-                  padding: "6px 10px", background: "rgba(245,158,11,0.08)",
-                  border: "1px solid rgba(245,158,11,0.25)", borderRadius: 6, maxWidth: 160,
-                }}>
-                  Resolve compliance issues first
-                  <button
-                    onClick={() => navigate("/preview")}
-                    style={{ display: "block", marginTop: 4, width: "100%", background: "none", border: "none", color: "#f59e0b", fontSize: 11, fontWeight: 700, cursor: "pointer", textDecoration: "underline", fontFamily: fonts.label }}
-                  >
-                    Go to Preview →
-                  </button>
-                </div>
-              )}
               <button
-                onClick={() => !hasComplianceIssues && setRequestBuilder(builder)}
-                disabled={hasComplianceIssues}
+                onClick={() => setRequestBuilder(builder)}
                 style={{
                   padding: "12px 24px",
-                  background: hasComplianceIssues ? "rgba(59,130,246,0.25)" : "linear-gradient(135deg, #3b82f6, #1d4ed8)",
+                  background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
                   border: "none",
                   borderRadius: 8,
-                  color: hasComplianceIssues ? "rgba(255,255,255,0.4)" : "#fff",
+                  color: "#fff",
                   fontSize: 13,
                   fontWeight: 600,
-                  cursor: hasComplianceIssues ? "not-allowed" : "pointer",
+                  cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
                   transition: "transform 0.15s, box-shadow 0.15s",
                 }}
                 onMouseEnter={(e) => {
-                  if (hasComplianceIssues) return;
                   e.currentTarget.style.transform = "translateY(-1px)";
                   e.currentTarget.style.boxShadow = "0 4px 16px rgba(59,130,246,0.4)";
                 }}
@@ -807,7 +790,7 @@ export default function Browse() {
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M7 1L2 4v7h10V4L7 1zM5 11V7h4v4H5z" stroke={hasComplianceIssues ? "rgba(255,255,255,0.4)" : "#fff"} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M7 1L2 4v7h10V4L7 1zM5 11V7h4v4H5z" stroke="#fff" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
                 Request
               </button>
