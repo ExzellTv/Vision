@@ -371,6 +371,8 @@ function CardGraphic({ project, index, onDelete }) {
 /* ── Individual project card ── */
 function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRename, onOpenSchedule, onAssessLocation }) {
   const [hovered, setHovered] = useState(false);
+  const { projectId: activeProjectId, ragViolations } = useProject();
+  const hasComplianceIssues = project.id === activeProjectId && ragViolations?.length > 0;
 
   return (
     <>
@@ -426,9 +428,10 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
             const sf = fp?.totalSF || project.generate_params?.targetSF || 0;
             const isReadyToBuild =
               (fp?.rooms?.length > 0) &&
-              (project.plot != null && project.plot.lat != null && project.plot.lng != null);
+              (project.plot != null && project.plot.lat != null && project.plot.lng != null) &&
+              !hasComplianceIssues;
             const dotColor = isReadyToBuild ? "#22c55e" : "#ef4444";
-            const badgeLabel = isReadyToBuild ? "Ready to Build" : "Not Ready";
+            const badgeLabel = isReadyToBuild ? "Ready to Build" : hasComplianceIssues ? "Compliance Issues" : "Not Ready";
             return (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 0", marginBottom: 4 }}>
                 <div>
