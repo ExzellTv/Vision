@@ -35,7 +35,16 @@ function coerceAndValidate(rawPlan) {
   return result.success ? result.data : coerced;
 }
 
-export default function PlanHouse({ plan, stories, wallColor, roofColor, showRoof = true, showPillars = true }) {
+export default function PlanHouse({
+  plan, stories, wallColor, roofColor,
+  showRoof = true, showPillars = true,
+  // `layerProgress` is either null (render everything) or a Record<string, number in [0, 1]>
+  // mapping geometry-layer tag → how much of that layer is "built". 1 = every mesh in
+  // the layer is shown; 0 (or missing) = none are shown. Values in between reveal the
+  // first ceil(N * progress) meshes in emission order, so within a construction phase
+  // the user sees walls/roof pieces/etc. pop in piece-by-piece.
+  layerProgress = null,
+}) {
   // Normalize into an array of valid story plans. `stories` wins if provided.
   const validStories = useMemo(() => {
     const raw = Array.isArray(stories) && stories.length > 0 ? stories : (plan ? [plan] : []);
@@ -85,11 +94,33 @@ export default function PlanHouse({ plan, stories, wallColor, roofColor, showRoo
 
   if (validStories.length === 0 || storyItems.length === 0) return null;
 
+  // Per-layer staged reveal. When `layerProgress` is null the whole house renders
+  // unchanged. When it is an object, each layer's meshes are shown in emission order
+  // up to ceil(count * progress) — so mid-phase you see part of the walls up, part of
+  // the roof installed, etc. A layer missing from the map is hidden entirely.
+  const filterItems = (items) => {
+    if (!layerProgress || typeof layerProgress !== "object") return items;
+    // Bucket the item indices per layer so we can compute a reveal cutoff per layer.
+    const byLayer = new Map();
+    items.forEach((it, i) => {
+      if (!byLayer.has(it.layer)) byLayer.set(it.layer, []);
+      byLayer.get(it.layer).push(i);
+    });
+    const keep = new Set();
+    byLayer.forEach((indices, layer) => {
+      const p = Math.max(0, Math.min(1, layerProgress[layer] ?? 0));
+      if (p <= 0) return;
+      const n = Math.min(indices.length, Math.ceil(indices.length * p));
+      for (let k = 0; k < n; k++) keep.add(indices[k]);
+    });
+    return items.filter((_, i) => keep.has(i));
+  };
+
   return (
     <>
       {storyItems.map((items, storyIdx) => (
         <group key={storyIdx} position={[0, storyIdx * STORY_HEIGHT_WORLD, 0]}>
-          {items.map((item) => (
+          {filterItems(items).map((item) => (
             <primitive key={item.name} object={item.mesh} />
           ))}
         </group>

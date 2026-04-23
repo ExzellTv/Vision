@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { colors, fonts } from "../../theme/tokens";
 import { chatApi } from "../../services/api";
+import { findBuilder } from "../../data/builders";
+import BuilderProfileModal from "../../components/shared/BuilderProfileModal";
 
 const C = {
   bg: colors.bg,
@@ -41,6 +43,7 @@ export default function Chat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
+  const [profileBuilder, setProfileBuilder] = useState(null);
   const pollRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -237,7 +240,18 @@ export default function Chat() {
                   </svg>
                   Video Call
                 </button>
-                <button style={{ padding: "8px 12px", background: "transparent", border: `1px solid ${C.cardBorder}`, borderRadius: 6, color: C.text, fontSize: 12, cursor: "pointer" }}>
+                <button
+                  onClick={() => {
+                    const found = findBuilder({ id: selectedConv.builder_id, name: selectedConv.builder_name });
+                    setProfileBuilder(found || {
+                      id: selectedConv.builder_id,
+                      name: selectedConv.builder_name || "Builder",
+                      initials: initials(selectedConv.builder_name || "Builder"),
+                      description: "No additional profile details are available for this builder yet.",
+                    });
+                  }}
+                  style={{ padding: "8px 12px", background: "transparent", border: `1px solid ${C.cardBorder}`, borderRadius: 6, color: C.text, fontSize: 12, cursor: "pointer" }}
+                >
                   View Profile
                 </button>
               </div>
@@ -304,6 +318,13 @@ export default function Chat() {
           </div>
         )}
       </div>
+
+      {profileBuilder && (
+        <BuilderProfileModal
+          builder={profileBuilder}
+          onClose={() => setProfileBuilder(null)}
+        />
+      )}
     </div>
   );
 }

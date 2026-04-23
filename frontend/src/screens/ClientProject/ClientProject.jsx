@@ -6,6 +6,7 @@ import { useProject } from "../../hooks/useProjectStore";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import House3D from "../../components/3d/House3D";
+import { resolveHouseColors } from "../../lib/housePrefs";
 
 const CATEGORY_COLOR = {
   SITEWORK:   "#a78bfa",
@@ -22,6 +23,158 @@ const fmtCost = (v) => {
   if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
   return `$${Math.round(v).toLocaleString()}`;
 };
+
+/* ─── Project summary report — opens a print-ready window ─── */
+function openProjectReport(project) {
+  const fmtD = (d) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const fmtC = (v) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v || 0);
+
+  const schedule = project._schedule;
+  const phases   = schedule?.phases ?? [];
+  const totalSF  = project._floorPlan?.totalSF ?? 0;
+  const stories  = project._floorPlan?.stories ?? 1;
+  const plot     = project._plot;
+
+  const timelineRows = (project.timeline || []).map((t, i) => {
+    const statusBg = t.status === "completed" ? "#dcfce7" : t.status === "active" ? "#dbeafe" : "#f1f5f9";
+    const statusFg = t.status === "completed" ? "#15803d" : t.status === "active" ? "#1d4ed8" : "#64748b";
+    const label    = t.status === "completed" ? "Complete" : t.status === "active" ? "In Progress" : "Pending";
+    return `<tr style="background:${i % 2 === 0 ? "#fff" : "#f8fafc"}">
+      <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#94a3b8">P${String(i+1).padStart(2,"0")}</td>
+      <td style="padding:6px 8px;font-size:9pt;color:#1e293b;font-weight:${t.status === "active" ? 600 : 400}">${t.phase}</td>
+      <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#475569">${t.date}</td>
+      <td style="padding:6px 8px;font-size:9pt;text-align:center"><span style="display:inline-block;padding:1px 7px;border-radius:10px;background:${statusBg};color:${statusFg};font-size:8pt;font-weight:600">${label}</span></td>
+    </tr>`;
+  }).join("");
+
+  const phaseRows = phases.map((p, i) => `<tr style="background:${i % 2 === 0 ? "#fff" : "#f8fafc"}">
+    <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#94a3b8">A${String(p.id ?? (i+1)).padStart(2,"0")}</td>
+    <td style="padding:6px 8px;font-size:9pt;color:#1e293b">${p.name}</td>
+    <td style="padding:6px 8px;font-size:9pt;color:#475569">${p.category || ""}</td>
+    <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#475569;text-align:center">${p.durationWeeks || 0}w</td>
+    <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#0f172a;text-align:right">${p.cost > 0 ? fmtC(p.cost) : "—"}</td>
+  </tr>`).join("");
+
+  const breakdownRows = (project.cost?.breakdown || []).map((b, i) => `<tr style="background:${i % 2 === 0 ? "#fff" : "#f8fafc"}">
+    <td style="padding:6px 8px;font-size:9pt;color:#1e293b">${b.label}</td>
+    <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#475569;text-align:right">${b.percentage}%</td>
+    <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#0f172a;text-align:right">${fmtC(b.value)}</td>
+  </tr>`).join("");
+
+  const feas = project.feasibility || {};
+  const feasRows = [["Overall Score", `${feas.score ?? 0}/100`], ["Zoning", feas.zoning || "—"], ["Environmental", feas.environmental || "—"], ["Structural QA", feas.structural || "—"]]
+    .map(([k, v], i) => `<tr style="background:${i % 2 === 0 ? "#fff" : "#f8fafc"}">
+      <td style="padding:6px 8px;font-size:9pt;color:#475569">${k}</td>
+      <td style="padding:6px 8px;font-size:9pt;color:#0f172a;font-weight:600;text-align:right">${v}</td>
+    </tr>`).join("");
+
+  const plotBlock = plot ? `
+    <h2>Site / Plot</h2>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+      <div class="metric"><div class="label">Address</div><div class="value" style="font-size:10pt">${plot.address || project.address}</div></div>
+      ${plot.lot_sf ? `<div class="metric"><div class="label">Lot Size</div><div class="value">${plot.lot_sf.toLocaleString()}<span style="font-size:9pt;font-weight:400"> sf</span></div></div>` : ""}
+      ${plot.zoning ? `<div class="metric"><div class="label">Zoning</div><div class="value" style="font-size:10pt">${plot.zoning}</div></div>` : ""}
+      ${plot.price  ? `<div class="metric"><div class="label">Land Price</div><div class="value">${fmtC(plot.price)}</div></div>` : ""}
+    </div>` : "";
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>${project.name} — Project Report</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 10pt; color: #1e293b; background: #fff; padding: 16mm 14mm; }
+    @page { size: portrait; margin: 14mm 12mm; }
+    @media print { .no-print { display: none; } body { padding: 0; } }
+    h1 { font-size: 20pt; font-weight: 700; color: #0f172a; }
+    h2 { font-size: 11pt; font-weight: 600; color: #334155; margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid #0f172a; }
+    .header-left h1 { margin-bottom: 4px; }
+    .header-left p { font-size: 9pt; color: #64748b; margin-top: 2px; }
+    .header-right { text-align: right; font-size: 8.5pt; color: #64748b; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+    .metric { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px; }
+    .metric .label { font-size: 7.5pt; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
+    .metric .value { font-size: 13pt; font-weight: 700; color: #0f172a; font-family: monospace; }
+    table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+    thead tr { background: #0f172a; }
+    thead th { padding: 6px 8px; text-align: left; font-size: 8pt; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+    .footer { margin-top: 18px; padding-top: 10px; border-top: 1px solid #e2e8f0; font-size: 7.5pt; color: #94a3b8; }
+    .print-btn { position: fixed; top: 16px; right: 16px; padding: 8px 18px; background: #0f172a; color: #fff; border: none; border-radius: 6px; font-size: 11pt; font-weight: 600; cursor: pointer; z-index: 999; }
+  </style>
+</head>
+<body>
+  <button class="no-print print-btn" onclick="window.print()">⬇ Save as PDF</button>
+
+  <div class="header">
+    <div class="header-left">
+      <h1>${project.name}</h1>
+      <p>Project Report &nbsp;·&nbsp; ${project.address}</p>
+      <p>Client: <strong>${project.client}</strong> &nbsp;·&nbsp; Status: ${project.status} &nbsp;·&nbsp; Phase: ${project.phase}</p>
+    </div>
+    <div class="header-right">
+      <div style="font-size:9pt;font-weight:700;color:#0f172a;margin-bottom:4px">VISION AI PLATFORM</div>
+      <div>Generated: ${fmtD(new Date())}</div>
+      <div>Report Type: Project Summary</div>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric"><div class="label">Total Budget</div><div class="value">${fmtC(project.cost?.budget ?? 0)}</div></div>
+    <div class="metric"><div class="label">Spent to Date</div><div class="value" style="color:#15803d">${fmtC(project.cost?.spent ?? 0)}</div></div>
+    <div class="metric"><div class="label">Progress</div><div class="value">${project.progress ?? 0}%</div></div>
+    <div class="metric"><div class="label">Feasibility</div><div class="value" style="color:${(feas.score ?? 0) >= 70 ? "#15803d" : "#b45309"}">${feas.score ?? 0}/100</div></div>
+  </div>
+
+  ${totalSF ? `<div class="metrics">
+    <div class="metric"><div class="label">Square Footage</div><div class="value">${totalSF.toLocaleString()}<span style="font-size:9pt;font-weight:400"> sf</span></div></div>
+    <div class="metric"><div class="label">Stories</div><div class="value">${stories}</div></div>
+    <div class="metric"><div class="label">Footprint</div><div class="value" style="font-size:11pt">${project._floorPlan?.width ?? "—"}×${project._floorPlan?.depth ?? "—"} ft</div></div>
+    <div class="metric"><div class="label">Rooms</div><div class="value">${project._floorPlan?.rooms?.length ?? 0}</div></div>
+  </div>` : ""}
+
+  ${plotBlock}
+
+  <h2>Cost Breakdown</h2>
+  <table>
+    <thead><tr><th>Category</th><th style="text-align:right">% of Total</th><th style="text-align:right">Amount</th></tr></thead>
+    <tbody>${breakdownRows}</tbody>
+  </table>
+
+  <h2>Feasibility Scan</h2>
+  <table>
+    <thead><tr><th>Check</th><th style="text-align:right">Result</th></tr></thead>
+    <tbody>${feasRows}</tbody>
+  </table>
+
+  <h2>Project Timeline</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Phase</th><th>Target</th><th style="text-align:center">Status</th></tr></thead>
+    <tbody>${timelineRows}</tbody>
+  </table>
+
+  ${phases.length > 0 ? `<h2>Construction Schedule</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Activity</th><th>Category</th><th style="text-align:center">Duration</th><th style="text-align:right">Cost</th></tr></thead>
+    <tbody>${phaseRows}</tbody>
+  </table>` : ""}
+
+  <div class="footer">
+    ADVISORY ONLY — Vision provides pre-feasibility estimates and summary reports for planning purposes only.
+    All costs, timelines, and feasibility scores are estimates. Verify with licensed professionals before construction.
+    © Vision AI Platform · Dallas, TX
+  </div>
+
+  <script>window.onload = () => window.print();<\/script>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=1000,height=900");
+  if (!win) { alert("Please allow pop-ups for this site to export the PDF."); return; }
+  win.document.write(html);
+  win.document.close();
+}
 
 // Mock Projects Database
 const mockProjectsDatabase = {
@@ -463,12 +616,9 @@ export default function ClientProject() {
               { label: "Labor & Subcontractors", value: Math.round(budget * 0.25), percentage: 25, color: "#f59e0b" },
               { label: "Permits & Fees",         value: Math.round(budget * 0.10), percentage: 10, color: "#8b5cf6" },
             ];
-        const WALL_MAP = { "Vinyl": "vinyl", "Brick": "brick", "Stone": "stone", "Stucco": "stucco", "Wood": "wood" };
-        const ROOF_MAP = { "Metal": "metalRoof", "Tile": "tile", "Slate": "slate" };
-        const wallMat = rawMaterials.find(m => m.name === "Exterior Cladding");
-        const roofMat = rawMaterials.find(m => m.name === "Roof");
-        const wallMaterial = WALL_MAP[wallMat?.material] ?? "vinyl";
-        const roofMaterial = Object.entries(ROOF_MAP).find(([k]) => roofMat?.material?.includes(k))?.[1] ?? "asphaltShingle";
+        // Shared color resolver — matches /preview3d and the schedule 3D.
+        const { wallMaterial, roofMaterial, wallColor, roofColor } =
+          resolveHouseColors({ materials: rawMaterials });
         setProject({
           name: p.name,
           address: p.location ? `${p.location.city}, ${p.location.state}` : "Location TBD",
@@ -494,6 +644,8 @@ export default function ClientProject() {
           _storyPlans: p.story_plans ?? [],
           _wallMaterial: wallMaterial,
           _roofMaterial: roofMaterial,
+          _wallColor: wallColor,
+          _roofColor: roofColor,
           _schedule: p.schedule ?? null,
           _plot:     p.plot ?? null,
         });
@@ -592,7 +744,10 @@ export default function ClientProject() {
              >
                ← Back
              </button>
-             <button style={{ padding: "10px 20px", background: "rgba(255,255,255,0.05)", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, color: colors.textBright, fontWeight: "bold", cursor: "pointer" }}>
+             <button
+               onClick={() => openProjectReport(project)}
+               style={{ padding: "10px 20px", background: "rgba(255,255,255,0.05)", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, color: colors.textBright, fontWeight: "bold", cursor: "pointer" }}
+             >
                Generate Report
              </button>
              <button 
@@ -621,8 +776,10 @@ export default function ClientProject() {
                        stories={project._floorPlan.stories || 1}
                        floorPlan={project._floorPlan}
                        storyPlans={project._storyPlans}
-                       wallMaterial={project._wallMaterial || "vinyl"}
-                       roofMaterial={project._roofMaterial || "asphaltShingle"}
+                       wallMaterial={project._wallMaterial}
+                       roofMaterial={project._roofMaterial}
+                       wallColor={project._wallColor}
+                       roofColor={project._roofColor}
                        interactive={false}
                        showGround={true}
                        showSky={true}
