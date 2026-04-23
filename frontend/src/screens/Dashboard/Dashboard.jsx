@@ -40,7 +40,7 @@ function TowerSil() {
       <polygon points="120,8 130,20 110,20" fill="#3b82f6" opacity="0.1" stroke="#3b82f6" strokeWidth="0.7" strokeOpacity="0.35" />
       <rect x="60" y="55" width="28" height="75" fill="#3b82f6" opacity="0.06" stroke="#3b82f6" strokeWidth="0.7" strokeOpacity="0.25" />
       <rect x="152" y="55" width="28" height="75" fill="#3b82f6" opacity="0.06" stroke="#3b82f6" strokeWidth="0.7" strokeOpacity="0.25" />
-      {[30,50,70,90,110].map((y, i) => (
+      {[30, 50, 70, 90, 110].map((y, i) => (
         <line key={i} x1="88" y1={y} x2="152" y2={y} stroke="#3b82f6" strokeWidth="0.4" opacity="0.2" />
       ))}
       <line x1="16" y1="130" x2="224" y2="130" stroke="#3b82f6" strokeWidth="0.6" opacity="0.2" />
@@ -315,15 +315,15 @@ function projectToRow(p) {
   const diffMs = ts ? now - new Date(ts).getTime() : 0;
   const diffMins = Math.floor(diffMs / 60000);
   let time;
-  if (diffMins < 2)       time = "just now";
+  if (diffMins < 2) time = "just now";
   else if (diffMins < 60) time = `${diffMins}m ago`;
   else if (diffMins < 1440) time = `${Math.floor(diffMins / 60)}h ago`;
-  else                    time = `${Math.floor(diffMins / 1440)}d ago`;
+  else time = `${Math.floor(diffMins / 1440)}d ago`;
 
   const fp = p.floor_plan || {};
   const gp = p.generate_params || {};
-  const lotW = gp.lotWidth  || fp.width  || 60;
-  const lotD = gp.lotDepth  || fp.depth  || 120;
+  const lotW = gp.lotWidth || fp.width || 60;
+  const lotD = gp.lotDepth || fp.depth || 120;
   const acres = Math.round((lotW * lotD / 43560) * 100) / 100;
 
   const totalSF = fp.totalSF || gp.targetSF || 2200;
@@ -521,7 +521,7 @@ export default function Dashboard() {
               />
             </svg>
             <span style={{ fontSize: 15, fontWeight: 600, color: colors.textBright }}>
-              Recent Analysis
+              Recent Projects
             </span>
           </div>
           <button

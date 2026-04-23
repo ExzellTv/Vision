@@ -71,11 +71,11 @@ function TowerSilhouette() {
       {/* Wing right */}
       <rect x="152" y="55" width="28" height="75" fill="#3b82f6" opacity="0.06" stroke="#3b82f6" strokeWidth="0.7" strokeOpacity="0.25" />
       {/* Floor lines */}
-      {[30,40,50,60,70,80,90,100,110].map((y, i) => (
+      {[30, 40, 50, 60, 70, 80, 90, 100, 110].map((y, i) => (
         <line key={i} x1="88" y1={y} x2="152" y2={y} stroke="#3b82f6" strokeWidth="0.4" opacity="0.2" />
       ))}
       {/* Windows pattern */}
-      {[25,35,45,55,65,75,85,95,105].map((y, i) => (
+      {[25, 35, 45, 55, 65, 75, 85, 95, 105].map((y, i) => (
         <g key={i}>
           <rect x="95" y={y} width="8" height="7" rx="0.5" fill="none" stroke="#3b82f6" strokeWidth="0.5" opacity="0.22" />
           <rect x="108" y={y} width="8" height="7" rx="0.5" fill="none" stroke="#3b82f6" strokeWidth="0.5" opacity="0.22" />
@@ -105,7 +105,7 @@ function MixedUseSilhouette() {
       {/* Right building */}
       <rect x="164" y="50" width="52" height="80" fill="#3b82f6" opacity="0.07" stroke="#3b82f6" strokeWidth="0.8" strokeOpacity="0.3" />
       {/* Windows — centre */}
-      {[35,47,59,71,83,95,107].map((y, i) => (
+      {[35, 47, 59, 71, 83, 95, 107].map((y, i) => (
         <g key={i}>
           <rect x="95" y={y} width="10" height="8" rx="0.5" fill="none" stroke="#3b82f6" strokeWidth="0.5" opacity="0.22" />
           <rect x="111" y={y} width="10" height="8" rx="0.5" fill="none" stroke="#3b82f6" strokeWidth="0.5" opacity="0.22" />
@@ -114,7 +114,7 @@ function MixedUseSilhouette() {
         </g>
       ))}
       {/* Windows — left */}
-      {[66,78,90,102,114].map((y, i) => (
+      {[66, 78, 90, 102, 114].map((y, i) => (
         <g key={i}>
           <rect x="31" y={y} width="9" height="7" rx="0.5" fill="none" stroke="#3b82f6" strokeWidth="0.5" opacity="0.2" />
           <rect x="46" y={y} width="9" height="7" rx="0.5" fill="none" stroke="#3b82f6" strokeWidth="0.5" opacity="0.2" />
@@ -141,12 +141,12 @@ function BridgeSilhouette() {
       {/* Main cables */}
       <path d="M61,28 Q120,68 179,28" fill="none" stroke="#3b82f6" strokeWidth="0.9" opacity="0.3" />
       {/* Hanger cables — left span */}
-      {[70,80,90,100,110].map((x, i) => {
+      {[70, 80, 90, 100, 110].map((x, i) => {
         const ty = 28 + (x - 61) * (x - 179) * -0.004;
         return <line key={i} x1={x} y1={ty} x2={x} y2="90" stroke="#3b82f6" strokeWidth="0.5" opacity="0.2" />;
       })}
       {/* Hanger cables — right span */}
-      {[130,140,150,160,170].map((x, i) => {
+      {[130, 140, 150, 160, 170].map((x, i) => {
         const ty = 28 + (x - 61) * (x - 179) * -0.004;
         return <line key={i} x1={x} y1={ty} x2={x} y2="90" stroke="#3b82f6" strokeWidth="0.5" opacity="0.2" />;
       })}
@@ -371,264 +371,203 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
 
   return (
     <>
-    <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        background: colors.cardSurface,
-        border: `1px solid ${hovered ? colors.secondary + "55" : colors.cardBorder}`,
-        borderRadius: radii.xl,
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        transition: "border-color 0.2s ease, box-shadow 0.2s ease",
-        boxShadow: hovered ? "0 4px 24px rgba(59,130,246,0.08)" : "none",
-        cursor: "default",
-      }}
-    >
-      <CardGraphic project={project} index={index} onDelete={onDelete} />
+      <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          background: colors.cardSurface,
+          border: `1px solid ${hovered ? colors.secondary + "55" : colors.cardBorder}`,
+          borderRadius: radii.xl,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          transition: "border-color 0.2s ease, box-shadow 0.2s ease",
+          boxShadow: hovered ? "0 4px 24px rgba(59,130,246,0.08)" : "none",
+          cursor: "default",
+        }}
+      >
+        <CardGraphic project={project} index={index} onDelete={onDelete} />
 
-      {/* Info area */}
-      <div style={{ padding: "18px 20px 0" }}>
-        {/* Name + pen */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
-          <div style={{ fontSize: 22, fontWeight: 700, color: colors.textBright, lineHeight: 1.2, flex: 1, minWidth: 0 }}>
-            {project.name}
+        {/* Info area */}
+        <div style={{ padding: "18px 20px 0" }}>
+          {/* Name + pen */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: colors.textBright, lineHeight: 1.2, flex: 1, minWidth: 0 }}>
+              {project.name}
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); onRename(project); }}
+              title="Rename"
+              style={{
+                background: "none", border: "none",
+                color: colors.textDim, cursor: "pointer",
+                padding: "2px", borderRadius: 4,
+                display: "flex", alignItems: "center", flexShrink: 0,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = colors.textBright)}
+              onMouseLeave={(e) => (e.currentTarget.style.color = colors.textDim)}
+            >
+              <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
+                <path d="M8.5 1.5a1.5 1.5 0 0 1 2.12 2.12L4 10.24 1.5 10.5l.26-2.5L8.5 1.5Z"
+                  stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" fill="none" />
+              </svg>
+            </button>
           </div>
+
+          {/* Stats grid */}
+          {(() => {
+            const fp = project.floor_plan;
+            const layers = project.materials?.length ?? 0;
+            const ROOM_TYPES = new Set(["bedroom", "bathroom", "kitchen", "living", "dining", "garage", "hallway", "closet", "laundry", "entry", "stair", "office"]);
+            const rooms = (fp?.rooms ?? []).filter((r) => r.isRoom === true || ROOM_TYPES.has((r.type || "").toLowerCase())).length;
+            const sf = fp?.totalSF || project.generate_params?.targetSF || 0;
+            const isReadyToBuild =
+              (fp?.rooms?.length > 0) &&
+              (project.plot != null && project.plot.lat != null && project.plot.lng != null);
+            const dotColor = isReadyToBuild ? "#22c55e" : "#ef4444";
+            const badgeLabel = isReadyToBuild ? "Ready to Build" : "Not Ready";
+            return (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 0", marginBottom: 4 }}>
+                <div>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data, letterSpacing: "0.04em" }}>
+                    {layers} LAYER{layers !== 1 ? "S" : ""}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data, letterSpacing: "0.04em" }}>
+                    {rooms} ROOM{rooms !== 1 ? "S" : ""}
+                  </span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data, letterSpacing: "0.04em" }}>
+                    {sf ? Math.round(sf).toLocaleString() : "—"} SF
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, boxShadow: `0 0 6px ${dotColor}` }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: dotColor, fontFamily: fonts.label, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    {badgeLabel}
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Action buttons */}
+        <div style={{ padding: "14px 20px 20px", marginTop: "auto", display: "flex", gap: 8 }}>
           <button
-            onClick={(e) => { e.stopPropagation(); onRename(project); }}
-            title="Rename"
+            onClick={() => onEditFloorPlan(project)}
             style={{
-              background: "none", border: "none",
-              color: colors.textDim, cursor: "pointer",
-              padding: "2px", borderRadius: 4,
-              display: "flex", alignItems: "center", flexShrink: 0,
+              flex: 1,
+              padding: "12px 0",
+              background: "transparent",
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: radii.lg,
+              color: colors.textBright,
+              fontFamily: fonts.label,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              transition: "background 0.15s ease, border-color 0.15s ease",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = colors.textBright)}
-            onMouseLeave={(e) => (e.currentTarget.style.color = colors.textDim)}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = colors.surfaceHover;
+              e.currentTarget.style.borderColor = colors.secondary + "70";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.borderColor = colors.cardBorder;
+            }}
           >
-            <svg width="15" height="15" viewBox="0 0 12 12" fill="none">
-              <path d="M8.5 1.5a1.5 1.5 0 0 1 2.12 2.12L4 10.24 1.5 10.5l.26-2.5L8.5 1.5Z"
-                stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" fill="none" />
+            <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+              <rect x="1" y="1" width="10" height="10" rx="1" stroke="currentColor" strokeWidth="1.1" />
+              <path d="M3 4h6M3 6h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.7" />
             </svg>
+            Edit Floor Plan
+          </button>
+          <button
+            onClick={() => onOpenSchedule(project)}
+            style={{
+              flex: 1,
+              padding: "12px 0",
+              background: "transparent",
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: radii.lg,
+              color: colors.textBright,
+              fontFamily: fonts.label,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              transition: "background 0.15s ease, border-color 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = colors.surfaceHover;
+              e.currentTarget.style.borderColor = colors.secondary + "70";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.borderColor = colors.cardBorder;
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+              <rect x="1" y="2" width="10" height="9" rx="1" stroke="currentColor" strokeWidth="1.1" fill="none" />
+              <path d="M4 1v2M8 1v2M1 5h10" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+            </svg>
+            View Schedule
           </button>
         </div>
 
-        {/* Stats grid */}
-        {(() => {
-          const fp = project.floor_plan;
-          const layers = project.materials?.length ?? 0;
-          const ROOM_TYPES = new Set(["bedroom","bathroom","kitchen","living","dining","garage","hallway","closet","laundry","entry","stair","office"]);
-          const rooms = (fp?.rooms ?? []).filter((r) => r.isRoom === true || ROOM_TYPES.has((r.type || "").toLowerCase())).length;
-          const sf = fp?.totalSF || project.generate_params?.targetSF || 0;
-          const isReadyToBuild =
-            (fp?.rooms?.length > 0) &&
-            (project.plot != null && project.plot.lat != null && project.plot.lng != null);
-          const dotColor = isReadyToBuild ? "#22c55e" : "#ef4444";
-          const badgeLabel = isReadyToBuild ? "Ready to Build" : "Not Ready";
-          return (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 0", marginBottom: 4 }}>
-              <div>
-                <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data, letterSpacing: "0.04em" }}>
-                  {layers} LAYER{layers !== 1 ? "S" : ""}
-                </span>
-              </div>
-              <div>
-                <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data, letterSpacing: "0.04em" }}>
-                  {rooms} ROOM{rooms !== 1 ? "S" : ""}
-                </span>
-              </div>
-              <div>
-                <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data, letterSpacing: "0.04em" }}>
-                  {sf ? Math.round(sf).toLocaleString() : "—"} SF
-                </span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, boxShadow: `0 0 6px ${dotColor}` }} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: dotColor, fontFamily: fonts.label, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                  {badgeLabel}
-                </span>
-              </div>
-            </div>
-          );
-        })()}
+        {/* Assess Location — full width */}
+        <div style={{ padding: "0 20px 20px" }}>
+          <button
+            onClick={() => onAssessLocation(project)}
+            style={{
+              width: "100%",
+              padding: "12px 0",
+              background: "transparent",
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: radii.lg,
+              color: colors.textBright,
+              fontFamily: fonts.label,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              transition: "background 0.15s ease, border-color 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = colors.surfaceHover;
+              e.currentTarget.style.borderColor = colors.secondary + "70";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.borderColor = colors.cardBorder;
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2" fill="none" />
+              <path d="M7 1C5.3 1 3.5 3 3.5 5.5C3.5 8.5 7 13 7 13C7 13 10.5 8.5 10.5 5.5C10.5 3 8.7 1 7 1Z"
+                stroke="currentColor" strokeWidth="1.2" fill="none" />
+              <circle cx="7" cy="5.5" r="1.3" fill="currentColor" opacity="0.8" />
+            </svg>
+            Assess Plot of Land
+          </button>
+        </div>
       </div>
-
-      {/* Action buttons */}
-      <div style={{ padding: "14px 20px 20px", marginTop: "auto", display: "flex", gap: 8 }}>
-        <button
-          onClick={() => onEditFloorPlan(project)}
-          style={{
-            flex: 1,
-            padding: "12px 0",
-            background: "transparent",
-            border: `1px solid ${colors.cardBorder}`,
-            borderRadius: radii.lg,
-            color: colors.textBright,
-            fontFamily: fonts.label,
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            transition: "background 0.15s ease, border-color 0.15s ease",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = colors.surfaceHover;
-            e.currentTarget.style.borderColor = colors.secondary + "70";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.borderColor = colors.cardBorder;
-          }}
-        >
-          <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
-            <rect x="1" y="1" width="10" height="10" rx="1" stroke="currentColor" strokeWidth="1.1" />
-            <path d="M3 4h6M3 6h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.7" />
-          </svg>
-          Edit Floor Plan
-        </button>
-        <button
-          onClick={() => onOpenSchedule(project)}
-          style={{
-            flex: 1,
-            padding: "12px 0",
-            background: "transparent",
-            border: `1px solid ${colors.cardBorder}`,
-            borderRadius: radii.lg,
-            color: colors.textBright,
-            fontFamily: fonts.label,
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            transition: "background 0.15s ease, border-color 0.15s ease",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = colors.surfaceHover;
-            e.currentTarget.style.borderColor = colors.secondary + "70";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.borderColor = colors.cardBorder;
-          }}
-        >
-          <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
-            <rect x="1" y="2" width="10" height="9" rx="1" stroke="currentColor" strokeWidth="1.1" fill="none" />
-            <path d="M4 1v2M8 1v2M1 5h10" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-          </svg>
-          View Schedule
-        </button>
-      </div>
-
-      {/* Assess Location — full width */}
-      <div style={{ padding: "0 20px 20px" }}>
-        <button
-          onClick={() => onAssessLocation(project)}
-          style={{
-            width: "100%",
-            padding: "12px 0",
-            background: "transparent",
-            border: `1px solid ${colors.cardBorder}`,
-            borderRadius: radii.lg,
-            color: colors.textBright,
-            fontFamily: fonts.label,
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            transition: "background 0.15s ease, border-color 0.15s ease",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = colors.surfaceHover;
-            e.currentTarget.style.borderColor = colors.secondary + "70";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.borderColor = colors.cardBorder;
-          }}
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2" fill="none" />
-            <path d="M7 1C5.3 1 3.5 3 3.5 5.5C3.5 8.5 7 13 7 13C7 13 10.5 8.5 10.5 5.5C10.5 3 8.7 1 7 1Z"
-              stroke="currentColor" strokeWidth="1.2" fill="none" />
-            <circle cx="7" cy="5.5" r="1.3" fill="currentColor" opacity="0.8" />
-          </svg>
-          Assess Location
-        </button>
-      </div>
-    </div>
 
     </>
-  );
-}
-
-/* ── Import placeholder card ── */
-function ImportCard() {
-  const [hovered, setHovered] = useState(false);
-  const [dragging, setDragging] = useState(false);
-
-  return (
-    <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); }}
-      style={{
-        border: `2px dashed ${dragging ? colors.secondary : hovered ? colors.secondary + "70" : colors.cardBorder}`,
-        borderRadius: radii.xl,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 14,
-        padding: "40px 24px",
-        minHeight: 290,
-        cursor: "pointer",
-        transition: "border-color 0.2s ease, background 0.2s ease",
-        background: dragging
-          ? "rgba(59,130,246,0.06)"
-          : hovered
-          ? "rgba(59,130,246,0.03)"
-          : "transparent",
-      }}
-    >
-      <div
-        style={{
-          width: 50,
-          height: 50,
-          borderRadius: "50%",
-          background: colors.cardSurface,
-          border: `1px solid ${colors.cardBorder}`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-          <path d="M6 5h6l4 4v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" stroke={colors.textDim} strokeWidth="1.2" fill="none" />
-          <path d="M12 5v4h4" stroke={colors.textDim} strokeWidth="1.2" strokeLinejoin="round" />
-          <path d="M11 12v4M9 14l2-2 2 2" stroke={colors.textDim} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </div>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: colors.textBright, marginBottom: 7 }}>
-          Import Structural Model
-        </div>
-        <div style={{ fontSize: 12, color: colors.textDim, lineHeight: 1.65, maxWidth: 195 }}>
-          Drop your Revit, AutoCAD, or Rhino files here to start a new analysis
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -995,7 +934,7 @@ export default function ProjectsScreen() {
                 lineHeight: 1.1,
               }}
             >
-              Analyzed Projects
+              Your Projects
             </h1>
             <p
               style={{
@@ -1004,7 +943,7 @@ export default function ProjectsScreen() {
                 color: colors.textDim,
               }}
             >
-              Select a structural model to continue your analysis and stress testing.
+              Select a project to view more details.
             </p>
           </div>
 
@@ -1097,7 +1036,6 @@ export default function ProjectsScreen() {
                 onAssessLocation={handleAssessLocation}
               />
             ))}
-            <ImportCard />
           </div>
         )}
       </div>
