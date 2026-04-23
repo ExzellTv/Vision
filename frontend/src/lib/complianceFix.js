@@ -109,6 +109,9 @@ const MANUAL_REVIEW_KEYWORDS = [
   "sprinkler",
 ];
 
+const EGRESS_WINDOW_WORDS = ["egress", "window"];
+const STAIR_WORDS = ["stair"];
+
 function asNumber(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -226,6 +229,23 @@ function syncPlacedItems(plan, rooms) {
       depth: roomH(m),
     };
   });
+}
+
+function violationText(violation) {
+  if (typeof violation === "string") return violation;
+  return [
+    violation?.name,
+    violation?.rule,
+    violation?.message,
+    violation?.description,
+    violation?.explanation,
+    violation?.code_reference,
+    violation?.location_reference,
+  ].filter(Boolean).join(" ");
+}
+
+function allViolationText(violations = []) {
+  return (violations || []).map(violationText).join(" ").toLowerCase();
 }
 
 function resolveOverlaps(rooms) {
@@ -491,17 +511,149 @@ export function applyMinimumComplianceFixes(storyPlans = []) {
   return { fixedStoryPlans, appliedFixes };
 }
 
-function violationText(violation) {
-  if (typeof violation === "string") return violation;
-  return [
-    violation?.name,
-    violation?.rule,
-    violation?.message,
-    violation?.description,
-    violation?.explanation,
-    violation?.code_reference,
-    violation?.location_reference,
-  ].filter(Boolean).join(" ");
+function hasWindowForRoom(room, windows = [], bboxW, bboxD) {
+  const EPS = 0.5;
+  return windows.some((win) => {
+    const side = win.side;
+    if (side === "top" && Math.abs(asNumber(win.y, 0)) <= EPS) {
+      return asNumber(win.x, 0) >= asNumber(room.x, 0) - EPS && asNumber(win.x, 0) <= asNumber(room.x, 0) + roomW(room) + EPS;
+    }
+    if (side === "bottom" && Math.abs(asNumber(win.y, 0) - bboxD) <= EPS) {
+      return asNumber(win.x, 0) >= asNumber(room.x, 0) - EPS && asNumber(win.x, 0) <= asNumber(room.x, 0) + roomW(room) + EPS;
+    }
+    if (side === "left" && Math.abs(asNumber(win.x, 0)) <= EPS) {
+      return asNumber(win.y, 0) >= asNumber(room.y, 0) - EPS && asNumber(win.y, 0) <= asNumber(room.y, 0) + roomH(room) + EPS;
+    }
+    if (side === "right" && Math.abs(asNumber(win.x, 0) - bboxW) <= EPS) {
+      return asNumber(win.y, 0) >= asNumber(room.y, 0) - EPS && asNumber(win.y, 0) <= asNumber(room.y, 0) + roomH(room) + EPS;
+    }
+    return false;
+  });
+}
+
+function exteriorSideForRoom(room, bboxW, bboxD) {
+  const EPS = 0.5;
+  if (asNumber(room.y, 0) <= EPS) return "top";
+  if (asNumber(room.y, 0) + roomH(room) >= bboxD - EPS) return "bottom";
+  if (asNumber(room.x, 0) <= EPS) return "left";
+  if (asNumber(room.x, 0) + roomW(room) >= bboxW - EPS) return "right";
+  return null;
+}
+
+function openingToPlacedItem(opening) {
+  const isVertical = opening.side === "left" || opening.side === "right";
+  const width = opening.width || 3;
+  const thick = 0.6;
+  return {
+    id: `${opening.id}-placed`,
+    type: "window",
+    x: (isVertical ? opening.x : opening.x - width / 2) - (isVertical ? thick / 2 : 0),
+    y: (isVertical ? opening.y - width / 2 : opening.y) - (isVertical ? 0 : thick / 2),
+    w: isVertical ? thick : width,
+    h: isVertical ? width : thick,
+    seededFrom: "compliance.fix",
+  };
+}
+
+function createWindowForRoom(room, side, bboxW, bboxD, storyIndex, roomIndex) {
+  const width = Math.max(3, Math.min(4, roomW(room) * 0.4, roomH(room) * 0.4));
+  const cx = asNumber(room.x, 0) + roomW(room) / 2;
+  const cy = asNumber(room.y, 0) + roomH(room) / 2;
+  const id = `egress-${storyIndex + 1}-${room?.id || roomIndex}`;
+
+  if (side === "top") {
+    return { id, type: "window", x: cx, y: 0, width, height: 4, sillHeight: 3, side, isExterior: true };
+  }
+  if (side === "bottom") {
+    return { id, type: "window", x: cx, y: bboxD, width, height: 4, sillHeight: 3, side, isExterior: true };
+  }
+  if (side === "left") {
+    return { id, type: "window", x: 0, y: cy, width, height: 4, sillHeight: 3, side, isExterior: true };
+  }
+  return { id, type: "window", x: bboxW, y: cy, width, height: 4, sillHeight: 3, side: "right", isExterior: true };
+}
+
+function addStairPlaceholder(plan, rooms) {
+  const existing = rooms.some((room) => roomType(room) === "stair" || room?.isStair);
+  if (existing) return null;
+
+  const host = rooms.find((room) => roomType(room) === "hallway") ||
+    rooms.find((room) => roomType(room) === "living") ||
+    rooms[0];
+  if (!host) return null;
+
+  const w = 6;
+  const h = 9;
+  const x = Math.max(asNumber(host.x, 0), asNumber(host.x, 0) + roomW(host) - w);
+  const y = Math.max(asNumber(host.y, 0), asNumber(host.y, 0) + roomH(host) - h);
+  return {
+    id: `compliance-stair-${plan?.id || Date.now()}`,
+    type: "stair",
+    label: "Stairs",
+    x,
+    y,
+    w,
+    h,
+    width: w,
+    depth: h,
+    isStair: true,
+    bearing: [false, false, false, false],
+  };
+}
+
+export function applyManualComplianceLayoutFixes(storyPlans = [], violations = []) {
+  const text = allViolationText(violations);
+  const shouldAddEgressWindows = EGRESS_WINDOW_WORDS.some((word) => text.includes(word));
+  const shouldAddStairs = STAIR_WORDS.some((word) => text.includes(word));
+  const appliedFixes = [];
+
+  const fixedStoryPlans = (storyPlans || []).map((plan, storyIndex) => {
+    const rooms = planRooms(plan).map((room) => ({ ...room }));
+    const windows = (plan?.windows || []).map((window) => ({ ...window }));
+    const placedItems = Array.isArray(plan?.placed_items) ? plan.placed_items.map((item) => ({ ...item })) : plan?.placed_items;
+    const bboxW = planWidth(plan, rooms);
+    const bboxD = planDepth(plan, rooms);
+
+    if (shouldAddEgressWindows) {
+      rooms.forEach((room, roomIndex) => {
+        if (roomType(room) !== "bedroom") return;
+        if (hasWindowForRoom(room, windows, bboxW, bboxD)) return;
+
+        const side = exteriorSideForRoom(room, bboxW, bboxD);
+        if (!side) return;
+
+        const window = createWindowForRoom(room, side, bboxW, bboxD, storyIndex, roomIndex);
+        windows.push(window);
+        if (Array.isArray(placedItems)) placedItems.push(openingToPlacedItem(window));
+        appliedFixes.push(`Added an egress window to ${roomLabel(room)}.`);
+      });
+    }
+
+    if (shouldAddStairs && storyPlans.length > 1 && storyIndex === 0) {
+      const stair = addStairPlaceholder(plan, rooms);
+      if (stair) {
+        rooms.push(stair);
+        if (Array.isArray(placedItems)) placedItems.push({ ...stair });
+        appliedFixes.push("Added a stair placeholder for multi-story access.");
+      }
+    }
+
+    const totalSF = rooms.reduce((sum, room) => sum + roomArea(room), 0);
+    return {
+      ...plan,
+      rooms,
+      windows,
+      ...(placedItems !== undefined ? { placed_items: placedItems } : {}),
+      totalSF: Math.round(totalSF),
+    };
+  });
+
+  return { fixedStoryPlans, appliedFixes };
+}
+
+export function isManualComplianceViolation(violation) {
+  const text = violationText(violation).toLowerCase();
+  return MANUAL_REVIEW_KEYWORDS.some((kw) => text.includes(kw));
 }
 
 export function collectComplianceViolations(data, ceilingHeightFt = 9) {
@@ -536,8 +688,7 @@ export function filterManualComplianceViolations(violations = [], unfixable = []
   }
 
   (violations || []).forEach((v) => {
-    const text = violationText(v).toLowerCase();
-    if (MANUAL_REVIEW_KEYWORDS.some((kw) => text.includes(kw))) add(v);
+    if (isManualComplianceViolation(v)) add(v);
   });
 
   (unfixable || []).forEach((v) => {
