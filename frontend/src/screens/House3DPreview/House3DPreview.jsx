@@ -4,7 +4,7 @@ import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
 import House3D from "../../components/3d/House3D";
-import { imageApi } from "../../services/api";
+import { complianceApi, imageApi } from "../../services/api";
 
 const RENDER_STYLES = [
   { key: "modern exterior", label: "Modern" },
@@ -16,6 +16,14 @@ const RENDER_STYLES = [
 ];
 import { validateStructure } from "../../lib/structuralValidator";
 import { autoFixStoryPlans } from "../../lib/autoFix";
+import {
+  applyCompliancePatchesToStoryPlans,
+  applyMinimumComplianceFixes,
+  buildComplianceContext,
+  buildComplianceRooms,
+  collectComplianceViolations,
+  filterManualComplianceViolations,
+} from "../../lib/complianceFix";
 import { read3DPrefs, write3DPrefs, resolveHouseColors } from "../../lib/housePrefs";
 
 /**
@@ -180,216 +188,82 @@ export default function House3DPreview() {
   }, [allStoryPlans, project]);
 
   const [fixingRag, setFixingRag] = useState(false);
-  const handleFixCompliance = useCallback(() => {
+  const handleFixCompliance = useCallback(async () => {
     if (!Array.isArray(allStoryPlans) || allStoryPlans.length === 0) return;
     setFixingRag(true);
 
     try {
       setUndoSnapshot(allStoryPlans);
       const complianceFixes = [];
-
-      const IRC_MINS = {
-        bedroom:  { minW: 7,  minH: 7,  minArea: 70  },
-        bathroom: { minW: 5,  minH: 5,  minArea: 25  },
-        kitchen:  { minW: 7,  minH: 7,  minArea: 50  },
-        living:   { minW: 10, minH: 10, minArea: 120 },
-        dining:   { minW: 8,  minH: 8,  minArea: 64  },
-        office:   { minW: 7,  minH: 7,  minArea: 49  },
-        laundry:  { minW: 5,  minH: 5,  minArea: 25  },
-        garage:   { minW: 10, minH: 20, minArea: 200 },
-        hallway:  { minW: 3,  minH: 3,  minArea: 0   },
-        closet:   { minW: 2,  minH: 2,  minArea: 0   },
-        entry:    { minW: 4,  minH: 4,  minArea: 0   },
-      };
+      let nextStoryPlans = allStoryPlans;
+      let remainingViolations = [];
+      let ragChecked = false;
+      let backendUnfixable = [];
 
       // Step 1: structural geometry fixes (cantilever, alignment)
       const { fixedStoryPlans: structuralFixed, appliedFixes: structuralFixes } =
-        autoFixStoryPlans(allStoryPlans, "all");
+        autoFixStoryPlans(nextStoryPlans, "all");
+      nextStoryPlans = structuralFixed;
       complianceFixes.push(...structuralFixes);
 
-      // Maps raw/variant room types to canonical IRC_MINS keys
-      const TYPE_ALIAS = {
-        master: "bedroom", master_bedroom: "bedroom",
-        secondary: "bedroom", secondary_bedroom: "bedroom",
-        bedroom_master: "bedroom", bedroom_secondary: "bedroom",
-        master_bath: "bathroom", master_bathroom: "bathroom",
-        half_bath: "bathroom", powder_room: "bathroom",
-        living_room: "living", family_room: "living",
-        dining_room: "dining",
-        utility: "laundry", mud_room: "laundry",
-        garage_1car: "garage", garage_2car: "garage",
-        garage_3car: "garage",
-      };
+      const location = project.projectLocation || project.buildingContext?.location || null;
 
-      // Step 2: resize undersized rooms per IRC minimums
-      const resizedPlans = structuralFixed.map((plan) => {
-        const origW = plan.width  || Math.max(...(plan.rooms || []).map(r => (r.x || 0) + (r.w || 0)), 40);
-        const origD = plan.depth  || Math.max(...(plan.rooms || []).map(r => (r.y || 0) + (r.h || 0)), 40);
-
-        // Work on mutable copies so position nudges propagate correctly
-        const rooms = (plan.rooms || []).map(r => ({ ...r }));
-
-        // 2a — resize each undersized room; record how much it grew
-        const growthMap = new Map(); // index → { dw, dh }
-        rooms.forEach((r, i) => {
-          const rawType = (r.type || r.label || "").toLowerCase().replace(/[\s\-]+/g, "_");
-          const canonical = TYPE_ALIAS[rawType] || rawType;
-          const mins = IRC_MINS[canonical];
-          if (!mins) return;
-
-          let w = r.w || 0;
-          let h = r.h || 0;
-          const prevW = w, prevH = h;
-
-          if (w < mins.minW) w = mins.minW;
-          if (h < mins.minH) h = mins.minH;
-          if (mins.minArea > 0 && w * h < mins.minArea) {
-            const s = Math.sqrt(mins.minArea / (w * h));
-            w = Math.ceil(w * s);
-            h = Math.ceil(h * s);
-          }
-
-          if (w !== prevW || h !== prevH) {
-            complianceFixes.push(
-              `Resized ${r.label || r.type} from ${prevW}×${prevH} ft to ${w}×${h} ft`
-            );
-            growthMap.set(i, { dw: w - prevW, dh: h - prevH });
-          }
-          r.w = w; r.h = h; r.width = w; r.depth = h;
-        });
-
-        // 2b — push rooms that are in the path of each expanded room
-        growthMap.forEach(({ dw, dh }, i) => {
-          const grown = rooms[i];
-          // original right/bottom edges before growth (room was at grown.x, grown.y with old size)
-          const oldRight  = grown.x + (grown.w - (growthMap.get(i)?.dw ?? 0));
-          const oldBottom = grown.y + (grown.h - (growthMap.get(i)?.dh ?? 0));
-
-          rooms.forEach((other, j) => {
-            if (j === i) return;
-            // Room is directly to the right → shift it right by dw
-            if (dw > 0 && other.x >= oldRight - 0.5) {
-              other.x += dw;
-            }
-            // Room is directly below → shift it down by dh
-            if (dh > 0 && other.y >= oldBottom - 0.5) {
-              other.y += dh;
-            }
-          });
-        });
-
-        // 2c — overlap nudge to clean up any remaining collisions (30 iters max)
-        for (let iter = 0; iter < 30; iter++) {
-          let moved = false;
-          for (let i = 0; i < rooms.length; i++) {
-            for (let j = i + 1; j < rooms.length; j++) {
-              const a = rooms[i], b = rooms[j];
-              const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
-              const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
-              if (ox > 0.1 && oy > 0.1) {
-                moved = true;
-                if (ox <= oy) b.x += ox;
-                else          b.y += oy;
-              }
-            }
-          }
-          if (!moved) break;
-        }
-
-        // 2d — scale oversized rooms back toward the original footprint
-        //      so the house doesn't balloon. IRC-minimum rooms are protected.
-        const bboxW = Math.max(...rooms.map(r => r.x + r.w));
-        const bboxD = Math.max(...rooms.map(r => r.y + r.h));
-
-        if (bboxW > origW * 1.02 || bboxD > origD * 1.02) {
-          const sx = bboxW > origW ? origW / bboxW : 1;
-          const sy = bboxD > origD ? origD / bboxD : 1;
-          const scale = Math.min(sx, sy);
-
-          if (scale < 0.99) {
-            rooms.forEach(r => {
-              const rawType = (r.type || "").toLowerCase().replace(/[\s\-]+/g, "_");
-              const canonical = TYPE_ALIAS[rawType] || rawType;
-              const mins = IRC_MINS[canonical];
-              const scaledW = Math.round(r.w * scale * 10) / 10;
-              const scaledH = Math.round(r.h * scale * 10) / 10;
-              // Only shrink if the room will still meet minimums after scaling
-              const safeToScale = !mins ||
-                (scaledW >= mins.minW && scaledH >= mins.minH && scaledW * scaledH >= (mins.minArea || 0));
-              if (safeToScale) {
-                r.x = Math.round(r.x * scale * 10) / 10;
-                r.y = Math.round(r.y * scale * 10) / 10;
-                r.w = scaledW;
-                r.h = scaledH;
-                r.width = r.w; r.depth = r.h;
-              }
-            });
-          }
-        }
-
-        // Final bounding box — update plan dimensions to actual layout
-        const finalW = Math.max(...rooms.map(r => r.x + r.w));
-        const finalD = Math.max(...rooms.map(r => r.y + r.h));
-
-        // Step 3: sync placed_items — three-pass matching for robustness
-        const usedRoomIdxs = new Set();
-        const placedItems = (plan.placed_items || []).map((item) => {
-          if (!item.isRoom) return item;
-
-          // Pass 1: type + label exact match
-          let matchIdx = rooms.findIndex((r, idx) =>
-            !usedRoomIdxs.has(idx) &&
-            r.type === item.type &&
-            (r.label === item.label || r.label === item.name)
+      // Step 2: use the RAG fix endpoint when it can produce precise patches.
+      if ((project.ragViolations || []).length > 0 && location?.city && location?.state) {
+        try {
+          const fixResult = await complianceApi.fix(
+            project.ragViolations,
+            buildComplianceRooms(nextStoryPlans),
+            location
           );
-          // Pass 2: type + loose label (case-insensitive)
-          if (matchIdx === -1) {
-            const itemLabel = (item.label || item.name || "").toLowerCase();
-            matchIdx = rooms.findIndex((r, idx) =>
-              !usedRoomIdxs.has(idx) &&
-              r.type === item.type &&
-              (r.label || "").toLowerCase() === itemLabel
-            );
+          backendUnfixable = fixResult?.unfixable || [];
+
+          const { fixedStoryPlans: patchedPlans, appliedFixes: patchFixes } =
+            applyCompliancePatchesToStoryPlans(nextStoryPlans, fixResult?.patches || []);
+          if (patchFixes.length > 0) {
+            nextStoryPlans = patchedPlans;
+            complianceFixes.push(...patchFixes);
           }
-          // Pass 3: same type, closest by original position
-          if (matchIdx === -1) {
-            let bestDist = Infinity;
-            rooms.forEach((r, idx) => {
-              if (usedRoomIdxs.has(idx) || r.type !== item.type) return;
-              const d = Math.hypot((r.x - item.x) || 0, (r.y - item.y) || 0);
-              if (d < bestDist) { bestDist = d; matchIdx = idx; }
-            });
-          }
+        } catch (err) {
+          backendUnfixable = [];
+        }
+      }
 
-          if (matchIdx !== -1) {
-            usedRoomIdxs.add(matchIdx);
-            const m = rooms[matchIdx];
-            return { ...item, w: m.w, h: m.h, x: m.x, y: m.y, width: m.w, depth: m.h };
-          }
-          return item;
-        });
+      // Step 3: deterministic fallback for common IRC room-size failures.
+      const { fixedStoryPlans: minimumPlans, appliedFixes: minimumFixes } =
+        applyMinimumComplianceFixes(nextStoryPlans);
+      nextStoryPlans = minimumPlans;
+      complianceFixes.push(...minimumFixes);
 
-        return { ...plan, rooms, placed_items: placedItems, width: finalW, depth: finalD };
-      });
+      // Step 4: re-check the fixed plan so the issue count reflects reality.
+      const fixedContext = buildComplianceContext(nextStoryPlans, location, project.generateParams);
+      remainingViolations = filterManualComplianceViolations(project.ragViolations || [], backendUnfixable);
+      try {
+        const refreshed = await complianceApi.check(null, fixedContext);
+        remainingViolations = collectComplianceViolations(
+          refreshed,
+          fixedContext.ceiling_height_ft
+        );
+        ragChecked = true;
+      } catch (err) {
+        ragChecked = false;
+      }
 
-      // Step 5: keep manual-only violations visible (egress, zoning, fire)
-      const MANUAL_KEYWORDS = ["egress", "window", "setback", "zoning", "fire", "separation", "permit"];
-      const manualViolations = (project.ragViolations || []).filter((v) => {
-        const text = (v.explanation || v.rule || v.message || "").toLowerCase();
-        return MANUAL_KEYWORDS.some((kw) => text.includes(kw));
-      }).map((v) => ({ ...v, status: "ADVISORY", name: v.name || "Manual Review Required" }));
-
-      project.setStoryPlans(resizedPlans);
-      project.setRagViolations(manualViolations);
-      project.setRagChecked(true);
+      project.setStoryPlans(nextStoryPlans);
+      project.setRagViolations(remainingViolations);
+      project.setRagChecked(ragChecked);
       project.persistNow({
-        storyPlans: resizedPlans,
-        floorPlan: resizedPlans[0] ?? null,
-        ragViolations: manualViolations,
-        ragChecked: true,
+        storyPlans: nextStoryPlans,
+        floorPlan: nextStoryPlans[0] ?? null,
+        ragViolations: remainingViolations,
+        ragChecked,
       });
-      setAppliedFixes(complianceFixes);
-      setRagNotesOpen(manualViolations.length > 0);
+      setAppliedFixes(
+        complianceFixes.length > 0
+          ? complianceFixes
+          : ["Compliance issues were refreshed against the current floor plan."]
+      );
+      setRagNotesOpen(remainingViolations.length > 0);
       setShowFixBanner(true);
       setTimeout(() => setShowFixBanner(false), 6000);
     } finally {
@@ -667,7 +541,9 @@ export default function House3DPreview() {
                     <path d="M6 10l3 3 5-6" stroke="#22c55e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   <span style={{ fontSize: 14, fontWeight: 600, color: "#22c55e" }}>
-                    Your home has been adjusted and is structurally sound.
+                    {(project.ragViolations ?? []).length > 0
+                      ? "Automatic fixes applied. Remaining code items need manual review."
+                      : "Your home has been adjusted and is structurally sound."}
                   </span>
                 </div>
                 {appliedFixes.length > 0 && (
