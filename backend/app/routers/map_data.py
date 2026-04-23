@@ -880,6 +880,25 @@ async def clear_city_cache(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.delete("/cache/all")
+async def clear_all_city_cache() -> dict:
+    """
+    Delete every entry in city_search_cache so all cities re-fetch fresh data
+    on next search. Does NOT touch comparables or land_listings.
+    """
+    try:
+        db = _get_db()
+        if db is None:
+            raise HTTPException(status_code=503, detail="MongoDB not available")
+        result = await db["city_search_cache"].delete_many({})
+        logger.info("[map_data] Cleared all city_search_cache — %d entries removed", result.deleted_count)
+        return {"cleared": True, "entries_removed": result.deleted_count}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.get("/market-stats")
 async def get_market_stats() -> dict:
     """

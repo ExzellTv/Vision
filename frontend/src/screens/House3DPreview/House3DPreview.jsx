@@ -103,6 +103,7 @@ export default function House3DPreview() {
   const [appliedFixes, setAppliedFixes] = useState([]);      // log after autofix
   const [showFixBanner, setShowFixBanner] = useState(false); // green banner
   const [fixesOpen, setFixesOpen] = useState(false);         // collapsible log
+  const [ragNotesOpen, setRagNotesOpen] = useState(false);   // code compliance toggle
   // Environment + drag-to-edit were previously user-toggleable. Both now
   // default on/off so the right panel stays focused on style + color.
 
@@ -178,9 +179,228 @@ export default function House3DPreview() {
     setTimeout(() => setShowFixBanner(false), 6000);
   }, [allStoryPlans, project]);
 
+  const [fixingRag, setFixingRag] = useState(false);
+  const handleFixCompliance = useCallback(() => {
+    if (!Array.isArray(allStoryPlans) || allStoryPlans.length === 0) return;
+    setFixingRag(true);
+
+    try {
+      setUndoSnapshot(allStoryPlans);
+      const complianceFixes = [];
+
+      const IRC_MINS = {
+        bedroom:  { minW: 7,  minH: 7,  minArea: 70  },
+        bathroom: { minW: 5,  minH: 5,  minArea: 25  },
+        kitchen:  { minW: 7,  minH: 7,  minArea: 50  },
+        living:   { minW: 10, minH: 10, minArea: 120 },
+        dining:   { minW: 8,  minH: 8,  minArea: 64  },
+        office:   { minW: 7,  minH: 7,  minArea: 49  },
+        laundry:  { minW: 5,  minH: 5,  minArea: 25  },
+        garage:   { minW: 10, minH: 20, minArea: 200 },
+        hallway:  { minW: 3,  minH: 3,  minArea: 0   },
+        closet:   { minW: 2,  minH: 2,  minArea: 0   },
+        entry:    { minW: 4,  minH: 4,  minArea: 0   },
+      };
+
+      // Step 1: structural geometry fixes (cantilever, alignment)
+      const { fixedStoryPlans: structuralFixed, appliedFixes: structuralFixes } =
+        autoFixStoryPlans(allStoryPlans, "all");
+      complianceFixes.push(...structuralFixes);
+
+      // Maps raw/variant room types to canonical IRC_MINS keys
+      const TYPE_ALIAS = {
+        master: "bedroom", master_bedroom: "bedroom",
+        secondary: "bedroom", secondary_bedroom: "bedroom",
+        bedroom_master: "bedroom", bedroom_secondary: "bedroom",
+        master_bath: "bathroom", master_bathroom: "bathroom",
+        half_bath: "bathroom", powder_room: "bathroom",
+        living_room: "living", family_room: "living",
+        dining_room: "dining",
+        utility: "laundry", mud_room: "laundry",
+        garage_1car: "garage", garage_2car: "garage",
+        garage_3car: "garage",
+      };
+
+      // Step 2: resize undersized rooms per IRC minimums
+      const resizedPlans = structuralFixed.map((plan) => {
+        const origW = plan.width  || Math.max(...(plan.rooms || []).map(r => (r.x || 0) + (r.w || 0)), 40);
+        const origD = plan.depth  || Math.max(...(plan.rooms || []).map(r => (r.y || 0) + (r.h || 0)), 40);
+
+        // Work on mutable copies so position nudges propagate correctly
+        const rooms = (plan.rooms || []).map(r => ({ ...r }));
+
+        // 2a — resize each undersized room; record how much it grew
+        const growthMap = new Map(); // index → { dw, dh }
+        rooms.forEach((r, i) => {
+          const rawType = (r.type || r.label || "").toLowerCase().replace(/[\s\-]+/g, "_");
+          const canonical = TYPE_ALIAS[rawType] || rawType;
+          const mins = IRC_MINS[canonical];
+          if (!mins) return;
+
+          let w = r.w || 0;
+          let h = r.h || 0;
+          const prevW = w, prevH = h;
+
+          if (w < mins.minW) w = mins.minW;
+          if (h < mins.minH) h = mins.minH;
+          if (mins.minArea > 0 && w * h < mins.minArea) {
+            const s = Math.sqrt(mins.minArea / (w * h));
+            w = Math.ceil(w * s);
+            h = Math.ceil(h * s);
+          }
+
+          if (w !== prevW || h !== prevH) {
+            complianceFixes.push(
+              `Resized ${r.label || r.type} from ${prevW}×${prevH} ft to ${w}×${h} ft`
+            );
+            growthMap.set(i, { dw: w - prevW, dh: h - prevH });
+          }
+          r.w = w; r.h = h; r.width = w; r.depth = h;
+        });
+
+        // 2b — push rooms that are in the path of each expanded room
+        growthMap.forEach(({ dw, dh }, i) => {
+          const grown = rooms[i];
+          // original right/bottom edges before growth (room was at grown.x, grown.y with old size)
+          const oldRight  = grown.x + (grown.w - (growthMap.get(i)?.dw ?? 0));
+          const oldBottom = grown.y + (grown.h - (growthMap.get(i)?.dh ?? 0));
+
+          rooms.forEach((other, j) => {
+            if (j === i) return;
+            // Room is directly to the right → shift it right by dw
+            if (dw > 0 && other.x >= oldRight - 0.5) {
+              other.x += dw;
+            }
+            // Room is directly below → shift it down by dh
+            if (dh > 0 && other.y >= oldBottom - 0.5) {
+              other.y += dh;
+            }
+          });
+        });
+
+        // 2c — overlap nudge to clean up any remaining collisions (30 iters max)
+        for (let iter = 0; iter < 30; iter++) {
+          let moved = false;
+          for (let i = 0; i < rooms.length; i++) {
+            for (let j = i + 1; j < rooms.length; j++) {
+              const a = rooms[i], b = rooms[j];
+              const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+              const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+              if (ox > 0.1 && oy > 0.1) {
+                moved = true;
+                if (ox <= oy) b.x += ox;
+                else          b.y += oy;
+              }
+            }
+          }
+          if (!moved) break;
+        }
+
+        // 2d — scale oversized rooms back toward the original footprint
+        //      so the house doesn't balloon. IRC-minimum rooms are protected.
+        const bboxW = Math.max(...rooms.map(r => r.x + r.w));
+        const bboxD = Math.max(...rooms.map(r => r.y + r.h));
+
+        if (bboxW > origW * 1.02 || bboxD > origD * 1.02) {
+          const sx = bboxW > origW ? origW / bboxW : 1;
+          const sy = bboxD > origD ? origD / bboxD : 1;
+          const scale = Math.min(sx, sy);
+
+          if (scale < 0.99) {
+            rooms.forEach(r => {
+              const rawType = (r.type || "").toLowerCase().replace(/[\s\-]+/g, "_");
+              const canonical = TYPE_ALIAS[rawType] || rawType;
+              const mins = IRC_MINS[canonical];
+              const scaledW = Math.round(r.w * scale * 10) / 10;
+              const scaledH = Math.round(r.h * scale * 10) / 10;
+              // Only shrink if the room will still meet minimums after scaling
+              const safeToScale = !mins ||
+                (scaledW >= mins.minW && scaledH >= mins.minH && scaledW * scaledH >= (mins.minArea || 0));
+              if (safeToScale) {
+                r.x = Math.round(r.x * scale * 10) / 10;
+                r.y = Math.round(r.y * scale * 10) / 10;
+                r.w = scaledW;
+                r.h = scaledH;
+                r.width = r.w; r.depth = r.h;
+              }
+            });
+          }
+        }
+
+        // Final bounding box — update plan dimensions to actual layout
+        const finalW = Math.max(...rooms.map(r => r.x + r.w));
+        const finalD = Math.max(...rooms.map(r => r.y + r.h));
+
+        // Step 3: sync placed_items — three-pass matching for robustness
+        const usedRoomIdxs = new Set();
+        const placedItems = (plan.placed_items || []).map((item) => {
+          if (!item.isRoom) return item;
+
+          // Pass 1: type + label exact match
+          let matchIdx = rooms.findIndex((r, idx) =>
+            !usedRoomIdxs.has(idx) &&
+            r.type === item.type &&
+            (r.label === item.label || r.label === item.name)
+          );
+          // Pass 2: type + loose label (case-insensitive)
+          if (matchIdx === -1) {
+            const itemLabel = (item.label || item.name || "").toLowerCase();
+            matchIdx = rooms.findIndex((r, idx) =>
+              !usedRoomIdxs.has(idx) &&
+              r.type === item.type &&
+              (r.label || "").toLowerCase() === itemLabel
+            );
+          }
+          // Pass 3: same type, closest by original position
+          if (matchIdx === -1) {
+            let bestDist = Infinity;
+            rooms.forEach((r, idx) => {
+              if (usedRoomIdxs.has(idx) || r.type !== item.type) return;
+              const d = Math.hypot((r.x - item.x) || 0, (r.y - item.y) || 0);
+              if (d < bestDist) { bestDist = d; matchIdx = idx; }
+            });
+          }
+
+          if (matchIdx !== -1) {
+            usedRoomIdxs.add(matchIdx);
+            const m = rooms[matchIdx];
+            return { ...item, w: m.w, h: m.h, x: m.x, y: m.y, width: m.w, depth: m.h };
+          }
+          return item;
+        });
+
+        return { ...plan, rooms, placed_items: placedItems, width: finalW, depth: finalD };
+      });
+
+      // Step 5: keep manual-only violations visible (egress, zoning, fire)
+      const MANUAL_KEYWORDS = ["egress", "window", "setback", "zoning", "fire", "separation", "permit"];
+      const manualViolations = (project.ragViolations || []).filter((v) => {
+        const text = (v.explanation || v.rule || v.message || "").toLowerCase();
+        return MANUAL_KEYWORDS.some((kw) => text.includes(kw));
+      }).map((v) => ({ ...v, status: "ADVISORY", name: v.name || "Manual Review Required" }));
+
+      project.setStoryPlans(resizedPlans);
+      project.setRagViolations(manualViolations);
+      project.setRagChecked(true);
+      project.persistNow({
+        storyPlans: resizedPlans,
+        floorPlan: resizedPlans[0] ?? null,
+        ragViolations: manualViolations,
+        ragChecked: true,
+      });
+      setAppliedFixes(complianceFixes);
+      setRagNotesOpen(manualViolations.length > 0);
+      setShowFixBanner(true);
+      setTimeout(() => setShowFixBanner(false), 6000);
+    } finally {
+      setFixingRag(false);
+    }
+  }, [allStoryPlans, project]);
+
   const handleUndoFix = useCallback(() => {
     if (!undoSnapshot) return;
     project.setStoryPlans(undoSnapshot);
+    project.setRagChecked(false);
     setUndoSnapshot(null);
     setAppliedFixes([]);
     setShowFixBanner(false);
@@ -411,7 +631,7 @@ export default function House3DPreview() {
            Appears below the viewer when blocking violations exist (red
            border) or when a fix was just applied (green banner).  Stays
            inline so the user still sees the house while reading. */}
-        {(blockingViolations.length > 0 || showFixBanner || warningViolations.length > 0) && (
+        {(blockingViolations.length > 0 || showFixBanner || warningViolations.length > 0 || (project.ragViolations ?? []).length > 0) && (
           <div
             style={{
               position: "absolute",
@@ -560,6 +780,108 @@ export default function House3DPreview() {
                 <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: colors.text, lineHeight: 1.5 }}>
                   {warningViolations.map((v) => <li key={v.id}>{v.message}</li>)}
                 </ul>
+              </div>
+            )}
+
+            {/* Code compliance advisory notes from RAG/AI check */}
+            {(project.ragViolations ?? []).length > 0 && blockingViolations.length === 0 && (
+              <div style={{ marginTop: warningViolations.length > 0 ? 12 : 0 }}>
+                <button
+                  onClick={() => setRagNotesOpen((v) => !v)}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    width: "100%", background: "none", border: "none", cursor: "pointer",
+                    padding: 0, marginBottom: ragNotesOpen ? 10 : 0,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <svg width="15" height="15" viewBox="0 0 20 20" fill="none">
+                      <circle cx="10" cy="10" r="9" stroke="#f59e0b" strokeWidth="1.5" />
+                      <path d="M10 6v5M10 14v.5" stroke="#f59e0b" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#fbbf24" }}>
+                      Building Code Review
+                    </span>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, color: "#f59e0b",
+                      background: "rgba(245,158,11,0.15)", padding: "1px 6px", borderRadius: 10,
+                    }}>
+                      {project.ragViolations.length}
+                    </span>
+                  </div>
+                  <svg
+                    width="12" height="12" viewBox="0 0 12 12" fill="none"
+                    style={{ transform: ragNotesOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", opacity: 0.5 }}
+                  >
+                    <path d="M2 4l4 4 4-4" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+
+                {ragNotesOpen && (
+                  <>
+                    {project.ragViolations.length > 0 && (
+                      <button
+                        onClick={handleFixCompliance}
+                        disabled={fixingRag}
+                        style={{
+                          width: "100%", padding: "10px 16px", marginBottom: 10,
+                          background: fixingRag
+                            ? "rgba(251,191,36,0.06)"
+                            : "linear-gradient(135deg, rgba(251,191,36,0.2) 0%, rgba(251,191,36,0.1) 100%)",
+                          border: fixingRag ? "1px solid rgba(251,191,36,0.15)" : "1px solid rgba(251,191,36,0.4)",
+                          borderRadius: 8, color: fixingRag ? "rgba(251,191,36,0.45)" : "#fbbf24",
+                          fontSize: 13, fontWeight: 700, cursor: fixingRag ? "default" : "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+                          letterSpacing: "0.02em",
+                          boxShadow: fixingRag ? "none" : "0 0 14px rgba(251,191,36,0.15)",
+                          transition: "all 0.2s",
+                        }}
+                      >
+                        {fixingRag ? (
+                          "Fixing…"
+                        ) : (
+                          <>
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                              <path d="M7 1v6M4 4l3 3 3-3" stroke="#fbbf24" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                              <path d="M2 10h10" stroke="#fbbf24" strokeWidth="1.5" strokeLinecap="round" />
+                            </svg>
+                            ⚡ Resolve All Issues
+                          </>
+                        )}
+                      </button>
+                    )}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {project.ragViolations.map((v, i) => {
+                        const isFail = (v.status || "").toUpperCase() === "FAIL";
+                        const name = typeof v === "string" ? null : v.name;
+                        const explanation = typeof v === "string" ? v : (v.explanation || v.message || v.description || "");
+                        return (
+                          <div key={i} style={{
+                            background: isFail ? "rgba(239,68,68,0.07)" : "rgba(245,158,11,0.07)",
+                            border: `1px solid ${isFail ? "rgba(239,68,68,0.2)" : "rgba(245,158,11,0.2)"}`,
+                            borderRadius: 7, padding: "9px 12px",
+                          }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: explanation ? 4 : 0 }}>
+                              {name && <span style={{ fontSize: 12, fontWeight: 600, color: colors.textBright }}>{name}</span>}
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, letterSpacing: "0.07em",
+                                color: isFail ? "#ef4444" : "#f59e0b",
+                                background: isFail ? "rgba(239,68,68,0.12)" : "rgba(245,158,11,0.12)",
+                                padding: "2px 7px", borderRadius: 4,
+                              }}>
+                                {isFail ? "ACTION NEEDED" : "ADVISORY"}
+                              </span>
+                            </div>
+                            {explanation && <p style={{ margin: 0, fontSize: 12, color: colors.text, lineHeight: 1.55 }}>{explanation}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 10, lineHeight: 1.5 }}>
+                      Return to the floor plan editor to address these items before submitting for permits.
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>

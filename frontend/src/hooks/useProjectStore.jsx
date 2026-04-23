@@ -155,6 +155,7 @@ export function ProjectProvider({ children }) {
   const [savedSchedule, setSavedSchedule] = useState(null);   // persisted schedule from MongoDB
   const [projectLocation, setProjectLocation] = useState(null); // { city, state } — set at project creation, never touched by FloorPlanEditor
   const [ragViolations, setRagViolations] = useState([]);      // RAG compliance violations from StructuralIntelligence
+  const [ragChecked, setRagChecked] = useState(false);         // true once compliance check has run for current plan
   const [demoLoaded, setDemoLoaded] = useState(false);        // prevent double-load
 
   const setBuildingContext = useCallback((updates) => {
@@ -179,6 +180,9 @@ export function ProjectProvider({ children }) {
     setBuildingContextRaw({ ...DEFAULT_BUILDING_CONTEXT, ...(src.buildingContext || {}) });
     setMaxStep(src === DEMO_PROJECT ? 5 : (src.maxStep ?? 5));
     setProjectLocation(src.projectLocation || null);
+    if (saved?.projectId) setProjectId(saved.projectId);
+    if (saved?.ragViolations) setRagViolations(saved.ragViolations);
+    if (saved?.ragChecked) setRagChecked(saved.ragChecked);
   }, [demoLoaded]);
 
   /* Persist user's plan whenever it changes — so hard-refresh doesn't revert
@@ -194,8 +198,11 @@ export function ProjectProvider({ children }) {
       buildingContext,
       maxStep,
       projectLocation,
+      projectId,
+      ragViolations,
+      ragChecked,
     });
-  }, [demoLoaded, projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep, projectLocation]);
+  }, [demoLoaded, projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep, projectLocation, projectId, ragViolations, ragChecked]);
 
   /* Force an immediate localStorage write — used when the caller has just
    * queued a state update (e.g. setStoryPlans) but wants the new values
@@ -210,11 +217,14 @@ export function ProjectProvider({ children }) {
       generateParams,
       materials,
       buildingContext,
+      projectId,
       maxStep,
       projectLocation,
+      ragViolations,
+      ragChecked,
       ...overrides,
     });
-  }, [projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep, projectLocation]);
+  }, [projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep, projectLocation, projectId, ragViolations, ragChecked]);
 
   /* Reset entire project state for a clean "new project" flow */
   const resetProject = useCallback(() => {
@@ -233,6 +243,7 @@ export function ProjectProvider({ children }) {
     setSavedSchedule(null);
     setProjectLocation(null);
     setRagViolations([]);
+    setRagChecked(false);
   }, []);
 
   /* Wrap setters to normalize API data */
@@ -285,6 +296,7 @@ export function ProjectProvider({ children }) {
     savedSchedule, setSavedSchedule,
     projectLocation, setProjectLocation,
     ragViolations, setRagViolations,
+    ragChecked, setRagChecked,
     resetProject,
     persistNow,
     // Derived

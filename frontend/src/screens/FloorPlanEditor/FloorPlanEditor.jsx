@@ -4,8 +4,6 @@ import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
 import { projectsApi, floorplanApi, complianceApi } from "../../services/api";
-import { useStructuralValidation, ValidationPanel, ValidationBadge } from "../../hooks/useStructuralValidation.jsx";
-import { applyCompliancePatches } from "../../lib/complianceFix.js";
 import { STYLE_CONFIGS } from "../../lib/houseStyleConfigs";
 
 /* ───────────────────────── Constants ───────────────────────── */
@@ -2129,11 +2127,6 @@ export default function FloorPlanEditor() {
   const [libTab, setLibTab] = useState("elements");
   const [zoom, setZoom] = useState(1.0);
   const [saving, setSaving] = useState(false);
-  const ragViolations = project.ragViolations ?? [];
-  const setRagViolations = project.setRagViolations;
-  const [fixingCompliance, setFixingCompliance] = useState(false);
-  const [complianceFixLog, setComplianceFixLog] = useState(null);
-  const [fixApplied, setFixApplied] = useState(() => !!(project.storyPlans[0]?.compliance_fixed));
   const [showParamsModal, setShowParamsModal] = useState(false);
   // Draft copy of params used inside the settings modal — only committed on "Regenerate"
   const [draftParams, setDraftParams] = useState(null);
@@ -2157,8 +2150,7 @@ export default function FloorPlanEditor() {
 
   // Track unsaved changes — set dirty on any user edit, cleared on save
   const [isDirty, setIsDirty] = useState(false);
-  // Reset fixApplied when user edits so fix button can reappear for new issues
-  useEffect(() => { if (isDirty) { setFixApplied(false); complianceCheckedRef.current = false; } }, [isDirty]);
+  useEffect(() => { if (isDirty) { complianceCheckedRef.current = false; } }, [isDirty]);
   const savedRef = useRef(false); // true when navigating after successful save
   const complianceCheckedRef = useRef(false); // prevents re-running auto-check on every placedItems change
 
@@ -2195,42 +2187,54 @@ export default function FloorPlanEditor() {
     project.setGenerateParams(params);
   }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* Auto compliance check — fires once when rooms are loaded and project has a location.
-     Re-runs on every page load so violations always reflect the current room state. */
+  /* Auto compliance check — fires once per floor plan version.
+     Skips if violations were already computed and persisted (ragChecked = true). */
   useEffect(() => {
     if (complianceCheckedRef.current) return;
+    if (project.ragChecked) return;
     const loc = project.projectLocation;
     if (!loc?.city || !loc?.state) return;
     const rooms = placedItems.filter((it) => it.isRoom || it.type);
     if (!rooms.length) return;
 
     complianceCheckedRef.current = true;
-    // Clear stale violations from previous session before the new check resolves
-    project.setRagViolations([]);
     const totalSF = rooms.reduce((s, r) => s + (r.w || 0) * (r.h || r.depth || 0), 0);
     const buildingCtx = {
       location: { city: loc.city, state: loc.state },
+      ceiling_height_ft: params.ceilingHeight || 9,
       rooms: rooms.map((r) => ({
         type: r.type || r.roomType,
         label: r.name || r.label || r.type,
-        width: r.w || r.width || 0,
-        depth: r.h || r.depth || 0,
-        area: (r.w || 0) * (r.h || r.depth || 0),
+        floor: 1,
+        width_ft: r.w || r.width || 0,
+        depth_ft: r.h || r.depth || 0,
+        area_sf: (r.w || 0) * (r.h || r.depth || 0),
       })),
       total_sf: totalSF,
       stories: params.stories || 1,
     };
 
+    const ceilingFt = buildingCtx.ceiling_height_ft || 9;
     complianceApi.check(null, buildingCtx)
       .then((data) => {
         const fromChecks = (data.checks || []).filter((c) => c.status === "FAIL" || c.status === "WARNING");
         const fromRag = data.violations || [];
-        const all = [...fromChecks, ...fromRag];
-        if (all.length > 0) project.setRagViolations(all);
+        const seen = new Set();
+        const all = [...fromChecks, ...fromRag].filter((v) => {
+          const key = (v.name || "") + "|" + (v.explanation || v.message || v.description || v);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          // Drop ceiling-height violations when the actual ceiling meets the IRC minimum
+          const text = (v.explanation || v.message || v.description || "").toLowerCase();
+          if (ceilingFt >= 7 && text.includes("ceiling")) return false;
+          return true;
+        });
+        project.setRagViolations(all.length > 0 ? all : []);
+        project.setRagChecked(true);
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placedItems, project.projectLocation]);
+  }, [placedItems, project.projectLocation, project.ragChecked]);
 
   /* Build preset layout on mount from project params */
   const hasAutoGenerated = useRef(false);
@@ -2419,6 +2423,14 @@ export default function FloorPlanEditor() {
     if (containerRef.current) obs.observe(containerRef.current);
     return () => obs.disconnect();
   }, [render]);
+
+  // Force redraw after mount so the canvas paints correctly after back-navigation
+  // from Preview3D (layout must settle before dimensions are available).
+  useEffect(() => {
+    const id = setTimeout(render, 0);
+    return () => clearTimeout(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* Finalize drawing / pan on mouse up */
   const handleCanvasMouseUp = useCallback(() => {
@@ -2825,7 +2837,10 @@ export default function FloorPlanEditor() {
     setActiveVariantPerStory(newAllStoryVariants.map(() => 0));
     setActiveStory(0);
     setIsDirty(true);
-  }, [params]);
+    // New plan generated — clear cached compliance results so the check re-runs
+    project.setRagViolations([]);
+    project.setRagChecked(false);
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Drop handler — place a library block onto the floor plan */
   const BLOCK_SIZES = {
@@ -3041,151 +3056,6 @@ export default function FloorPlanEditor() {
     navigate(isHomeowner ? "/preview3d" : "/edit");
   };
 
-  const handleComplianceFix = async () => {
-    if (!placedItems.length) return;
-    setFixingCompliance(true);
-    setComplianceFixLog(null);
-
-    // IRC minimum dimensions — mirrors ROOM_MIN_DIMENSIONS in useStructuralValidation
-    const IRC_MINS = {
-      bedroom: { minW: 7, minH: 7 }, bathroom: { minW: 5, minH: 5 },
-      kitchen: { minW: 7, minH: 7 }, living: { minW: 10, minH: 10 },
-      dining: { minW: 8, minH: 8 },  garage: { minW: 10, minH: 20 },
-      laundry: { minW: 5, minH: 5 }, office: { minW: 7, minH: 7 },
-      entry: { minW: 4, minH: 4 },   hallway: { minW: 3, minH: 3 },
-      closet: { minW: 2, minH: 2 },
-    };
-
-    try {
-      const allApplied = [];
-      const allSkipped = [];
-      // Deep-clone so we never mutate React state directly
-      let currentItems = placedItems.map((i) => ({ ...i }));
-
-      // ── Step 1: Fix dimension / structural span / proportion issues ──
-      const MAX_SPAN = 20;
-      const fixableIssues = (validation.issues || []).filter(
-        (issue) => issue.roomId && ["dimensions", "structural", "proportions"].includes(issue.category)
-      );
-      if (fixableIssues.length > 0) {
-        currentItems = currentItems.map((item) => {
-          if (!item.isRoom) return item;
-          const myIssues = fixableIssues.filter((i) => i.roomId === item.id);
-          if (!myIssues.length) return item;
-          const type = (item.type || "").toLowerCase();
-          const mins = IRC_MINS[type];
-          let newW = item.w || 0;
-          let newH = item.h || item.depth || 0;
-          const prevW = newW, prevH = newH;
-          for (const issue of myIssues) {
-            if (issue.category === "dimensions" && mins) {
-              newW = Math.max(newW, mins.minW);
-              newH = Math.max(newH, mins.minH);
-            } else if (issue.category === "structural") {
-              if (newW > MAX_SPAN) newW = MAX_SPAN;
-              if (newH > MAX_SPAN) newH = MAX_SPAN;
-            } else if (issue.category === "proportions") {
-              const ratio = Math.max(newW, newH) / Math.min(newW, newH);
-              if (ratio > 4) {
-                if (newW < newH) newW = Math.ceil(newH / 4);
-                else newH = Math.ceil(newW / 4);
-              }
-            }
-          }
-          if (newW === prevW && newH === prevH) return item;
-          const name = item.name || item.label || type;
-          allApplied.push(`${name}: resized to ${newW}×${newH}ft`);
-          return { ...item, w: newW, h: newH, ...(item.depth !== undefined ? { depth: newH } : {}) };
-        });
-      }
-
-      // ── Step 2: Fix overlapping rooms iteratively ──
-      // Rooms are mutable objects in currentItems — modify in place then re-read
-      const roomRefs = currentItems.filter((i) => i.isRoom);
-      let hasOverlap = true;
-      let iters = 0;
-      let movedAny = false;
-      while (hasOverlap && iters < 20) {
-        hasOverlap = false;
-        for (let i = 0; i < roomRefs.length; i++) {
-          for (let j = i + 1; j < roomRefs.length; j++) {
-            const a = roomRefs[i], b = roomRefs[j];
-            const aw = a.w || 0, ah = a.h || a.depth || 0;
-            const bw = b.w || 0, bh = b.h || b.depth || 0;
-            const ox = Math.min(a.x + aw, b.x + bw) - Math.max(a.x, b.x);
-            const oy = Math.min(a.y + ah, b.y + bh) - Math.max(a.y, b.y);
-            if (ox > 0 && oy > 0) {
-              hasOverlap = true;
-              movedAny = true;
-              // Nudge b in the direction that needs the smallest shift
-              if (ox <= oy) b.x = a.x + aw;
-              else b.y = a.y + ah;
-            }
-          }
-        }
-        iters++;
-      }
-      if (movedAny) allApplied.push("Repositioned overlapping rooms");
-
-      // ── Step 3: Fix RAG compliance violations via Cerebras ──
-      if (ragViolations.length > 0) {
-        const rooms = currentItems
-          .filter((item) => item.isRoom || item.type)
-          .map((item) => ({
-            id: item.id, type: item.type || "room",
-            name: item.name || item.label || item.type,
-            w: item.w || item.width || 0, h: item.h || item.depth || 0,
-            x: item.x || 0, y: item.y || 0,
-          }));
-        const location = project.projectLocation ?? {};
-        const result = await complianceApi.fix(ragViolations, rooms, location);
-        if (result.patches?.length) {
-          const { fixedItems, appliedFixes, skipped } = applyCompliancePatches(currentItems, result.patches);
-          currentItems = fixedItems;
-          allApplied.push(...appliedFixes);
-          allSkipped.push(...skipped);
-        }
-        allSkipped.push(...(result.unfixable || []));
-      }
-
-      // ── Persist: canvas → localStorage → MongoDB ──
-      const fixedRooms = currentItems.filter((it) => it.isRoom || it.type);
-      const updatedStoryPlans = project.storyPlans.length > 0
-        ? project.storyPlans.map((sp, idx) =>
-            idx !== activeStory ? sp : {
-              ...sp,
-              compliance_fixed: true,
-              rooms: fixedRooms.map((r) => ({ ...r, width: r.w, depth: r.h || r.depth })),
-              placed_items: currentItems,
-            }
-          )
-        : [{ compliance_fixed: true, rooms: fixedRooms.map((r) => ({ ...r, width: r.w, depth: r.h || r.depth })), placed_items: currentItems }];
-
-      setPlacedItems(currentItems);
-      // Keep floorItemsRef and allStoryVariants in sync so re-renders and story switches use fixed items
-      floorItemsRef.current[activeStory] = currentItems;
-      setAllStoryVariants(updatedStoryPlans.map((p) => [p]));
-      project.setStoryPlans(updatedStoryPlans);
-      // Pass overrides so persistNow writes the new storyPlans before re-render
-      project.persistNow({ storyPlans: updatedStoryPlans, floorPlan: updatedStoryPlans[0] ?? null });
-
-      if (project.projectId) {
-        projectsApi.update(project.projectId, {
-          story_plans: updatedStoryPlans,
-          floor_plan: updatedStoryPlans[0] || null,
-        }).catch(() => {});
-      }
-
-      setComplianceFixLog({ appliedFixes: allApplied, skipped: allSkipped, unfixable: [] });
-      setRagViolations([]);
-      setFixApplied(true);
-    } catch (e) {
-      setComplianceFixLog({ appliedFixes: [], skipped: [], unfixable: ["Fix request failed — try again"] });
-    } finally {
-      setFixingCompliance(false);
-    }
-  };
-
   const [exportingDxf, setExportingDxf] = useState(false);
   const handleExportDxf = async () => {
     if (!activePlan) return;
@@ -3258,10 +3128,6 @@ export default function FloorPlanEditor() {
 
   const totalSF = roomStats.reduce((s, r) => s + r.area, 0);
   const scaleLabel = zoom <= 0.6 ? "1:100" : zoom <= 0.9 ? "1:75" : zoom <= 1.2 ? "1:50" : zoom <= 1.6 ? "1:35" : "1:25";
-
-  // Structural validation - real-time checks
-  const validation = useStructuralValidation(placedItems, params);
-  const [showValidationPanel, setShowValidationPanel] = useState(false);
 
   /* ── Shared style atoms ── */
   const panelLabel = {
@@ -3733,33 +3599,6 @@ export default function FloorPlanEditor() {
             </button>
           )}
 
-          {/* Fix result log — absolutely positioned, doesn't affect toolbar layout */}
-          {complianceFixLog && (
-            <div style={{
-              position: "absolute", top: 48, left: "50%", transform: "translateX(-50%)",
-              background: "#0f1a2e", border: "1px solid rgba(46,213,115,0.3)",
-              borderRadius: 8, padding: "12px 16px", zIndex: 200,
-              minWidth: 320, maxWidth: 480, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontFamily: fonts.label, fontSize: 12, fontWeight: 700, color: "#2ed573" }}>
-                  ✓ Compliance fixes applied
-                </span>
-                <button onClick={() => setComplianceFixLog(null)} style={{ background: "none", border: "none", color: "#4a5568", cursor: "pointer", fontSize: 16 }}>×</button>
-              </div>
-              {complianceFixLog.appliedFixes.map((f, i) => (
-                <div key={i} style={{ fontFamily: fonts.label, fontSize: 11, color: "#8b9db8", marginBottom: 3 }}>• {f}</div>
-              ))}
-              {complianceFixLog.unfixable?.length > 0 && (
-                <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #1a2236" }}>
-                  <div style={{ fontFamily: fonts.label, fontSize: 11, fontWeight: 700, color: "#ff9f43", marginBottom: 4 }}>Requires manual fix:</div>
-                  {complianceFixLog.unfixable.map((u, i) => (
-                    <div key={i} style={{ fontFamily: fonts.label, fontSize: 11, color: "#ff9f43", marginBottom: 2 }}>• {u}</div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Canvas area */}
@@ -3986,44 +3825,6 @@ export default function FloorPlanEditor() {
             </span>
           </div>
 
-          {/* Validation badge + fix button — shown below Status when issues exist */}
-          {placedItems.length > 0 && !fixApplied && (
-            <div style={{ padding: "10px 16px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-              <ValidationBadge
-                validation={validation}
-                onClick={() => setShowValidationPanel(!showValidationPanel)}
-              />
-              {(() => {
-                const fixableStructural = (validation.issues || []).filter(
-                  (i) => i.roomId && ["dimensions", "structural", "proportions", "placement"].includes(i.category)
-                ).length;
-                const total = ragViolations.length + fixableStructural;
-                if (total === 0) return null;
-                return (
-                  <button
-                    onClick={handleComplianceFix}
-                    disabled={fixingCompliance}
-                    style={{
-                      width: "100%", height: 36, padding: "0 16px", borderRadius: 8,
-                      border: fixingCompliance ? "1px solid rgba(251,191,36,0.15)" : "1px solid rgba(251,191,36,0.35)",
-                      background: fixingCompliance
-                        ? "rgba(251,191,36,0.05)"
-                        : "linear-gradient(135deg, rgba(251,191,36,0.18) 0%, rgba(251,191,36,0.08) 100%)",
-                      color: fixingCompliance ? "rgba(251,191,36,0.4)" : "#fbbf24",
-                      fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
-                      cursor: fixingCompliance ? "default" : "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                      transition: "all 0.2s", whiteSpace: "nowrap", boxSizing: "border-box",
-                      letterSpacing: "0.02em",
-                      boxShadow: fixingCompliance ? "none" : "0 0 12px rgba(251,191,36,0.12)",
-                    }}
-                  >
-                    {fixingCompliance ? "Fixing…" : `⚡ Fix ${total} Issue${total > 1 ? "s" : ""}`}
-                  </button>
-                );
-              })()}
-            </div>
-          )}
         </div>
 
         {/* Component Properties */}
@@ -4067,24 +3868,6 @@ export default function FloorPlanEditor() {
           )}
         </div>
 
-        {/* Structural Validation Panel */}
-        {showValidationPanel && placedItems.length > 0 && (
-          <div style={{ borderBottom: "1px solid #1a2236", padding: "10px 12px" }}>
-            <div style={{ padding: "0 4px 8px" }}>
-              <span style={panelLabel}>Structural Checks</span>
-            </div>
-            <ValidationPanel
-              validation={validation}
-              onIssueClick={(issue) => {
-                // Highlight the room with the issue
-                if (issue.roomId) {
-                  const idx = placedItems.findIndex(item => item.id === issue.roomId);
-                  if (idx >= 0) setSelectedItemIdx(idx);
-                }
-              }}
-            />
-          </div>
-        )}
 
         {/* Floor Plan Settings */}
         <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8, marginTop: "auto", flexShrink: 0 }}>

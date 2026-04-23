@@ -149,6 +149,9 @@ def _build_floor_plan_narrative(ctx: dict) -> str:
         f"Building: {ctx.get('total_sf', 2200):,} SF total, "
         f"{ctx.get('stories', 2)} stor{'ies' if ctx.get('stories', 2) != 1 else 'y'}"
     )
+    ceiling_ft = ctx.get("ceiling_height_ft", 9)
+    ceiling_status = "COMPLIANT" if ceiling_ft >= 7 else "NON-COMPLIANT"
+    lines.append(f"Ceiling height: {ceiling_ft} ft — {ceiling_status} (IRC R305.1 minimum is 7 ft, this building meets the requirement)")
     lines.append(f"Governing beam span: {ctx.get('span_ft', 24)} ft")
     lines.append(f"Foundation: {ctx.get('foundation_type', 'slab_on_grade').replace('_', ' ')}")
     lines.append(f"Framing material: {ctx.get('framing_material', 'Wood SPF')}")
