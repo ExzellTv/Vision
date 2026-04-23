@@ -793,7 +793,6 @@ function ScheduleTimelineInner() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <img src="/SpecialLogo.png" alt="Vision" style={{ height: 22, width: "auto", objectFit: "contain", display: "block" }} />
               <h1 style={{ fontFamily: fonts.label, fontSize: 20, fontWeight: 700, color: colors.textBright, margin: 0 }}>
                 Construction Schedule
               </h1>
