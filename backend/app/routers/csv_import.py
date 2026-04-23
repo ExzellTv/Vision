@@ -34,6 +34,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Normalize borough/alias names to the canonical Redfin market name so CSV
+# imports and search queries use the same city key.
+_CITY_NORMALIZATIONS: dict[str, str] = {
+    "new york city": "New York",
+    "manhattan":     "New York",
+    "brooklyn":      "New York",
+    "queens":        "New York",
+    "the bronx":     "New York",
+    "bronx":         "New York",
+    "staten island": "New York",
+}
+
+def _normalize_city(raw: str) -> str:
+    return _CITY_NORMALIZATIONS.get(raw.lower().strip(), raw.strip().title())
+
 
 def _safe_int(val: str) -> Optional[int]:
     try:
@@ -274,7 +289,7 @@ def _parse_csv_text(text: str) -> tuple[list[tuple[str, UpdateOne]], int, set[tu
             continue
 
         # Auto-detect city and state from the CSV row
-        city  = (row.get("CITY") or row.get("CITY/TOWN") or "").strip().title()
+        city  = _normalize_city(row.get("CITY") or row.get("CITY/TOWN") or "")
         state = (row.get("STATE OR PROVINCE") or row.get("STATE") or "").strip().upper()[:2]
         if not city or not state:
             skipped += 1
