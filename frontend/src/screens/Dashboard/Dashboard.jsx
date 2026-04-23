@@ -322,12 +322,11 @@ function projectToRow(p) {
 
   const fp = p.floor_plan || {};
   const gp = p.generate_params || {};
-  const lotW = gp.lotWidth  || fp.width  || 60;
-  const lotD = gp.lotDepth  || fp.depth  || 120;
-  const acres = Math.round((lotW * lotD / 43560) * 100) / 100;
+  const lotSF = p.plot?.lot_sf || (gp.lotWidth || fp.width || 60) * (gp.lotDepth || fp.depth || 120);
+  const acres = Math.round((lotSF / 43560) * 100) / 100;
 
   const totalSF = fp.totalSF || gp.targetSF || 2200;
-  const cost = null; // populated asynchronously via ML cost prediction
+  const cost = p.plot?.price || null; // land acquisition price from plot, or populated async
 
   const rawScore = fp.score ? fp.score * 100 : null;
   // Seed a deterministic score from name length + totalSF to avoid random flicker
@@ -381,10 +380,10 @@ export default function Dashboard() {
               longitude: lng,
               quality_score: 5.0,
             });
-            const psf = res.feasibility?.construction_psf || res.cost_per_sf;
-            if (alive && psf) {
+            const totalInv = res.feasibility?.total_investment;
+            if (alive && totalInv && !ps[i]?.plot?.price) {
               setRecentProjects(prev =>
-                prev.map((r, j) => j === i ? { ...r, cost: Math.round(psf) } : r)
+                prev.map((r, j) => j === i ? { ...r, cost: Math.round(totalInv) } : r)
               );
             }
           } catch { /* silently skip on error */ }
@@ -750,7 +749,7 @@ function RecentRow({ project: p, index, navigate }) {
             fontFamily: fonts.data,
           }}
         >
-          {p.cost != null ? `$${p.cost}/SF` : "—"}
+          {p.cost != null ? (p.cost >= 1000000 ? `$${(p.cost / 1000000).toFixed(2)}M` : `$${(p.cost / 1000).toFixed(0)}K`) : "—"}
         </div>
         <div
           style={{
