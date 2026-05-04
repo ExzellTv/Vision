@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { colors, fonts, radii } from "../../theme/tokens";
+import useBreakpoint from "../../hooks/useBreakpoint";
 
 function Label({ children }) {
   return (
@@ -18,6 +19,7 @@ function Label({ children }) {
 }
 
 export default function NewProjectModal({ onClose, onGenerate }) {
+  const isMobile = useBreakpoint(768);
   const [projectName, setProjectNameLocal] = useState("");
   const [targetSF, setTargetSF] = useState(2450);
   const [bedrooms, setBedrooms] = useState(3);
@@ -218,9 +220,11 @@ export default function NewProjectModal({ onClose, onGenerate }) {
             background: "#111827",
             border: `1px solid ${colors.cardBorder}`,
             borderRadius: "16px",
-            padding: "40px 44px",
+            padding: isMobile ? "28px 20px" : "40px 44px",
             width: 496,
             maxWidth: "92vw",
+            maxHeight: isMobile ? "calc(100vh - 40px)" : "none",
+            overflowY: isMobile ? "auto" : "visible",
             position: "relative",
           }}
         >
@@ -278,8 +282,8 @@ export default function NewProjectModal({ onClose, onGenerate }) {
 
           {/* Heading */}
           <h2 style={{
-            margin: "0 0 28px",
-            fontSize: 30,
+            margin: isMobile ? "0 0 20px" : "0 0 28px",
+            fontSize: isMobile ? 24 : 30,
             fontWeight: 700,
             color: colors.textBright,
             letterSpacing: "-0.4px",
@@ -289,7 +293,7 @@ export default function NewProjectModal({ onClose, onGenerate }) {
           </h2>
 
           {/* Project Name */}
-          <div style={{ marginBottom: 26 }}>
+          <div style={{ marginBottom: isMobile ? 20 : 26 }}>
             <Label>Project Name</Label>
             <input
               value={projectName}
@@ -313,7 +317,7 @@ export default function NewProjectModal({ onClose, onGenerate }) {
           </div>
 
           {/* Target SF */}
-          <div style={{ marginBottom: 26 }}>
+          <div style={{ marginBottom: isMobile ? 20 : 26 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
               <Label>Target Square Footage</Label>
               <span style={{ fontFamily: fonts.data, fontSize: 22, fontWeight: 700, color: colors.secondary, lineHeight: 1 }}>
@@ -337,7 +341,7 @@ export default function NewProjectModal({ onClose, onGenerate }) {
           </div>
 
           {/* Bedrooms + Bathrooms */}
-          <div style={{ display: "flex", gap: 24, marginBottom: 24 }}>
+          <div style={{ display: "flex", gap: 24, marginBottom: isMobile ? 18 : 24 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <Label>Bedrooms</Label>
               <BtnGroup
@@ -357,7 +361,7 @@ export default function NewProjectModal({ onClose, onGenerate }) {
           </div>
 
           {/* Stories */}
-          <div style={{ marginBottom: 26 }}>
+          <div style={{ marginBottom: isMobile ? 20 : 26 }}>
             <Label>Stories</Label>
             <BtnGroup
               options={[{value:1,label:"1"},{value:2,label:"2"}]}
@@ -367,7 +371,7 @@ export default function NewProjectModal({ onClose, onGenerate }) {
           </div>
 
           {/* Location — required */}
-          <div style={{ marginBottom: 32, position: "relative" }} ref={suggestBoxRef}>
+          <div style={{ marginBottom: isMobile ? 24 : 32, position: "relative" }} ref={suggestBoxRef}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
               <Label>Location</Label>
               <span style={{

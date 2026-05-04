@@ -7,6 +7,7 @@ import { projectsApi, costApi } from "../../services/api";
 import NewProjectModal from "../../components/shared/NewProjectModal";
 import HomeownerProjectModal from "../../components/shared/HomeownerProjectModal";
 import { useUserType } from "../../context/UserTypeContext";
+import useBreakpoint from "../../hooks/useBreakpoint";
 
 /* ── Detect project type from name for thumbnail silhouette ── */
 function detectProjectType(name = "") {
@@ -353,6 +354,7 @@ export default function Dashboard() {
   const [showModal, setShowModal] = useState(false);
   const [recentProjects, setRecentProjects] = useState([]);
   const [recentLoading, setRecentLoading] = useState(true);
+  const isMobile = useBreakpoint(768);
 
   useEffect(() => {
     let alive = true;
@@ -427,6 +429,7 @@ export default function Dashboard() {
         background: colors.bg,
         height: "100%",
         overflowY: "auto",
+        overflowX: "hidden",
         display: "flex",
         flexDirection: "column",
         fontFamily: fonts.label,
@@ -435,20 +438,23 @@ export default function Dashboard() {
       {/* Hero */}
       <div
         style={{
-          margin: "24px 32px 0",
+          margin: isMobile ? "16px 16px 0" : "24px 32px 0",
           background: colors.cardSurface,
           border: `1px solid ${colors.cardBorder}`,
           borderRadius: radii.xl,
-          padding: "32px 36px",
+          padding: isMobile ? "20px 16px" : "32px 36px",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
+          flexDirection: isMobile ? "column" : "row",
+          alignItems: isMobile ? "stretch" : "center",
+          justifyContent: isMobile ? "flex-start" : "space-between",
+          gap: isMobile ? 12 : 0,
+          minWidth: 0,
         }}
       >
         <h1
           style={{
             margin: 0,
-            fontSize: 28,
+            fontSize: isMobile ? 22 : 28,
             fontWeight: 700,
             color: colors.textBright,
             letterSpacing: "-0.3px",
@@ -466,8 +472,10 @@ export default function Dashboard() {
           style={{
             display: "flex",
             alignItems: "center",
+            justifyContent: "center",
             gap: 8,
             padding: "10px 20px",
+            width: isMobile ? "100%" : "auto",
             background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
             border: "none",
             borderRadius: radii.lg,
@@ -494,7 +502,7 @@ export default function Dashboard() {
       </div>
 
       {/* Module Launchpad */}
-      <div style={{ padding: "28px 32px 0" }}>
+      <div style={{ padding: isMobile ? "16px 16px 0" : "28px 32px 0" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path
@@ -514,12 +522,13 @@ export default function Dashboard() {
           </span>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: isHomeowner ? "repeat(2, 1fr)" : "repeat(3, 1fr)", gap: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : (isHomeowner ? "repeat(2, 1fr)" : "repeat(3, 1fr)"), gap: 16 }}>
           {MODULES.filter((mod) => !(isHomeowner && mod.title === "Analysis Hub")).map((mod) => (
             <ModuleCard
               key={mod.path}
               mod={mod}
               navigate={navigate}
+              isMobile={isMobile}
               onLaunch={mod.path === "/develop" ? () => setShowModal(true) : undefined}
             />
           ))}
@@ -527,7 +536,7 @@ export default function Dashboard() {
       </div>
 
       {/* Recent Analysis */}
-      <div style={{ padding: "28px 32px 0" }}>
+      <div style={{ padding: isMobile ? "16px 16px 0" : "28px 32px 0" }}>
         <div
           style={{
             display: "flex",
@@ -580,7 +589,7 @@ export default function Dashboard() {
             </div>
           )}
           {recentProjects.map((p, i) => (
-            <RecentRow key={p.id} project={p} index={i} navigate={navigate} />
+            <RecentRow key={p.id} project={p} index={i} navigate={navigate} isMobile={isMobile} />
           ))}
         </div>
       </div>
@@ -604,9 +613,75 @@ export default function Dashboard() {
   );
 }
 
-function ModuleCard({ mod, navigate, onLaunch }) {
+function ModuleCard({ mod, navigate, onLaunch, isMobile }) {
   const { Pattern, Icon } = mod;
   const handleClick = onLaunch || (() => navigate(mod.path));
+
+  if (isMobile) {
+    return (
+      <div
+        onClick={handleClick}
+        onMouseEnter={(e) => (e.currentTarget.style.borderColor = `${colors.accent}60`)}
+        onMouseLeave={(e) => (e.currentTarget.style.borderColor = colors.cardBorder)}
+        style={{
+          background: colors.cardSurface,
+          border: `1px solid ${colors.cardBorder}`,
+          borderRadius: radii.xl,
+          padding: "14px",
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 12,
+          cursor: "pointer",
+          transition: "border-color 0.2s ease",
+        }}
+      >
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            background: mod.iconBg,
+            borderRadius: radii.lg,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            boxShadow: "0 2px 12px rgba(0,0,0,0.5)",
+          }}
+        >
+          <Icon />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, marginBottom: 4 }}>
+            {mod.title}
+          </div>
+          <div style={{ fontSize: 11, color: colors.textDim, lineHeight: 1.5, marginBottom: 8 }}>
+            {mod.description}
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleClick(); }}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              color: colors.accent,
+              fontFamily: fonts.label,
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: "0.8px",
+              cursor: "pointer",
+              textTransform: "uppercase",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            Launch Module →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       onClick={handleClick}
@@ -621,7 +696,6 @@ function ModuleCard({ mod, navigate, onLaunch }) {
         transition: "border-color 0.2s ease",
       }}
     >
-      {/* Graphic area */}
       <div
         style={{
           position: "relative",
@@ -632,10 +706,7 @@ function ModuleCard({ mod, navigate, onLaunch }) {
       >
         <Pattern />
       </div>
-
-      {/* Content area */}
       <div style={{ padding: "0 20px 20px", position: "relative" }}>
-        {/* Icon badge overlapping graphic/content boundary */}
         <div
           style={{
             width: 44,
@@ -652,31 +723,14 @@ function ModuleCard({ mod, navigate, onLaunch }) {
         >
           <Icon />
         </div>
-        <div
-          style={{
-            fontSize: 16,
-            fontWeight: 700,
-            color: colors.textBright,
-            marginBottom: 8,
-          }}
-        >
+        <div style={{ fontSize: 16, fontWeight: 700, color: colors.textBright, marginBottom: 8 }}>
           {mod.title}
         </div>
-        <div
-          style={{
-            fontSize: 12,
-            color: colors.textDim,
-            lineHeight: 1.65,
-            marginBottom: 16,
-          }}
-        >
+        <div style={{ fontSize: 12, color: colors.textDim, lineHeight: 1.65, marginBottom: 16 }}>
           {mod.description}
         </div>
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleClick();
-          }}
+          onClick={(e) => { e.stopPropagation(); handleClick(); }}
           style={{
             background: "none",
             border: "none",
@@ -700,7 +754,70 @@ function ModuleCard({ mod, navigate, onLaunch }) {
   );
 }
 
-function RecentRow({ project: p, index, navigate }) {
+function RecentRow({ project: p, index, navigate, isMobile }) {
+  if (isMobile) {
+    return (
+      <div
+        onClick={() => navigate(p.path)}
+        onMouseEnter={(e) => (e.currentTarget.style.background = colors.surfaceHover)}
+        onMouseLeave={(e) => (e.currentTarget.style.background = colors.cardSurface)}
+        style={{
+          background: colors.cardSurface,
+          border: `1px solid ${colors.cardBorder}`,
+          borderRadius: radii.lg,
+          padding: "10px 14px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          cursor: "pointer",
+          transition: "background 0.15s ease",
+          marginBottom: 2,
+        }}
+      >
+        {/* Top row: thumbnail + name/time */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <ProjectThumb project={p} index={index} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: colors.textBright, marginBottom: 3 }}>
+              {p.name}
+            </div>
+            <div style={{ fontSize: 11, color: colors.textDim, fontFamily: fonts.data }}>
+              Analyzed {p.time} • {p.acres} Acres
+            </div>
+          </div>
+        </div>
+        {/* Bottom strip: cost + score + sparkline */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            paddingTop: 8,
+            borderTop: `1px solid #1e2d45`,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data }}>
+              {p.cost != null ? (p.cost >= 1000000 ? `$${(p.cost / 1000000).toFixed(2)}M` : `$${(p.cost / 1000).toFixed(0)}K`) : "—"}
+            </div>
+            <div style={{ fontSize: 9, color: colors.textDim, letterSpacing: "0.6px", textTransform: "uppercase" }}>
+              Est. Acq. Cost
+            </div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: p.scoreColor, fontFamily: fonts.data, lineHeight: 1 }}>
+              {p.score}
+            </div>
+            <div style={{ fontSize: 9, color: colors.textDim, letterSpacing: "0.6px", textTransform: "uppercase" }}>
+              Score
+            </div>
+          </div>
+          <Sparkline data={p.data} color={p.scoreColor} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       onClick={() => navigate(p.path)}
@@ -719,10 +836,7 @@ function RecentRow({ project: p, index, navigate }) {
         marginBottom: 2,
       }}
     >
-      {/* Floor plan thumbnail */}
       <ProjectThumb project={p} index={index} />
-
-      {/* Info */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
@@ -738,8 +852,6 @@ function RecentRow({ project: p, index, navigate }) {
           Analyzed {p.time} • {p.acres} Acres
         </div>
       </div>
-
-      {/* Cost */}
       <div style={{ textAlign: "right", marginRight: 8, flexShrink: 0 }}>
         <div
           style={{
@@ -762,8 +874,6 @@ function RecentRow({ project: p, index, navigate }) {
           Est. Acq. Cost
         </div>
       </div>
-
-      {/* Score */}
       <div style={{ textAlign: "center", flexShrink: 0, minWidth: 44 }}>
         <div
           style={{
@@ -787,8 +897,6 @@ function RecentRow({ project: p, index, navigate }) {
           Score
         </div>
       </div>
-
-      {/* Sparkline */}
       <div style={{ flexShrink: 0 }}>
         <Sparkline data={p.data} color={p.scoreColor} />
       </div>

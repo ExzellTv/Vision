@@ -39,7 +39,7 @@ import BuilderRequests from "./screens/BuilderRequests/BuilderRequests";
 function MainLayout() {
   return (
     <ProjectProvider>
-      <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflowX: "hidden" }}>
         <NavBar />
         <main style={{ flex: 1, overflow: "hidden" }}>
           <Outlet />

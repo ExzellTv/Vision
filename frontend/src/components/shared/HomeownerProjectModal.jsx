@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { colors, fonts, radii } from "../../theme/tokens";
+import useBreakpoint from "../../hooks/useBreakpoint";
 
 /**
  * Homeowner-flow Create New Development modal.
@@ -140,6 +141,9 @@ function toCerebrasMessages(messages) {
 }
 
 export default function HomeownerProjectModal({ onClose, onGenerate }) {
+  const isMobile = useBreakpoint(768);
+  const [activeTab, setActiveTab] = useState("details");
+
   // ── Form fields ────────────────────────────────────────────────────────
   const [projectName, setProjectName] = useState("");
   const [budgetMin, setBudgetMin] = useState("");
@@ -548,13 +552,15 @@ Never invent room types, furniture, styles, or garage options that aren't in the
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: 880, height: 600,
-          maxWidth: "calc(100vw - 40px)",
-          maxHeight: "calc(100vh - 40px)",
+          width: isMobile ? "calc(100vw - 32px)" : 880,
+          height: isMobile ? "calc(100vh - 48px)" : 600,
+          maxWidth: isMobile ? "calc(100vw - 32px)" : "calc(100vw - 40px)",
+          maxHeight: isMobile ? "calc(100vh - 48px)" : "calc(100vh - 40px)",
           background: "#0F172A",
           border: "1px solid #334155",
           borderRadius: 16,
           display: "flex",
+          flexDirection: isMobile ? "column" : "row",
           overflow: "hidden",
           position: "relative",
           fontFamily: fonts.label,
@@ -576,13 +582,49 @@ Never invent room types, furniture, styles, or garage options that aren't in the
           ✕
         </button>
 
+        {/* ─────────────── MOBILE TAB BAR ─────────────── */}
+        {isMobile && (
+          <div style={{
+            display: "flex",
+            borderBottom: "1px solid #334155",
+            flexShrink: 0,
+            background: "#0F172A",
+          }}>
+            {["details", "chat"].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                style={{
+                  flex: 1,
+                  padding: "12px 0",
+                  background: activeTab === tab ? "#1E293B" : "transparent",
+                  border: "none",
+                  borderBottom: activeTab === tab ? "2px solid #3B82F6" : "2px solid transparent",
+                  color: activeTab === tab ? "white" : "#CBD5E1",
+                  fontFamily: fonts.label,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                }}
+              >
+                {tab === "details" ? "Details" : "AI Chat"}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* ─────────────── LEFT PANEL (form) ─────────────── */}
         <div style={{
           flex: 1,
           minWidth: 0,
-          padding: "26px 30px 22px",
+          padding: isMobile ? "20px 16px 16px" : "26px 30px 22px",
           background: "#0F172A",
-          display: "flex", flexDirection: "column",
+          display: isMobile && activeTab !== "details" ? "none" : "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          overflowY: isMobile ? "auto" : "visible",
         }}>
           {/* Step badge */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
@@ -788,7 +830,9 @@ Never invent room types, furniture, styles, or garage options that aren't in the
               <p style={{
                 margin: "0 0 10px", fontSize: 11, color: "#CBD5E1", textAlign: "center",
               }}>
-                Keep chatting with me on the right. I'll let you know once I have enough to design your home.
+                {isMobile
+                  ? "Switch to the AI Chat tab. I'll let you know once I have enough to design your home."
+                  : "Keep chatting with me on the right. I'll let you know once I have enough to design your home."}
               </p>
             )}
             {isUnlocked && pendingPlan && !isExtracting && (
@@ -828,14 +872,15 @@ Never invent room types, furniture, styles, or garage options that aren't in the
         </div>
 
         {/* ─────────────── DIVIDER ─────────────── */}
-        <div style={{ width: 1, background: "#334155", flexShrink: 0 }} />
+        {!isMobile && <div style={{ width: 1, background: "#334155", flexShrink: 0 }} />}
 
         {/* ─────────────── RIGHT PANEL (chat) ─────────────── */}
         <div style={{
           flex: 1,
           minWidth: 0,
           background: "#0D1117",
-          display: "flex", flexDirection: "column",
+          display: isMobile && activeTab !== "chat" ? "none" : "flex",
+          flexDirection: "column",
           position: "relative",
         }}>
           {/* Header */}
@@ -984,7 +1029,9 @@ Never invent room types, furniture, styles, or garage options that aren't in the
                 fontSize: 13, color: "white", fontWeight: 500,
                 maxWidth: 260, lineHeight: 1.4,
               }}>
-                Fill in the fields on the left and I'll be ready to chat
+                {isMobile
+                  ? "Fill in the Details tab and I'll be ready to chat"
+                  : "Fill in the fields on the left and I'll be ready to chat"}
               </div>
             </div>
           )}
