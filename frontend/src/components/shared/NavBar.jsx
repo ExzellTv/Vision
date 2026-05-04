@@ -4,6 +4,7 @@ import { colors, fonts } from "../../theme/tokens";
 import { useUserType } from "../../context/UserTypeContext";
 import { useBuilderStore } from "../../context/BuilderContext";
 import { chatApi } from "../../services/api";
+import { useBreakpoint } from "../../hooks/useBreakpoint";
 
 const CHAT_SEEN_KEY_HO = "vision:chat:last_seen:homeowner";
 const CHAT_SEEN_KEY_BD = "vision:chat:last_seen:builder";
@@ -75,11 +76,19 @@ export default function NavBar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [dropdownOpen]);
 
+  const { isMobile } = useBreakpoint();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Close mobile menu on route change
+  useEffect(() => { setMenuOpen(false); }, [location]);
+
   const displayName = isHomeowner ? "Homeowner" : isBuilder ? "Builder" : "Demo User";
   const displayEmail = isHomeowner ? "Designing your dream home" : isBuilder ? "Professional builder mode" : "demo@vision.app";
   const initials = isHomeowner ? "HO" : isBuilder ? "BD" : "DU";
+  const activeLinks = isBuilder ? BUILDER_LINKS : HOMEOWNER_LINKS;
 
   return (
+    <>
     <nav
       style={{
         display: "flex",
@@ -120,64 +129,87 @@ export default function NavBar() {
         />
       </div>
 
-      {/* Nav links */}
-      <div style={{ display: "flex", alignItems: "stretch", height: "100%", gap: 2 }}>
-        {(isBuilder ? BUILDER_LINKS : HOMEOWNER_LINKS).map((link) => {
-          const active = isActive(link);
-          return (
-            <button
-              key={link.path}
-              onClick={() => navigate(link.path)}
-              style={{
-                background: "none",
-                border: "none",
-                borderBottom: active ? `2px solid ${colors.accent}` : "2px solid transparent",
-                padding: "0 16px",
-                color: active ? colors.textBright : colors.textDim,
-                fontFamily: fonts.label,
-                fontSize: 13,
-                fontWeight: active ? 600 : 400,
-                cursor: "pointer",
-                letterSpacing: "0.2px",
-                transition: "color 0.2s ease, border-color 0.2s ease",
-                marginBottom: -1,
-              }}
-              onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.color = colors.text;
-              }}
-              onMouseLeave={(e) => {
-                if (!active) e.currentTarget.style.color = colors.textDim;
-              }}
-            >
-              <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-                {link.label}
-                {link.label === "Requests" && pendingCount > 0 && (
-                  <span style={{
-                    position: "absolute", top: -6, right: -10,
-                    width: 7, height: 7, borderRadius: "50%",
-                    background: "#ef4444",
-                    boxShadow: "0 0 6px rgba(239,68,68,0.7)",
-                  }} />
-                )}
-                {link.label === "Chat" && chatUnread && (
-                  <span style={{
-                    position: "absolute", top: -6, right: -10,
-                    width: 7, height: 7, borderRadius: "50%",
-                    background: "#ef4444",
-                    boxShadow: "0 0 6px rgba(239,68,68,0.7)",
-                  }} />
-                )}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Nav links — hidden on mobile */}
+      {!isMobile && (
+        <div style={{ display: "flex", alignItems: "stretch", height: "100%", gap: 2 }}>
+          {activeLinks.map((link) => {
+            const active = isActive(link);
+            return (
+              <button
+                key={link.path}
+                onClick={() => navigate(link.path)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  borderBottom: active ? `2px solid ${colors.accent}` : "2px solid transparent",
+                  padding: "0 16px",
+                  color: active ? colors.textBright : colors.textDim,
+                  fontFamily: fonts.label,
+                  fontSize: 13,
+                  fontWeight: active ? 600 : 400,
+                  cursor: "pointer",
+                  letterSpacing: "0.2px",
+                  transition: "color 0.2s ease, border-color 0.2s ease",
+                  marginBottom: -1,
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.color = colors.text;
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) e.currentTarget.style.color = colors.textDim;
+                }}
+              >
+                <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                  {link.label}
+                  {link.label === "Requests" && pendingCount > 0 && (
+                    <span style={{
+                      position: "absolute", top: -6, right: -10,
+                      width: 7, height: 7, borderRadius: "50%",
+                      background: "#ef4444",
+                      boxShadow: "0 0 6px rgba(239,68,68,0.7)",
+                    }} />
+                  )}
+                  {link.label === "Chat" && chatUnread && (
+                    <span style={{
+                      position: "absolute", top: -6, right: -10,
+                      width: 7, height: 7, borderRadius: "50%",
+                      background: "#ef4444",
+                      boxShadow: "0 0 6px rgba(239,68,68,0.7)",
+                    }} />
+                  )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* User profile */}
       <div
         ref={dropdownRef}
-        style={{ position: "relative", minWidth: 110, display: "flex", justifyContent: "flex-end" }}
+        style={{ position: "relative", minWidth: isMobile ? "auto" : 110, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}
       >
+        {/* Hamburger — mobile only */}
+        {isMobile && (
+          <button
+            onClick={() => setMenuOpen((o) => !o)}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "8px",
+              color: colors.textBright,
+              fontSize: 20,
+              display: "flex",
+              alignItems: "center",
+              lineHeight: 1,
+            }}
+            aria-label="Toggle menu"
+          >
+            {menuOpen ? "✕" : "☰"}
+          </button>
+        )}
+
         <button
           onClick={() => setDropdownOpen((v) => !v)}
           style={{
@@ -194,23 +226,25 @@ export default function NavBar() {
           onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
           onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
         >
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: colors.textBright, lineHeight: 1.3 }}>
-              {displayName}
+          {!isMobile && (
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: colors.textBright, lineHeight: 1.3 }}>
+                {displayName}
+              </div>
+              <div style={{
+                fontSize: 10,
+                color: colors.textDim,
+                letterSpacing: "0.3px",
+                lineHeight: 1.3,
+                maxWidth: 150,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}>
+                {displayEmail}
+              </div>
             </div>
-            <div style={{
-              fontSize: 10,
-              color: colors.textDim,
-              letterSpacing: "0.3px",
-              lineHeight: 1.3,
-              maxWidth: 150,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}>
-              {displayEmail}
-            </div>
-          </div>
+          )}
           <div
             style={{
               width: 32,
@@ -326,5 +360,66 @@ export default function NavBar() {
         )}
       </div>
     </nav>
+
+    {/* Mobile full-screen menu overlay */}
+    {isMobile && menuOpen && (
+      <div style={{
+        position: "fixed",
+        top: 52,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "rgba(13,17,23,0.97)",
+        zIndex: 999,
+        display: "flex",
+        flexDirection: "column",
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
+      }}>
+        {activeLinks.map((link) => {
+          const active = isActive(link);
+          return (
+            <button
+              key={link.path}
+              onClick={() => { navigate(link.path); setMenuOpen(false); }}
+              style={{
+                background: active ? "rgba(0,212,255,0.06)" : "none",
+                border: "none",
+                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                padding: "18px 24px",
+                color: active ? colors.accent : colors.text,
+                fontFamily: fonts.label,
+                fontSize: 16,
+                fontWeight: active ? 600 : 400,
+                cursor: "pointer",
+                textAlign: "left",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              {link.label}
+              {link.label === "Requests" && pendingCount > 0 && (
+                <span style={{
+                  width: 7, height: 7, borderRadius: "50%",
+                  background: "#ef4444",
+                  boxShadow: "0 0 6px rgba(239,68,68,0.7)",
+                  display: "inline-block",
+                }} />
+              )}
+              {link.label === "Chat" && chatUnread && (
+                <span style={{
+                  width: 7, height: 7, borderRadius: "50%",
+                  background: "#ef4444",
+                  boxShadow: "0 0 6px rgba(239,68,68,0.7)",
+                  display: "inline-block",
+                }} />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    )}
+  </>
   );
 }
