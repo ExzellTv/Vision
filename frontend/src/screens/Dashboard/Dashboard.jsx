@@ -6,6 +6,8 @@ import { useProject } from "../../hooks/useProjectStore";
 import { projectsApi, costApi } from "../../services/api";
 import NewProjectModal from "../../components/shared/NewProjectModal";
 import HomeownerProjectModal from "../../components/shared/HomeownerProjectModal";
+import HelpTip from "../../components/shared/HelpTip";
+import FirstTimeHint from "../../components/shared/FirstTimeHint";
 import { useUserType } from "../../context/UserTypeContext";
 import useBreakpoint from "../../hooks/useBreakpoint";
 
@@ -435,6 +437,17 @@ export default function Dashboard() {
         fontFamily: fonts.label,
       }}
     >
+      {isHomeowner && (
+        <FirstTimeHint
+          storageKey="dashboard"
+          title="Welcome to Vision"
+          steps={[
+            { text: "Tap New Floor Plan to chat with Vision AI and turn your ideas into a buildable home." },
+            { text: "Each module below is a guided tool — start with Floor Plan Studio, finish with the construction Schedule." },
+            { text: "See a small ? next to anything? Tap it for a plain-English explanation." },
+          ]}
+        />
+      )}
       {/* Hero */}
       <div
         style={{
@@ -800,16 +813,26 @@ function RecentRow({ project: p, index, navigate, isMobile }) {
             <div style={{ fontSize: 14, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data }}>
               {p.cost != null ? (p.cost >= 1000000 ? `$${(p.cost / 1000000).toFixed(2)}M` : `$${(p.cost / 1000).toFixed(0)}K`) : "—"}
             </div>
-            <div style={{ fontSize: 9, color: colors.textDim, letterSpacing: "0.6px", textTransform: "uppercase" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: colors.textDim, letterSpacing: "0.6px", textTransform: "uppercase" }}>
               Est. Acq. Cost
+              <HelpTip
+                size={11}
+                title="Estimated total cost"
+                body="A rough projected total to build this project — land plus construction. It updates as you refine the floor plan and choose materials. Not a quote."
+              />
             </div>
           </div>
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: 22, fontWeight: 700, color: p.scoreColor, fontFamily: fonts.data, lineHeight: 1 }}>
               {p.score}
             </div>
-            <div style={{ fontSize: 9, color: colors.textDim, letterSpacing: "0.6px", textTransform: "uppercase" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, fontSize: 9, color: colors.textDim, letterSpacing: "0.6px", textTransform: "uppercase" }}>
               Score
+              <HelpTip
+                size={11}
+                title="Feasibility Score"
+                body="0–100 rating of how buildable and cost-efficient your project looks right now. Green is great, amber means tweaks needed, red means major issues to address."
+              />
             </div>
           </div>
           <Sparkline data={p.data} color={p.scoreColor} />
@@ -865,6 +888,10 @@ function RecentRow({ project: p, index, navigate, isMobile }) {
         </div>
         <div
           style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 4,
             fontSize: 9,
             color: colors.textDim,
             letterSpacing: "0.6px",
@@ -872,6 +899,12 @@ function RecentRow({ project: p, index, navigate, isMobile }) {
           }}
         >
           Est. Acq. Cost
+          <HelpTip
+            size={11}
+            align="right"
+            title="Estimated total cost"
+            body="A rough projected total to build this project — land plus construction. It updates as you refine the floor plan and choose materials. Not a quote."
+          />
         </div>
       </div>
       <div style={{ textAlign: "center", flexShrink: 0, minWidth: 44 }}>
@@ -888,6 +921,10 @@ function RecentRow({ project: p, index, navigate, isMobile }) {
         </div>
         <div
           style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 4,
             fontSize: 9,
             color: colors.textDim,
             letterSpacing: "0.6px",
@@ -895,6 +932,11 @@ function RecentRow({ project: p, index, navigate, isMobile }) {
           }}
         >
           Score
+          <HelpTip
+            size={11}
+            title="Feasibility Score"
+            body="0–100 rating of how buildable and cost-efficient your project looks right now. Green is great, amber means tweaks needed, red means major issues to address."
+          />
         </div>
       </div>
       <div style={{ flexShrink: 0 }}>

@@ -5,6 +5,8 @@ import { colors, fonts } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { projectsApi, costApi } from "../../services/api";
 import { useUserType } from "../../context/UserTypeContext";
+import HelpTip from "../../components/shared/HelpTip";
+import FirstTimeHint from "../../components/shared/FirstTimeHint";
 
 /* ───────────────────────────────────────────────────────────
    LAYER EDITOR — Screen #2
@@ -1830,6 +1832,18 @@ export default function LayerEditor() {
       background: colors.bg, fontFamily: fonts.label, color: colors.text, overflow: "hidden",
     }}>
 
+      {isHomeowner && (
+        <FirstTimeHint
+          storageKey="edit"
+          title="Inside the walls"
+          steps={[
+            { text: "This view shows the seven layers a real house is built from — foundation, frame, sheathing, insulation, drywall, exterior, and finishes." },
+            { text: "Switch view modes (Standard, Section, Build-Up) to see the house full, cut open, or assembled piece by piece." },
+            { text: "The Cost Breakdown on the right tells you which layer drives the cost. Swap materials to see the price change." },
+          ]}
+        />
+      )}
+
       {/* ── Main content row ── */}
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
 
@@ -2243,7 +2257,17 @@ export default function LayerEditor() {
                 fontSize: 10, fontFamily: fonts.data, fontWeight: 700,
                 letterSpacing: "0.12em", textTransform: "uppercase",
                 color: colors.textDim, marginBottom: 12,
-              }}>Cost Breakdown</div>
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+                Cost Breakdown
+                {isHomeowner && (
+                  <HelpTip
+                    size={11}
+                    title="Where your money goes"
+                    body="Each bar shows how much that layer costs relative to the others. Frame and finishes are usually the biggest. Pick a different material above to see the bars react in real time."
+                  />
+                )}
+              </div>
 
               {layers.map((l, i) => {
                 const pct = maxLayerCost > 0 ? (l.cost / maxLayerCost) * 100 : 0;

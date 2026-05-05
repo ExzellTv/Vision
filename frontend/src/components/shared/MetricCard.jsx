@@ -1,5 +1,6 @@
 import React from "react";
 import { colors, fonts, card } from "../../theme/tokens";
+import HelpTip from "./HelpTip";
 
 export default function MetricCard({
   label,
@@ -8,6 +9,7 @@ export default function MetricCard({
   delta,
   deltaLabel,
   color = colors.textBright,
+  help,
 }) {
   const isPositive = typeof delta === "number" ? delta >= 0 : false;
 
@@ -28,9 +30,13 @@ export default function MetricCard({
           color: colors.textDim,
           textTransform: "uppercase",
           letterSpacing: "0.8px",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 5,
         }}
       >
         {label}
+        {help && <HelpTip size={10} title={help.title} body={help.body} />}
       </span>
 
       <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>

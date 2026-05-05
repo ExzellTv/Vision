@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
+import HelpTip from "../../components/shared/HelpTip";
+import FirstTimeHint from "../../components/shared/FirstTimeHint";
 import { projectsApi } from "../../services/api";
 import { BUILD_COST_PSF } from "../FeasibilityDashboard/valuationEngine";
 import StatusBadge from "../../components/shared/StatusBadge";
@@ -787,6 +789,18 @@ function ScheduleTimelineInner() {
   return (
     <div style={{ height: "100%", background: colors.bgGradient, display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
 
+      {isHomeowner && (
+        <FirstTimeHint
+          storageKey="schedule"
+          title="Your build, week by week"
+          steps={[
+            { text: "Each colored bar is one phase of construction. Their lengths show how many weeks each takes." },
+            { text: "Colors group phases — Sitework, Foundation, Structure, MEP (plumbing/electric/HVAC), Enclosure, Finishes, and Closeout." },
+            { text: "Drag the slider at the bottom to scrub through time and watch your house get built in 3D." },
+          ]}
+        />
+      )}
+
       {/* ── Header ── */}
       <div style={{ padding: "10px 16px 6px", flexShrink: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
@@ -795,6 +809,13 @@ function ScheduleTimelineInner() {
               <h1 style={{ fontFamily: fonts.label, fontSize: 20, fontWeight: 700, color: colors.textBright, margin: 0 }}>
                 Construction Schedule
               </h1>
+              {isHomeowner && (
+                <HelpTip
+                  size={12}
+                  title="Reading the timeline"
+                  body="A Gantt chart — each row is one construction phase, the bar length is how long it takes. Phases that overlap can run at the same time. Vertical line marks today."
+                />
+              )}
               <StatusBadge
                 status={activePhase ? "active" : completedPhases.length === schedule.length ? "complete" : "planned"}
                 size="lg"

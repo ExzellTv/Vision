@@ -10,6 +10,9 @@ import LeafletMap from "./LeafletMap";
 import { computeNearbyComps, runValuation, fmtK, fmtUSD, BUILD_COST_PSF } from "./valuationEngine";
 import { generateFeasibilityPDF } from "./pdfReport";
 import { mapApi, projectsApi } from "../../services/api";
+import { useUserType } from "../../context/UserTypeContext";
+import HelpTip from "../../components/shared/HelpTip";
+import FirstTimeHint from "../../components/shared/FirstTimeHint";
 
 /* ── Hardcoded Dallas fixture data (shown when no location is selected) ── */
 const DEMO = {
@@ -77,6 +80,7 @@ function SubScoreBar({ label, level, color }) {
 export default function FeasibilityDashboard() {
   const project = useProject();
   const navigate = useNavigate();
+  const { isHomeowner } = useUserType();
 
   // ── Live map data — populated when user searches a city ──
   const [liveComps,   setLiveComps]   = useState([]);
@@ -268,6 +272,17 @@ export default function FeasibilityDashboard() {
 
   return (
     <>
+    {isHomeowner && (
+      <FirstTimeHint
+        storageKey="feasibility"
+        title="Is this land a good fit?"
+        steps={[
+          { text: "The map on the left shows nearby home sales (dots) and land for sale (squares). Click a parcel to study it." },
+          { text: "On the right, the big number is the Feasibility Score — higher is better. Below it shows what nearby homes sell for and what your build could be worth." },
+          { text: "Use the filters above the map to narrow by price, lot size, or zoning. The score updates as you change your selection." },
+        ]}
+      />
+    )}
     <div style={{
       display:    "flex",
       width:      "100%",
@@ -468,8 +483,16 @@ export default function FeasibilityDashboard() {
             fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
             color: colors.textDim, textTransform: "uppercase",
             letterSpacing: "0.8px", marginBottom: 12,
+            display: "flex", alignItems: "center", gap: 6,
           }}>
             How Your Score Is Calculated
+            {isHomeowner && (
+              <HelpTip
+                size={11}
+                title="Why three approaches?"
+                body="Real estate appraisers blend three lenses: what nearby homes sold for, what it costs to rebuild, and what it could earn. Vision does the same to give you one fair score instead of guessing."
+              />
+            )}
           </div>
           {[
             {

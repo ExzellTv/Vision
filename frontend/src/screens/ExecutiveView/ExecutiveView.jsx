@@ -7,6 +7,9 @@ import FeasibilityGauge from "../../components/shared/FeasibilityGauge";
 import MetricCard from "../../components/shared/MetricCard";
 import ModeToggle from "../../components/shared/ModeToggle";
 import StatusBadge from "../../components/shared/StatusBadge";
+import HelpTip from "../../components/shared/HelpTip";
+import FirstTimeHint from "../../components/shared/FirstTimeHint";
+import { useUserType } from "../../context/UserTypeContext";
 
 /* ── Demo defaults ── */
 const DEMO = {
@@ -162,6 +165,7 @@ function MapMarkers() {
 export default function ExecutiveView() {
   const project = useProject();
   const navigate = useNavigate();
+  const { isHomeowner } = useUserType();
   const [viewMode, setViewMode] = useState("executive");
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
@@ -202,6 +206,18 @@ export default function ExecutiveView() {
 
   return (
     <div style={{ display: "flex", width: "100%", height: "100%", background: colors.bg, fontFamily: fonts.label, color: colors.text, overflow: "hidden" }}>
+
+      {isHomeowner && (
+        <FirstTimeHint
+          storageKey="executive"
+          title="The money picture"
+          steps={[
+            { text: "Four cards summarize the deal: how much you'll spend, what the home could be worth, your projected return, and your profit margin." },
+            { text: "Tap the small ? on any card for a one-line plain-English definition — no finance background needed." },
+            { text: "The Risk bar below tells you, at a glance, how confident this estimate is. Green-zone is good, red is risky." },
+          ]}
+        />
+      )}
 
       {/* ════════ LEFT: Map Area (~55%) ════════ */}
       <div style={{ flex: "0 0 55%", position: "relative", background: "linear-gradient(145deg, #0f1a2a 0%, #0d1520 40%, #111d2e 100%)", overflow: "hidden" }}>
@@ -344,10 +360,38 @@ export default function ExecutiveView() {
 
         {/* Metric cards row */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <MetricCard label="Project IRR" value={`${DEMO.irr}%`} delta={DEMO.irrDelta} deltaLabel="vs target" color={colors.textBright} />
-          <MetricCard label="Capital Cost" value={`$${Math.round(capitalCost / 1000)}k`} delta={DEMO.capitalDelta} deltaLabel="under budget" color={colors.textBright} />
-          <MetricCard label="Market Value" value={`$${Math.round(marketValue / 1000)}k`} delta={5.3} deltaLabel="appreciation" color={colors.textBright} />
-          <MetricCard label="Profit Margin" value={`${DEMO.profitMargin}%`} delta={2.1} deltaLabel="vs benchmark" color={colors.textBright} />
+          <MetricCard
+            label="Project IRR"
+            value={`${DEMO.irr}%`}
+            delta={DEMO.irrDelta}
+            deltaLabel="vs target"
+            color={colors.textBright}
+            help={isHomeowner ? { title: "Internal Rate of Return", body: "The yearly return your money is projected to earn on this build, factoring in time. Anything above 10% is generally healthy for a residential project." } : undefined}
+          />
+          <MetricCard
+            label="Capital Cost"
+            value={`$${Math.round(capitalCost / 1000)}k`}
+            delta={DEMO.capitalDelta}
+            deltaLabel="under budget"
+            color={colors.textBright}
+            help={isHomeowner ? { title: "Capital Cost", body: "Total cash you need to start and finish the project — land, construction, soft costs, and a contingency cushion." } : undefined}
+          />
+          <MetricCard
+            label="Market Value"
+            value={`$${Math.round(marketValue / 1000)}k`}
+            delta={5.3}
+            deltaLabel="appreciation"
+            color={colors.textBright}
+            help={isHomeowner ? { title: "Market Value", body: "What the finished home is projected to be worth based on recent comparable sales nearby. Different from your build cost." } : undefined}
+          />
+          <MetricCard
+            label="Profit Margin"
+            value={`${DEMO.profitMargin}%`}
+            delta={2.1}
+            deltaLabel="vs benchmark"
+            color={colors.textBright}
+            help={isHomeowner ? { title: "Profit Margin", body: "How much of the home's value is profit after you subtract all costs. 20%+ is usually considered a good build." } : undefined}
+          />
         </div>
 
         {/* Financial Breakdown */}
@@ -366,8 +410,15 @@ export default function ExecutiveView() {
         {/* Risk Assessment */}
         <div style={{ ...card, padding: "16px 20px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.6px" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.6px", display: "inline-flex", alignItems: "center", gap: 6 }}>
               Risk Assessment
+              {isHomeowner && (
+                <HelpTip
+                  size={11}
+                  title="What could go wrong?"
+                  body="A blended score of permitting, environmental, and market unknowns. Green = low risk and high confidence. The note below tells you what's driving it."
+                />
+              )}
             </span>
             <StatusBadge status="pass" size="sm" />
           </div>
@@ -385,8 +436,18 @@ export default function ExecutiveView() {
         {/* Key Ratios (engineer mode) */}
         {viewMode === "engineer" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <MetricCard label="Cash-on-Cash" value={`${DEMO.cashOnCash}%`} color={colors.accent} />
-            <MetricCard label="Debt Coverage" value={`${DEMO.debtCoverage}x`} color={colors.accent} />
+            <MetricCard
+              label="Cash-on-Cash"
+              value={`${DEMO.cashOnCash}%`}
+              color={colors.accent}
+              help={isHomeowner ? { title: "Cash-on-Cash return", body: "If you sold or rented this home, the yearly cash you'd get back as a percent of the cash you put in. Think of it like a yearly interest rate on your down payment." } : undefined}
+            />
+            <MetricCard
+              label="Debt Coverage"
+              value={`${DEMO.debtCoverage}x`}
+              color={colors.accent}
+              help={isHomeowner ? { title: "Debt Coverage Ratio", body: "How many times the income would cover the loan payment. 1.25x or higher is usually what lenders want to see — gives a comfortable cushion." } : undefined}
+            />
           </div>
         )}
 

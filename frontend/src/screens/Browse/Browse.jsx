@@ -6,6 +6,9 @@ import { projectsApi, builderRequestsApi } from "../../services/api";
 import { BUILDERS, SPECIALTIES } from "../../data/builders";
 import BuilderProfileModal from "../../components/shared/BuilderProfileModal";
 import { useProject } from "../../hooks/useProjectStore";
+import HelpTip from "../../components/shared/HelpTip";
+import FirstTimeHint from "../../components/shared/FirstTimeHint";
+import { useUserType } from "../../context/UserTypeContext";
 
 const C = {
   bg: colors.bg,
@@ -493,6 +496,7 @@ function RequestModal({ builder, onClose }) {
 export default function Browse() {
   const navigate = useNavigate();
   const { ragViolations } = useProject();
+  const { isHomeowner } = useUserType();
   const hasComplianceIssues = ragViolations?.length > 0;
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -526,6 +530,17 @@ export default function Browse() {
         fontFamily: fonts.label,
       }}
     >
+      {isHomeowner && (
+        <FirstTimeHint
+          storageKey="browse"
+          title="Pick your builder"
+          steps={[
+            { text: "Browse local residential builders. Each card shows their specialty, completed projects, and a verification badge if Vision has checked their license." },
+            { text: "Tap View Profile for details, or Send Request to share your floor plan and get a quote — they'll see your project automatically." },
+            { text: "Use the filters at the top to narrow by specialty (custom, modular, eco, etc.) or sort by distance and experience." },
+          ]}
+        />
+      )}
       {/* Header */}
       <div
         style={{
@@ -710,6 +725,13 @@ export default function Browse() {
                     </svg>
                     VERIFIED
                   </div>
+                )}
+                {isHomeowner && builder.verified && (
+                  <HelpTip
+                    size={11}
+                    title="Verified builder"
+                    body="Vision has checked this builder's license, insurance, and at least three completed projects. It's a baseline trust signal — still worth interviewing them yourself."
+                  />
                 )}
               </div>
 

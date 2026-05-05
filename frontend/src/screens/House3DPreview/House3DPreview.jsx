@@ -5,6 +5,8 @@ import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
 import House3D from "../../components/3d/House3D";
 import { complianceApi, imageApi } from "../../services/api";
+import HelpTip from "../../components/shared/HelpTip";
+import FirstTimeHint from "../../components/shared/FirstTimeHint";
 
 const RENDER_STYLES = [
   { key: "modern exterior", label: "Modern" },
@@ -291,6 +293,17 @@ export default function House3DPreview() {
         overflow: "hidden",
       }}
     >
+      {isHomeowner && (
+        <FirstTimeHint
+          storageKey="preview3d"
+          title="See your house in 3D"
+          steps={[
+            { text: "Drag in the 3D area to spin the house, scroll to zoom, and right-click-drag to pan." },
+            { text: "Pick wall colors on the right. Tap Remove Roof to peek inside the layout you drew." },
+            { text: "Want a photo-style image? Pick a render style and tap Generate AI Render — it takes a few seconds." },
+          ]}
+        />
+      )}
       {/* 3D Viewport */}
       <div ref={viewportRef} style={{ flex: 1, position: "relative" }}>
         <House3D
@@ -1011,8 +1024,16 @@ export default function House3DPreview() {
             <div style={{
               fontSize: 11, fontWeight: 700, letterSpacing: "0.1em",
               textTransform: "uppercase", color: colors.textDim, marginBottom: 8,
+              display: "flex", alignItems: "center", gap: 6,
             }}>
               AI Render
+              {isHomeowner && (
+                <HelpTip
+                  size={11}
+                  title="Photoreal preview"
+                  body="Pick a style, then Generate AI Render — Vision sends a snapshot of your 3D model to an AI artist that paints what your house could look like in real life. The 3D model is the truth; the render is for inspiration."
+                />
+              )}
             </div>
 
             {/* Style selector */}

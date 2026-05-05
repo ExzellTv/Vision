@@ -6,6 +6,8 @@ import { projectsApi, floorplanApi } from "../../services/api";
 import { useProject } from "../../hooks/useProjectStore";
 import NewProjectModal from "../../components/shared/NewProjectModal";
 import HomeownerProjectModal from "../../components/shared/HomeownerProjectModal";
+import HelpTip from "../../components/shared/HelpTip";
+import FirstTimeHint from "../../components/shared/FirstTimeHint";
 import { useUserType } from "../../context/UserTypeContext";
 
 // Accepted structural-model extensions for the import card
@@ -369,7 +371,7 @@ function CardGraphic({ project, index, onDelete }) {
 }
 
 /* ── Individual project card ── */
-function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRename, onOpenSchedule, onAssessLocation }) {
+function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRename, onOpenSchedule, onAssessLocation, isHomeowner }) {
   const [hovered, setHovered] = useState(false);
   const { projectId: activeProjectId, ragViolations } = useProject();
   const hasComplianceIssues = project.id === activeProjectId && ragViolations?.length > 0;
@@ -434,10 +436,17 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
             const badgeLabel = isReadyToBuild ? "Ready to Build" : hasComplianceIssues ? "Compliance Issues" : "Not Ready";
             return (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 0", marginBottom: 4 }}>
-                <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data, letterSpacing: "0.04em" }}>
                     {layers} LAYER{layers !== 1 ? "S" : ""}
                   </span>
+                  {isHomeowner && (
+                    <HelpTip
+                      size={12}
+                      title="Material layers"
+                      body="Each layer is a part of how the house is built — foundation, framing, insulation, drywall, etc. More layers picked = more detailed cost & buildability estimates."
+                    />
+                  )}
                 </div>
                 <div>
                   <span style={{ fontSize: 13, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data, letterSpacing: "0.04em" }}>
@@ -454,6 +463,19 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
                   <span style={{ fontSize: 11, fontWeight: 700, color: dotColor, fontFamily: fonts.label, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                     {badgeLabel}
                   </span>
+                  {isHomeowner && (
+                    <HelpTip
+                      size={11}
+                      title="What this badge means"
+                      body={
+                        <div>
+                          <div style={{ marginBottom: 6 }}><b style={{ color: "#22c55e" }}>Ready to Build</b> — floor plan saved, location set, and no compliance issues.</div>
+                          <div style={{ marginBottom: 6 }}><b style={{ color: "#ef4444" }}>Compliance Issues</b> — code or zoning rules need attention before building.</div>
+                          <div><b style={{ color: "#ef4444" }}>Not Ready</b> — you still need to draw a floor plan and pick a building site.</div>
+                        </div>
+                      }
+                    />
+                  )}
                 </div>
               </div>
             );
@@ -533,7 +555,17 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
         </div>
 
         {/* Assess Location — full width */}
-        <div style={{ padding: "0 20px 20px" }}>
+        <div style={{ padding: "0 20px 20px", position: "relative" }}>
+          {isHomeowner && (
+            <div style={{ position: "absolute", top: -2, right: 24, zIndex: 2 }}>
+              <HelpTip
+                size={12}
+                align="right"
+                title="Assess Plot of Land"
+                body="Open an interactive map to study a piece of land — zoning, lot size, nearby home prices, and a feasibility score. Use this before you commit to a property."
+              />
+            </div>
+          )}
           <button
             onClick={() => onAssessLocation(project)}
             style={{
@@ -694,8 +726,16 @@ function ImportCard({ onImported }) {
       </div>
 
       <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: colors.textBright, marginBottom: 7 }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 700, color: colors.textBright, marginBottom: 7 }}>
           {uploading ? "Uploading…" : "Import Structural Model"}
+          {!uploading && (
+            <HelpTip
+              size={12}
+              tone="muted"
+              title="Already have plans?"
+              body="If your architect or builder shared a CAD/Revit file, drop it here and Vision will read the rooms and walls so you don't have to draw it. Most homeowners can skip this and use the Floor Plan Studio instead."
+            />
+          )}
         </div>
         <div style={{ fontSize: 12, color: colors.textDim, lineHeight: 1.65, maxWidth: 220 }}>
           {uploading
@@ -1098,6 +1138,18 @@ export default function ProjectsScreen() {
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
 
+      {isHomeowner && (
+        <FirstTimeHint
+          storageKey="projects"
+          title="Your homes live here"
+          steps={[
+            { text: "Each card is one home you're planning. Tap one to keep editing it." },
+            { text: "Use the three buttons on a card: Edit Floor Plan to draw rooms, View Schedule to see the build timeline, and Assess Plot of Land to study a building site." },
+            { text: "Look for small ? icons throughout — tap any of them for plain-English help." },
+          ]}
+        />
+      )}
+
       {/* Main content */}
       <div style={{ flex: 1, padding: "36px 40px 0" }}>
         {/* Header */}
@@ -1118,9 +1170,19 @@ export default function ProjectsScreen() {
                 color: colors.textBright,
                 letterSpacing: "-0.5px",
                 lineHeight: 1.1,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
               }}
             >
               Your Projects
+              {isHomeowner && (
+                <HelpTip
+                  size={14}
+                  title="What's a project?"
+                  body="A project is one home you're planning. Each project keeps your floor plan, building site, materials, and schedule in one place. Start a new one any time and switch between them freely."
+                />
+              )}
             </h1>
             <p
               style={{
@@ -1220,6 +1282,7 @@ export default function ProjectsScreen() {
                 onRename={setRenameTarget}
                 onOpenSchedule={handleOpenSchedule}
                 onAssessLocation={handleAssessLocation}
+                isHomeowner={isHomeowner}
               />
             ))}
           </div>

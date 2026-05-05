@@ -5,6 +5,8 @@ import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
 import { projectsApi, floorplanApi, complianceApi } from "../../services/api";
 import { STYLE_CONFIGS } from "../../lib/houseStyleConfigs";
+import HelpTip from "../../components/shared/HelpTip";
+import FirstTimeHint from "../../components/shared/FirstTimeHint";
 
 /* ───────────────────────── Constants ───────────────────────── */
 
@@ -3183,6 +3185,19 @@ export default function FloorPlanEditor() {
   return (
     <div style={{ display: "flex", height: "100%", background: "#0d1117", overflow: "hidden" }}>
 
+      {isHomeowner && (
+        <FirstTimeHint
+          storageKey="develop"
+          title="Floor Plan Studio"
+          steps={[
+            { text: "Drag a room from the left library onto the canvas to add it. Resize by dragging its edges." },
+            { text: "Drop doors and windows onto walls — they snap automatically. Drop furniture inside the matching room type." },
+            { text: "Each square on the grid is half a foot. Switch tabs (Elements / Furniture / Custom) at the top to find more pieces." },
+            { text: "When you're happy, hit the Continue button (top-right) to move on to the 3D preview." },
+          ]}
+        />
+      )}
+
       {/* ═══════════════ LEFT: COMPONENT LIBRARY ═══════════════ */}
       <div style={{
         width: 210, flexShrink: 0, background: "#0b1018",
@@ -3190,8 +3205,15 @@ export default function FloorPlanEditor() {
         display: "flex", flexDirection: "column", overflow: "hidden",
       }}>
         {/* Header */}
-        <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid #1a2236" }}>
+        <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid #1a2236", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ ...panelLabel, fontSize: 11 }}>Component Library</span>
+          {isHomeowner && (
+            <HelpTip
+              size={11}
+              title="Drag-and-drop pieces"
+              body="These are the building blocks of your home. Click and drag any tile onto the canvas. Rooms snap to the grid; doors and windows snap to the nearest wall."
+            />
+          )}
         </div>
 
         {/* Tabs */}
