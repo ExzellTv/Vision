@@ -8,7 +8,7 @@ import MetricCard from "../../components/shared/MetricCard";
 import ModeToggle from "../../components/shared/ModeToggle";
 import StatusBadge from "../../components/shared/StatusBadge";
 import HelpTip from "../../components/shared/HelpTip";
-import FirstTimeHint from "../../components/shared/FirstTimeHint";
+import GuidedTour from "../../components/shared/GuidedTour";
 import { useUserType } from "../../context/UserTypeContext";
 
 /* ── Demo defaults ── */
@@ -208,19 +208,70 @@ export default function ExecutiveView() {
     <div style={{ display: "flex", width: "100%", height: "100%", background: colors.bg, fontFamily: fonts.label, color: colors.text, overflow: "hidden" }}>
 
       {isHomeowner && (
-        <FirstTimeHint
+        <GuidedTour
           storageKey="executive"
-          title="The money picture"
+          title="Executive Summary"
           steps={[
-            { text: "Four cards summarize the deal: how much you'll spend, what the home could be worth, your projected return, and your profit margin." },
-            { text: "Tap the small ? on any card for a one-line plain-English definition — no finance background needed." },
-            { text: "The Risk bar below tells you, at a glance, how confident this estimate is. Green-zone is good, red is risky." },
+            {
+              title: "The money picture",
+              body: (
+                <>
+                  This is the deal in numbers. We&rsquo;ll walk through the four cards, the risk bar, and
+                  what to do once you&rsquo;re happy with the math.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="metric-cards"]',
+              placement: "left",
+              title: "Four cards, four numbers",
+              body: (
+                <>
+                  <b>IRR</b> = yearly return on your money. <b>Capital Cost</b> = total cash needed. <b>Market Value</b> = what the home is worth. <b>Profit Margin</b> = the percent of value that&rsquo;s profit. Tap the <b>?</b> on any card for a plain-English definition.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="risk-card"]',
+              placement: "left",
+              title: "How confident is this?",
+              body: (
+                <>
+                  The Risk bar weighs permitting, environmental, and market unknowns. <b>Green</b> means
+                  you&rsquo;re in good shape; <b>red</b> means there&rsquo;s a meaningful risk to address before
+                  breaking ground.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="map-area"]',
+              placement: "right",
+              title: "Where it lives",
+              body: (
+                <>
+                  Your selected lot, sun exposure, and topography. The chips at the bottom-left flag
+                  any site-specific things that affect cost or scheduling.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="continue-schedule"]',
+              placement: "top",
+              title: "Continue to Schedule",
+              body: (
+                <>
+                  Happy with the numbers? <b>Continue to Schedule</b> generates a week-by-week
+                  construction timeline so you can see how long the build takes.
+                </>
+              ),
+            },
           ]}
         />
       )}
 
       {/* ════════ LEFT: Map Area (~55%) ════════ */}
-      <div style={{ flex: "0 0 55%", position: "relative", background: "linear-gradient(145deg, #0f1a2a 0%, #0d1520 40%, #111d2e 100%)", overflow: "hidden" }}>
+      <div data-tour="map-area" style={{ flex: "0 0 55%", position: "relative", background: "linear-gradient(145deg, #0f1a2a 0%, #0d1520 40%, #111d2e 100%)", overflow: "hidden" }}>
         {/* Ambient glow */}
         <div style={{
           position: "absolute", inset: 0,
@@ -359,7 +410,7 @@ export default function ExecutiveView() {
         </div>
 
         {/* Metric cards row */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div data-tour="metric-cards" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <MetricCard
             label="Project IRR"
             value={`${DEMO.irr}%`}
@@ -408,7 +459,7 @@ export default function ExecutiveView() {
         )}
 
         {/* Risk Assessment */}
-        <div style={{ ...card, padding: "16px 20px" }}>
+        <div data-tour="risk-card" style={{ ...card, padding: "16px 20px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.6px", display: "inline-flex", alignItems: "center", gap: 6 }}>
               Risk Assessment
@@ -455,6 +506,7 @@ export default function ExecutiveView() {
         <div style={{ display: "flex", gap: 10, marginTop: "auto" }}>
           <button
             onClick={() => navigate("/schedule")}
+            data-tour="continue-schedule"
             style={{
               flex: 1, padding: "12px 0",
               background: `linear-gradient(135deg, ${colors.accent}, #0099cc)`,

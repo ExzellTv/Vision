@@ -85,7 +85,16 @@
       "Bash(curl -v -s -o - -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -F \"file=@/tmp/sample.dxf\" http://127.0.0.1:8000/api/floorplan/import)",
       "Bash(curl -s -o - -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -F \"file=@C:/Users/exzell/AppData/Local/Temp/sample.dxf\" http://127.0.0.1:8000/api/floorplan/import)",
       "Bash(taskkill //PID 12232 //F)",
-      "Bash(curl -s -o - -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -F \"file=@C:/Users/exzell/AppData/Local/Temp/sample.dxf;filename=foo.exe\" http://127.0.0.1:8000/api/floorplan/import)"
+      "Bash(curl -s -o - -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST -F \"file=@C:/Users/exzell/AppData/Local/Temp/sample.dxf;filename=foo.exe\" http://127.0.0.1:8000/api/floorplan/import)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(pip show *)",
+      "Bash(taskkill //PID 22020 //F)",
+      "Bash(curl -s -o /dev/null -w \"backend /api/health: %{http_code}\\\\n\" http://127.0.0.1:8000/api/health)",
+      "Bash(curl -s -o /dev/null -w \"frontend /:        %{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(taskkill //PID 10968 //F)",
+      "Bash(taskkill //PID 24356 //T //F)"
     ],
     "additionalDirectories": [
       "c:\\Users\\exzell\\AppData\\Local\\Temp\\hf_render\\rig"

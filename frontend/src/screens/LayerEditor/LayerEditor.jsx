@@ -6,7 +6,7 @@ import { useProject } from "../../hooks/useProjectStore";
 import { projectsApi, costApi } from "../../services/api";
 import { useUserType } from "../../context/UserTypeContext";
 import HelpTip from "../../components/shared/HelpTip";
-import FirstTimeHint from "../../components/shared/FirstTimeHint";
+import GuidedTour from "../../components/shared/GuidedTour";
 
 /* ───────────────────────────────────────────────────────────
    LAYER EDITOR — Screen #2
@@ -1833,13 +1833,65 @@ export default function LayerEditor() {
     }}>
 
       {isHomeowner && (
-        <FirstTimeHint
+        <GuidedTour
           storageKey="edit"
-          title="Inside the walls"
+          title="Layer Editor"
           steps={[
-            { text: "This view shows the seven layers a real house is built from — foundation, frame, sheathing, insulation, drywall, exterior, and finishes." },
-            { text: "Switch view modes (Standard, Section, Build-Up) to see the house full, cut open, or assembled piece by piece." },
-            { text: "The Cost Breakdown on the right tells you which layer drives the cost. Swap materials to see the price change." },
+            {
+              title: "Inside the walls",
+              body: (
+                <>
+                  Every house is built from <b>seven layers</b> &mdash; foundation, frame, sheathing,
+                  insulation, drywall, exterior, and finishes. This view lets you see them, swap
+                  materials, and watch cost react in real time.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="viewport-3d"]',
+              placement: "right",
+              title: "Your house in 3D",
+              body: (
+                <>
+                  This is the same model from the previous step. Drag to rotate, scroll to zoom.
+                  As you change layers and materials, the model updates live.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="viz-modes"]',
+              placement: "top",
+              title: "Three ways to see it",
+              body: (
+                <>
+                  <b>Standard</b> = the finished house. <b>Section</b> = cut it in half to see inside the
+                  walls. <b>Build-Up</b> = watch it stack together piece by piece.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="total-cost"]',
+              placement: "left",
+              title: "Live cost meter",
+              body: (
+                <>
+                  Total cost and price-per-square-foot for the build, based on every material you&rsquo;ve
+                  picked. Updates the second you change anything.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="cost-breakdown"]',
+              placement: "left",
+              title: "Where your money goes",
+              body: (
+                <>
+                  Each bar shows how much one layer costs relative to the others. <b>Frame</b> and
+                  &nbsp;<b>finishes</b> are usually the biggest. This is your honest answer to &ldquo;why
+                  does it cost so much?&rdquo;
+                </>
+              ),
+            },
           ]}
         />
       )}
@@ -1848,7 +1900,7 @@ export default function LayerEditor() {
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
 
         {/* ── Left: 3D Viewport ── */}
-        <div style={{ flex: "0 0 65%", position: "relative", background: "#080c14", minHeight: 0 }}>
+        <div data-tour="viewport-3d" style={{ flex: "0 0 65%", position: "relative", background: "#080c14", minHeight: 0 }}>
           <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
 
           {/* Project name overlay — top left */}
@@ -1874,7 +1926,7 @@ export default function LayerEditor() {
           </div>
 
           {/* Viz mode bar — bottom center */}
-          <div style={{
+          <div data-tour="viz-modes" style={{
             position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)",
             display: "flex", gap: 2,
             background: "rgba(8,12,20,0.92)", backdropFilter: "blur(16px)",
@@ -1902,7 +1954,7 @@ export default function LayerEditor() {
           </div>
 
           {/* Total cost badge — bottom right of viewport */}
-          <div style={{
+          <div data-tour="total-cost" style={{
             position: "absolute", bottom: 16, right: 16,
             background: "rgba(8,12,20,0.85)", backdropFilter: "blur(10px)",
             border: "1px solid #1a2236", borderRadius: 8, padding: "8px 14px",
@@ -2252,7 +2304,7 @@ export default function LayerEditor() {
             )}
 
             {/* Cost Breakdown */}
-            <div style={{ padding: "14px 20px" }}>
+            <div data-tour="cost-breakdown" style={{ padding: "14px 20px" }}>
               <div style={{
                 fontSize: 10, fontFamily: fonts.data, fontWeight: 700,
                 letterSpacing: "0.12em", textTransform: "uppercase",

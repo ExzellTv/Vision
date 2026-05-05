@@ -73,26 +73,57 @@ Behavior:
 
 Use it for **single concepts** that need a one-line definition — domain jargon (IRR, MEP, zoning), score badges, opaque labels, anything where a homeowner would otherwise have to Google.
 
-### `FirstTimeHint.jsx`
+### `GuidedTour.jsx`
 
-One-shot orientation card shown the first time a homeowner lands on a screen.
+Multi-step spotlight walkthrough shown the first time a homeowner lands on a screen. Replaces the
+older `FirstTimeHint` (deleted). Each step targets a real DOM element via a CSS selector, dims the
+rest of the screen, draws an animated arrow at the target, and renders a tooltip card with
+title/body + Back / Next / Skip controls. Auto-scrolls the target into view, re-positions on resize.
 
 ```jsx
-<FirstTimeHint
-  storageKey="develop"                   // unique per screen
-  title="Floor Plan Studio"
+<GuidedTour
+  storageKey="develop"                   // unique per screen — used as localStorage key
+  title="Floor Plan Studio"              // shown in every step header
   steps={[
-    { text: "Drag a room from the left library …" },
-    { text: "Drop doors and windows onto walls …" },
-    { text: "Each square on the grid is half a foot." },
+    {
+      // No `target` → centered modal-style step (good for intros & outros)
+      title: "Welcome to your drafting table",
+      body: <>Vision drafted a starter plan. We&rsquo;ll show you everything…</>,
+    },
+    {
+      target: '[data-tour="library"]',   // CSS selector → spotlights this element
+      placement: "right",                // "auto" | "top" | "bottom" | "left" | "right"
+      title: "Component Library",
+      body: <>Drag any tile onto the canvas to add it.</>,
+    },
+    {
+      target: '[data-tour="story-tabs"]',
+      placement: "bottom",
+      title: "Multi-story homes",
+      body: <>Switch between floors here.</>,
+      optional: true,                    // auto-skip if target missing after 600ms
+    },
   ]}
 />
 ```
 
 Behavior:
-- Persists via `localStorage["vision:tutorial:<storageKey>"]`. Set value to clear → user sees it again.
-- Mobile: bottom-sheet that slides up. Desktop: centered modal that pops.
-- Always wrap in `{isHomeowner && (…)}` — builders should never see it.
+- Auto-opens 350ms after mount on first visit, persisted via `localStorage["vision:tour:<storageKey>"]`.
+- Keyboard nav: <kbd>←</kbd>/<kbd>→</kbd> to step, <kbd>Esc</kbd> to skip. Progress dots at bottom are clickable.
+- Spotlight uses 4 dim divs around the target (no SVG mask) — pointer events still pass through inside
+  the cutout, so users can try clicking the highlighted element mid-tour.
+- Mobile (<640px): tooltip docks to the bottom or top of the viewport based on which half the target is in.
+- Replay: dispatch `new CustomEvent("vision:tour:replay", { detail: "<storageKey>" })` to re-open the tour.
+- Always wrap in `{isHomeowner && (…)}` — builders see neither tours nor tips.
+
+#### Adding a tour to a new screen
+
+1. Sprinkle `data-tour="my-anchor"` on the elements you want spotlighted (no styling, just the attribute).
+2. Mount `<GuidedTour storageKey="…" title="…" steps={[…]} />` near the top of the screen's JSX.
+3. Steps without a `target` render as centered modals — use them for the intro and outro.
+4. Mark conditional UI (multi-story tabs, status panels that may not render) with `optional: true` so
+   the tour silently skips them when missing.
+5. Keep step body content under ~40 words. Use JSX with `<b>` for emphasis on key terms.
 
 ### `MetricCard.jsx` (extended)
 
@@ -111,17 +142,17 @@ When `help` is provided, a small `?` appears next to the label and opens a `Help
 
 ### Where tips currently live
 
-| Screen | File | Tips added |
-|---|---|---|
-| Dashboard | `screens/Dashboard/Dashboard.jsx` | FirstTimeHint + Score & Est. Acq. Cost (mobile + desktop) |
-| Projects | `screens/Projects/ProjectsScreen.jsx` | FirstTimeHint + title, Layers, Ready-to-Build badge, Assess Plot of Land, Import Structural Model |
-| Floor Plan Editor | `screens/FloorPlanEditor/FloorPlanEditor.jsx` | FirstTimeHint + Component Library header |
-| 3D Preview | `screens/House3DPreview/House3DPreview.jsx` | FirstTimeHint + AI Render header |
-| Layer Editor | `screens/LayerEditor/LayerEditor.jsx` | FirstTimeHint + Cost Breakdown header |
-| Feasibility | `screens/FeasibilityDashboard/FeasibilityDashboard.jsx` | FirstTimeHint + "How Your Score Is Calculated" |
-| Executive View | `screens/ExecutiveView/ExecutiveView.jsx` | FirstTimeHint + IRR, Capital Cost, Market Value, Profit Margin, Cash-on-Cash, Debt Coverage, Risk Assessment |
-| Schedule | `screens/ScheduleTimeline/ScheduleTimeline.jsx` | FirstTimeHint + Construction Schedule title |
-| Browse | `screens/Browse/Browse.jsx` | FirstTimeHint + Verified badge |
+| Screen | File | GuidedTour anchors (data-tour) | HelpTip count |
+|---|---|---|---|
+| Dashboard | `screens/Dashboard/Dashboard.jsx` | `new-floor-plan`, `module-launchpad`, `floor-plan-module`, `recent-projects` | 2 (Score, Est. Acq. Cost) |
+| Projects | `screens/Projects/ProjectsScreen.jsx` | `new-project-btn`, `project-card`, `ready-badge`, `edit-floor-plan-btn`, `schedule-btn`, `assess-land-btn` | 4+ |
+| Floor Plan Editor | `screens/FloorPlanEditor/FloorPlanEditor.jsx` | `library`, `library-tabs`, `canvas`, `story-tabs`, `continue-btn` | 1 |
+| 3D Preview | `screens/House3DPreview/House3DPreview.jsx` | `viewport`, `view-controls`, `wall-color`, `ai-render`, `continue-3d` | 1 |
+| Layer Editor | `screens/LayerEditor/LayerEditor.jsx` | `viewport-3d`, `viz-modes`, `total-cost`, `cost-breakdown` | 1 |
+| Feasibility | `screens/FeasibilityDashboard/FeasibilityDashboard.jsx` | `map`, `feas-gauge`, `score-breakdown` | 1 |
+| Executive View | `screens/ExecutiveView/ExecutiveView.jsx` | `map-area`, `metric-cards`, `risk-card`, `continue-schedule` | 7 (IRR, Capital, Market, Profit, Cash-on-Cash, DCR, Risk) |
+| Schedule | `screens/ScheduleTimeline/ScheduleTimeline.jsx` | `schedule-header`, `gantt`, `time-slider`, `phase-list` | 1 |
+| Browse | `screens/Browse/Browse.jsx` | `search-bar`, `builder-card`, `verified-badge`, `view-profile-btn`, `send-request-btn` | 1 |
 
 ### Adding a new tip
 
@@ -131,19 +162,15 @@ When `help` is provided, a small `?` appears next to the label and opens a `Help
 4. Pick a `size` that matches the surrounding font (10–12 for small caps labels, 14 for body text).
 5. Keep `body` plain-English and under ~30 words. Define the term, then say what to do with it.
 
-### Adding a new screen-level intro
-
-1. Pick a unique `storageKey` (mirror the route name: `develop`, `feasibility`, etc.).
-2. Mount `<FirstTimeHint storageKey="…" title="…" steps={[…]} />` near the top of the screen's JSX, **before** the layout div.
-3. Wrap in `{isHomeowner && (…)}`.
-4. Keep `steps` to 3–4 entries, each one short imperative sentence.
-
 ### Resetting tutorials in dev
 
 Open DevTools console:
 
 ```js
-Object.keys(localStorage).filter(k => k.startsWith("vision:tutorial:")).forEach(k => localStorage.removeItem(k));
+// Reset all GuidedTour completions:
+Object.keys(localStorage).filter(k => k.startsWith("vision:tour:")).forEach(k => localStorage.removeItem(k));
+// Replay a single tour without reload:
+window.dispatchEvent(new CustomEvent("vision:tour:replay", { detail: "develop" }));
 ```
 
 ---
@@ -151,7 +178,7 @@ Object.keys(localStorage).filter(k => k.startsWith("vision:tutorial:")).forEach(
 ## Conventions worth knowing
 
 - **Inline styles only.** No CSS files for components, no styled-components, no Tailwind. Style objects live next to their JSX.
-- **`createPortal` for overlays.** Modals, popovers, and FirstTimeHints all portal to `document.body`. Existing modal z-index is 1000; the tip system uses 1100/1200 to layer above.
+- **`createPortal` for overlays.** Modals, popovers, and GuidedTour all portal to `document.body`. Existing modal z-index is 1000; HelpTip popovers use 1100, GuidedTour uses 1300 to layer above everything.
 - **Builder/homeowner divergence is conditional, not separate components.** Use `isHomeowner` ternaries inside the same screen rather than forking files.
 - **localStorage prefix `vision:`.** Established by the chat unread-badge system — follow it for any new persisted UI state.
 - **No CLAUDE.md or AI-specific docs.** This file (`context.md`) is the primary onboarding doc.

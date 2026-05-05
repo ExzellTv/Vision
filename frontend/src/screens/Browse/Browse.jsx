@@ -7,7 +7,7 @@ import { BUILDERS, SPECIALTIES } from "../../data/builders";
 import BuilderProfileModal from "../../components/shared/BuilderProfileModal";
 import { useProject } from "../../hooks/useProjectStore";
 import HelpTip from "../../components/shared/HelpTip";
-import FirstTimeHint from "../../components/shared/FirstTimeHint";
+import GuidedTour from "../../components/shared/GuidedTour";
 import { useUserType } from "../../context/UserTypeContext";
 
 const C = {
@@ -531,13 +531,80 @@ export default function Browse() {
       }}
     >
       {isHomeowner && (
-        <FirstTimeHint
+        <GuidedTour
           storageKey="browse"
-          title="Pick your builder"
+          title="Browse Builders"
           steps={[
-            { text: "Browse local residential builders. Each card shows their specialty, completed projects, and a verification badge if Vision has checked their license." },
-            { text: "Tap View Profile for details, or Send Request to share your floor plan and get a quote — they'll see your project automatically." },
-            { text: "Use the filters at the top to narrow by specialty (custom, modular, eco, etc.) or sort by distance and experience." },
+            {
+              title: "Find your builder",
+              body: (
+                <>
+                  This is the directory of residential builders Vision has on file in the Dallas
+                  area. We&rsquo;ll show you how to filter, evaluate, and reach out without leaving the app.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="search-bar"]',
+              placement: "bottom",
+              title: "Search &amp; filter",
+              body: (
+                <>
+                  Type a name, company, or city to narrow the list. Use the <b>specialty</b> dropdown to
+                  filter by build style (custom, modular, eco-friendly, etc.) and the <b>sort</b> menu to
+                  rank by distance, rating, or experience.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="builder-card"]',
+              placement: "right",
+              title: "Anatomy of a builder card",
+              body: (
+                <>
+                  At a glance: their specialty, year founded, completed projects, average rating, and
+                  service area. The thumbnails show recent builds.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="verified-badge"]',
+              placement: "right",
+              title: "The Verified badge",
+              body: (
+                <>
+                  Vision checked this builder&rsquo;s license, insurance, and references. <b>Verified</b>
+                  doesn&rsquo;t mean &ldquo;the best&rdquo; &mdash; it means we did the basic homework so you don&rsquo;t have
+                  to.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="view-profile-btn"]',
+              placement: "top",
+              title: "View Profile",
+              body: (
+                <>
+                  Opens the builder&rsquo;s full profile &mdash; portfolio, reviews, license info, and pricing
+                  history. Read this before reaching out.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="send-request-btn"]',
+              placement: "top",
+              title: "Send Request",
+              body: (
+                <>
+                  Shares your floor plan, materials, and budget with this builder so they can give you
+                  a real quote. They&rsquo;ll see your project automatically &mdash; you don&rsquo;t need to email
+                  anything.
+                </>
+              ),
+              optional: true,
+            },
           ]}
         />
       )}
@@ -577,6 +644,7 @@ export default function Browse() {
 
       {/* Search/Filter bar */}
       <div
+        data-tour="search-bar"
         style={{
           display: "flex",
           gap: 12,
@@ -667,9 +735,10 @@ export default function Browse() {
 
       {/* Builders list */}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {filteredBuilders.map((builder) => (
+        {filteredBuilders.map((builder, builderIdx) => (
           <div
             key={builder.id}
+            data-tour={builderIdx === 0 ? "builder-card" : undefined}
             style={{
               display: "flex",
               gap: 20,
@@ -707,6 +776,7 @@ export default function Browse() {
                 </h3>
                 {builder.verified && (
                   <div
+                    data-tour={builderIdx === 0 ? "verified-badge" : undefined}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -788,6 +858,7 @@ export default function Browse() {
             <div style={{ display: "flex", flexDirection: "column", gap: 10, flexShrink: 0 }}>
               <button
                 onClick={() => setRequestBuilder(builder)}
+                data-tour={builderIdx === 0 ? "send-request-btn" : undefined}
                 style={{
                   padding: "12px 24px",
                   background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
@@ -818,6 +889,7 @@ export default function Browse() {
               </button>
               <button
                 onClick={() => setProfileBuilder(builder)}
+                data-tour={builderIdx === 0 ? "view-profile-btn" : undefined}
                 style={{
                   padding: "12px 24px",
                   background: "transparent",

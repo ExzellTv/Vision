@@ -6,7 +6,7 @@ import { useUserType } from "../../context/UserTypeContext";
 import House3D from "../../components/3d/House3D";
 import { complianceApi, imageApi } from "../../services/api";
 import HelpTip from "../../components/shared/HelpTip";
-import FirstTimeHint from "../../components/shared/FirstTimeHint";
+import GuidedTour from "../../components/shared/GuidedTour";
 
 const RENDER_STYLES = [
   { key: "modern exterior", label: "Modern" },
@@ -294,18 +294,80 @@ export default function House3DPreview() {
       }}
     >
       {isHomeowner && (
-        <FirstTimeHint
+        <GuidedTour
           storageKey="preview3d"
-          title="See your house in 3D"
+          title="3D Preview"
           steps={[
-            { text: "Drag in the 3D area to spin the house, scroll to zoom, and right-click-drag to pan." },
-            { text: "Pick wall colors on the right. Tap Remove Roof to peek inside the layout you drew." },
-            { text: "Want a photo-style image? Pick a render style and tap Generate AI Render — it takes a few seconds." },
+            {
+              title: "Your floor plan, in 3D",
+              body: (
+                <>
+                  Vision built a 3D model from the rooms you drew. We&rsquo;ll show you how to spin it,
+                  cut it open, change the wall color, and turn it into a photo-style render.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="viewport"]',
+              placement: "right",
+              title: "Spin, zoom, pan",
+              body: (
+                <>
+                  <b>Drag</b> to spin the house. <b>Scroll</b> to zoom in &amp; out. <b>Right-click drag</b>
+                  &nbsp;(or two-finger drag on a trackpad) to pan. The model is fully interactive.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="view-controls"]',
+              placement: "left",
+              title: "Peek inside",
+              body: (
+                <>
+                  <b>Remove Roof</b> lifts the lid so you can see the rooms you drew. If you have more than
+                  one floor, the <b>View Floor</b> chips let you isolate a single level.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="wall-color"]',
+              placement: "left",
+              title: "Wall color",
+              body: (
+                <>
+                  Pick any swatch to repaint the exterior. Color affects only how the model looks &mdash;
+                  it doesn&rsquo;t change cost or material later.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="ai-render"]',
+              placement: "left",
+              title: "Photoreal AI Render",
+              body: (
+                <>
+                  Pick a style (modern, craftsman, etc.) then tap <b>Generate AI Render</b>. Vision sends a
+                  snapshot of your 3D model to an AI artist that paints what your house could look like
+                  in real life. The 3D model is the truth; the render is for inspiration.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="continue-3d"]',
+              placement: "top",
+              title: "When you&rsquo;re happy",
+              body: (
+                <>
+                  Tap <b>Continue</b> to move on to land feasibility &mdash; we&rsquo;ll help you find a
+                  building site and see if the math works out.
+                </>
+              ),
+            },
           ]}
         />
       )}
       {/* 3D Viewport */}
-      <div ref={viewportRef} style={{ flex: 1, position: "relative" }}>
+      <div ref={viewportRef} data-tour="viewport" style={{ flex: 1, position: "relative" }}>
         <House3D
           width={width}
           depth={depth}
@@ -377,6 +439,7 @@ export default function House3DPreview() {
 
         {/* View Controls — cutaway roof + per-floor isolation */}
         <div
+          data-tour="view-controls"
           style={{
             position: "absolute",
             top: 16,
@@ -983,7 +1046,7 @@ export default function House3DPreview() {
           )}
 
           {/* Wall Color — single tight row of circular swatches */}
-          <div style={{ marginBottom: 20 }}>
+          <div data-tour="wall-color" style={{ marginBottom: 20 }}>
             <SectionLabel>Wall Color</SectionLabel>
             <div style={{
               display: "flex",
@@ -1020,7 +1083,7 @@ export default function House3DPreview() {
           </div>
 
           {/* AI Photorealistic Render */}
-          <div style={{ marginBottom: 16 }}>
+          <div data-tour="ai-render" style={{ marginBottom: 16 }}>
             <div style={{
               fontSize: 11, fontWeight: 700, letterSpacing: "0.1em",
               textTransform: "uppercase", color: colors.textDim, marginBottom: 8,
@@ -1192,6 +1255,7 @@ export default function House3DPreview() {
           <button
             onClick={() => { if (canContinue) navigate("/feasibility"); }}
             disabled={!canContinue}
+            data-tour="continue-3d"
             title={canContinue ? "" : "Resolve structural issues to continue"}
             style={{
               flex: 1,

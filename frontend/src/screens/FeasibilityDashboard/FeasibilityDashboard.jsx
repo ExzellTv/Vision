@@ -12,7 +12,7 @@ import { generateFeasibilityPDF } from "./pdfReport";
 import { mapApi, projectsApi } from "../../services/api";
 import { useUserType } from "../../context/UserTypeContext";
 import HelpTip from "../../components/shared/HelpTip";
-import FirstTimeHint from "../../components/shared/FirstTimeHint";
+import GuidedTour from "../../components/shared/GuidedTour";
 
 /* ── Hardcoded Dallas fixture data (shown when no location is selected) ── */
 const DEMO = {
@@ -273,13 +273,72 @@ export default function FeasibilityDashboard() {
   return (
     <>
     {isHomeowner && (
-      <FirstTimeHint
+      <GuidedTour
         storageKey="feasibility"
-        title="Is this land a good fit?"
+        title="Land Feasibility"
         steps={[
-          { text: "The map on the left shows nearby home sales (dots) and land for sale (squares). Click a parcel to study it." },
-          { text: "On the right, the big number is the Feasibility Score — higher is better. Below it shows what nearby homes sell for and what your build could be worth." },
-          { text: "Use the filters above the map to narrow by price, lot size, or zoning. The score updates as you change your selection." },
+          {
+            title: "Is this land a good fit?",
+            body: (
+              <>
+                Vision pulls Dallas-area home sales and land listings live, then scores how well your
+                home fits each parcel. We&rsquo;ll show you how to read the map and what the numbers mean.
+              </>
+            ),
+          },
+          {
+            target: '[data-tour="map"]',
+            placement: "right",
+            title: "The live map",
+            body: (
+              <>
+                <b>Dots</b> are recent home sales nearby. <b>Squares</b> are land parcels for sale.
+                Click any square to study that parcel. Drag the map to explore another part of town.
+              </>
+            ),
+          },
+          {
+            target: '[data-tour="map-filters"]',
+            placement: "bottom",
+            title: "Filter the map",
+            body: (
+              <>
+                Narrow by price, lot size, or zoning. The map and the score on the right update as you
+                tweak filters &mdash; helpful for finding parcels that match your budget.
+              </>
+            ),
+            optional: true,
+          },
+          {
+            target: '[data-tour="feas-gauge"]',
+            placement: "left",
+            title: "The Feasibility Score",
+            body: (
+              <>
+                A 0-100 read-out of how well your home fits the selected parcel and market. Above 70
+                is great, 50-70 is workable, below 50 means you&rsquo;ll likely fight cost or zoning.
+              </>
+            ),
+          },
+          {
+            target: '[data-tour="score-breakdown"]',
+            placement: "left",
+            title: "Why three approaches?",
+            body: (
+              <>
+                Real appraisers blend three lenses: <b>Sales</b> (what neighbors sold for, 50%), <b>Cost</b> (what it costs to rebuild, 30%), and <b>Income</b> (what it could earn, 20%). Vision does the same so the score isn&rsquo;t a guess.
+              </>
+            ),
+          },
+          {
+            title: "Try it",
+            body: (
+              <>
+                Click any parcel on the map, watch the score recompute, and see what your home would
+                be worth in that exact spot. Hit Save Project when you find a winner.
+              </>
+            ),
+          },
         ]}
       />
     )}
@@ -294,7 +353,7 @@ export default function FeasibilityDashboard() {
     }}>
 
       {/* ════════ LEFT: Live Leaflet Map (70%) ════════ */}
-      <div style={{
+      <div data-tour="map" style={{
         flex:       "0 0 70%",
         position:   "relative",
         background: colors.bg,
@@ -468,12 +527,12 @@ export default function FeasibilityDashboard() {
         </div>
 
         {/* ── Gauge ── */}
-        <div style={{ display: "flex", justifyContent: "center", padding: "4px 0" }}>
+        <div data-tour="feas-gauge" style={{ display: "flex", justifyContent: "center", padding: "4px 0" }}>
           <FeasibilityGauge score={displayScore} size={110} />
         </div>
 
         {/* ── How Your Score Is Calculated ── */}
-        <div style={{
+        <div data-tour="score-breakdown" style={{
           background: colors.surface,
           border: `1px solid ${colors.cardBorder}`,
           borderRadius: radii.md,

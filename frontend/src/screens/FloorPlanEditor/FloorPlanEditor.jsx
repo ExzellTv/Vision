@@ -6,7 +6,7 @@ import { useUserType } from "../../context/UserTypeContext";
 import { projectsApi, floorplanApi, complianceApi } from "../../services/api";
 import { STYLE_CONFIGS } from "../../lib/houseStyleConfigs";
 import HelpTip from "../../components/shared/HelpTip";
-import FirstTimeHint from "../../components/shared/FirstTimeHint";
+import GuidedTour from "../../components/shared/GuidedTour";
 
 /* ───────────────────────── Constants ───────────────────────── */
 
@@ -3186,20 +3186,84 @@ export default function FloorPlanEditor() {
     <div style={{ display: "flex", height: "100%", background: "#0d1117", overflow: "hidden" }}>
 
       {isHomeowner && (
-        <FirstTimeHint
+        <GuidedTour
           storageKey="develop"
           title="Floor Plan Studio"
           steps={[
-            { text: "Drag a room from the left library onto the canvas to add it. Resize by dragging its edges." },
-            { text: "Drop doors and windows onto walls — they snap automatically. Drop furniture inside the matching room type." },
-            { text: "Each square on the grid is half a foot. Switch tabs (Elements / Furniture / Custom) at the top to find more pieces." },
-            { text: "When you're happy, hit the Continue button (top-right) to move on to the 3D preview." },
+            {
+              title: "Welcome to your drafting table",
+              body: (
+                <>
+                  Vision drafted a starter plan based on your AI chat. From here you can drag rooms,
+                  add doors &amp; windows, drop in furniture, and switch between floors. Take the tour
+                  &mdash; we&rsquo;ll point at every piece you need.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="library"]',
+              placement: "right",
+              title: "Component Library",
+              body: (
+                <>
+                  Every building block lives here. Click and drag any tile onto the canvas. <b>Rooms</b>
+                  &nbsp;snap to the grid, <b>doors &amp; windows</b> snap to the nearest wall, and
+                  <b> furniture</b> drops inside the matching room type.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="library-tabs"]',
+              placement: "right",
+              title: "Three tabs of pieces",
+              body: (
+                <>
+                  <b>Elements</b> = doors, windows, stairs, rooms. <b>Furniture</b> = beds, sofas, kitchen
+                  appliances. <b>Custom</b> = anything you save as a reusable block. Switch tabs to find
+                  what you need.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="canvas"]',
+              placement: "left",
+              title: "The canvas",
+              body: (
+                <>
+                  Drag pieces here. Each grid square is <b>half a foot</b>, so a 12&rsquo;&times;12&rsquo; bedroom is
+                  24 squares wide. Click a room to select it &mdash; then drag its edges to resize.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="story-tabs"]',
+              placement: "bottom",
+              title: "Multi-story homes",
+              body: (
+                <>
+                  If your home has more than one floor, switch between them here. Each floor has its
+                  own canvas &mdash; the 3D model stacks them up in the next step.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="continue-btn"]',
+              placement: "left",
+              title: "Build My Home",
+              body: (
+                <>
+                  When the floor plan looks right, hit this button. Vision saves the plan and takes
+                  you straight to the photoreal 3D preview.
+                </>
+              ),
+            },
           ]}
         />
       )}
 
       {/* ═══════════════ LEFT: COMPONENT LIBRARY ═══════════════ */}
-      <div style={{
+      <div data-tour="library" style={{
         width: 210, flexShrink: 0, background: "#0b1018",
         borderRight: "1px solid #1a2236",
         display: "flex", flexDirection: "column", overflow: "hidden",
@@ -3217,7 +3281,7 @@ export default function FloorPlanEditor() {
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", borderBottom: "1px solid #1a2236", padding: "8px 10px", gap: 4 }}>
+        <div data-tour="library-tabs" style={{ display: "flex", borderBottom: "1px solid #1a2236", padding: "8px 10px", gap: 4 }}>
           {["elements", "furniture", "custom"].map((t) => (
             <button key={t} onClick={() => setLibTab(t)} style={{
               flex: 1, padding: "5px 0", border: "none", borderRadius: 6,
@@ -3609,7 +3673,7 @@ export default function FloorPlanEditor() {
 
           {/* Build My Home / Save to Project */}
           {activePlan && (
-            <button onClick={handleSaveToEdit} disabled={saving} style={{
+            <button onClick={handleSaveToEdit} disabled={saving} data-tour="continue-btn" style={{
               height: 36, padding: "0 18px", borderRadius: 6, border: "none",
               background: saving ? "rgba(0,212,255,0.3)" : "linear-gradient(135deg, #00d4ff, #0099cc)",
               color: saving ? "#4a8a99" : "#0d1117",
@@ -3624,7 +3688,7 @@ export default function FloorPlanEditor() {
         </div>
 
         {/* Canvas area */}
-        <div ref={containerRef} style={{ flex: 1, position: "relative", overflow: "hidden", background: "#0d1117",
+        <div ref={containerRef} data-tour="canvas" style={{ flex: 1, position: "relative", overflow: "hidden", background: "#0d1117",
           outline: dragOver ? "2px dashed #00d4ff" : "none", outlineOffset: -2 }}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
@@ -3814,7 +3878,7 @@ export default function FloorPlanEditor() {
         </div>
 
         {/* Level tabs */}
-        <div style={{ padding: "10px 12px", borderBottom: "1px solid #1a2236" }}>
+        <div data-tour="story-tabs" style={{ padding: "10px 12px", borderBottom: "1px solid #1a2236" }}>
           <div style={{ display: "flex", gap: 6, background: "#0f1420", padding: 4, borderRadius: 8 }}>
             {Array.from({ length: Math.max(numStories, 1) }, (_, i) => i).map((si) => (
               <button key={si} onClick={() => setActiveStory(si)} style={selectorBtn(activeStory === si)}>

@@ -7,7 +7,7 @@ import { projectsApi, costApi } from "../../services/api";
 import NewProjectModal from "../../components/shared/NewProjectModal";
 import HomeownerProjectModal from "../../components/shared/HomeownerProjectModal";
 import HelpTip from "../../components/shared/HelpTip";
-import FirstTimeHint from "../../components/shared/FirstTimeHint";
+import GuidedTour from "../../components/shared/GuidedTour";
 import { useUserType } from "../../context/UserTypeContext";
 import useBreakpoint from "../../hooks/useBreakpoint";
 
@@ -438,13 +438,74 @@ export default function Dashboard() {
       }}
     >
       {isHomeowner && (
-        <FirstTimeHint
+        <GuidedTour
           storageKey="dashboard"
           title="Welcome to Vision"
           steps={[
-            { text: "Tap New Floor Plan to chat with Vision AI and turn your ideas into a buildable home." },
-            { text: "Each module below is a guided tool — start with Floor Plan Studio, finish with the construction Schedule." },
-            { text: "See a small ? next to anything? Tap it for a plain-English explanation." },
+            {
+              title: "Plan your home, end-to-end",
+              body: (
+                <>
+                  Vision is your home-building cockpit. In the next few seconds we&rsquo;ll point at the
+                  parts of this screen that matter, then turn you loose. You can replay this tour any
+                  time from <b>Settings &rarr; Replay tutorials</b>.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="new-floor-plan"]',
+              placement: "bottom",
+              title: "Start with one button",
+              body: (
+                <>
+                  Tap <b>New Floor Plan</b> to chat with Vision AI. Tell it how many bedrooms, your
+                  budget, and any must-haves &mdash; it drafts a real, buildable home in seconds.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="module-launchpad"]',
+              placement: "top",
+              title: "Three guided modules",
+              body: (
+                <>
+                  Each card opens one part of the journey: <b>Floor Plan Studio</b> for design,
+                  <b> Analysis Hub</b> for the building site, and <b>Browse Builders</b> when you&rsquo;re
+                  ready to talk to a contractor. Walk through them in order on your first project.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="floor-plan-module"]',
+              placement: "right",
+              title: "Floor Plan Studio: where you start",
+              body: (
+                <>
+                  This is your first stop. Draw rooms on a 2D canvas, see them in 3D, and pick
+                  materials &mdash; Vision keeps cost &amp; buildability score updated in real time.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="recent-projects"]',
+              placement: "top",
+              title: "Pick up where you left off",
+              body: (
+                <>
+                  Anything you create lands here. Each row shows the score (higher is better) and the
+                  rough cost. Click a project to keep editing it.
+                </>
+              ),
+            },
+            {
+              title: "Tip: look for the little ?'s",
+              body: (
+                <>
+                  Every metric, badge, and finance term has a small <b>?</b> next to it. Tap any of
+                  them for a one-sentence, plain-English explanation &mdash; no jargon, no Googling.
+                </>
+              ),
+            },
           ]}
         />
       )}
@@ -482,6 +543,7 @@ export default function Dashboard() {
         </h1>
         <button
           onClick={() => setShowModal(true)}
+          data-tour="new-floor-plan"
           style={{
             display: "flex",
             alignItems: "center",
@@ -515,7 +577,7 @@ export default function Dashboard() {
       </div>
 
       {/* Module Launchpad */}
-      <div style={{ padding: isMobile ? "16px 16px 0" : "28px 32px 0" }}>
+      <div data-tour="module-launchpad" style={{ padding: isMobile ? "16px 16px 0" : "28px 32px 0" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path
@@ -543,13 +605,14 @@ export default function Dashboard() {
               navigate={navigate}
               isMobile={isMobile}
               onLaunch={mod.path === "/develop" ? () => setShowModal(true) : undefined}
+              dataTour={mod.path === "/develop" ? "floor-plan-module" : undefined}
             />
           ))}
         </div>
       </div>
 
       {/* Recent Analysis */}
-      <div style={{ padding: isMobile ? "16px 16px 0" : "28px 32px 0" }}>
+      <div data-tour="recent-projects" style={{ padding: isMobile ? "16px 16px 0" : "28px 32px 0" }}>
         <div
           style={{
             display: "flex",
@@ -626,7 +689,7 @@ export default function Dashboard() {
   );
 }
 
-function ModuleCard({ mod, navigate, onLaunch, isMobile }) {
+function ModuleCard({ mod, navigate, onLaunch, isMobile, dataTour }) {
   const { Pattern, Icon } = mod;
   const handleClick = onLaunch || (() => navigate(mod.path));
 
@@ -634,6 +697,7 @@ function ModuleCard({ mod, navigate, onLaunch, isMobile }) {
     return (
       <div
         onClick={handleClick}
+        data-tour={dataTour}
         onMouseEnter={(e) => (e.currentTarget.style.borderColor = `${colors.accent}60`)}
         onMouseLeave={(e) => (e.currentTarget.style.borderColor = colors.cardBorder)}
         style={{
@@ -698,6 +762,7 @@ function ModuleCard({ mod, navigate, onLaunch, isMobile }) {
   return (
     <div
       onClick={handleClick}
+      data-tour={dataTour}
       onMouseEnter={(e) => (e.currentTarget.style.borderColor = `${colors.accent}60`)}
       onMouseLeave={(e) => (e.currentTarget.style.borderColor = colors.cardBorder)}
       style={{

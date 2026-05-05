@@ -4,7 +4,7 @@ import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
 import HelpTip from "../../components/shared/HelpTip";
-import FirstTimeHint from "../../components/shared/FirstTimeHint";
+import GuidedTour from "../../components/shared/GuidedTour";
 import { projectsApi } from "../../services/api";
 import { BUILD_COST_PSF } from "../FeasibilityDashboard/valuationEngine";
 import StatusBadge from "../../components/shared/StatusBadge";
@@ -790,19 +790,80 @@ function ScheduleTimelineInner() {
     <div style={{ height: "100%", background: colors.bgGradient, display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
 
       {isHomeowner && (
-        <FirstTimeHint
+        <GuidedTour
           storageKey="schedule"
-          title="Your build, week by week"
+          title="Construction Schedule"
           steps={[
-            { text: "Each colored bar is one phase of construction. Their lengths show how many weeks each takes." },
-            { text: "Colors group phases — Sitework, Foundation, Structure, MEP (plumbing/electric/HVAC), Enclosure, Finishes, and Closeout." },
-            { text: "Drag the slider at the bottom to scrub through time and watch your house get built in 3D." },
+            {
+              title: "Your build, week by week",
+              body: (
+                <>
+                  This is the construction calendar for the home you just designed. Each colored bar
+                  is one phase of work. We&rsquo;ll show you how to read it and how to play it forward in
+                  time.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="schedule-header"]',
+              placement: "bottom",
+              title: "Start &amp; finish dates",
+              body: (
+                <>
+                  At a glance: when the build starts, how long it takes, and when you&rsquo;d move in. The
+                  status badge tells you which phase is currently &ldquo;on the clock&rdquo;.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="gantt"]',
+              placement: "top",
+              title: "Reading the bars",
+              body: (
+                <>
+                  Each row is a phase &mdash; <b>Sitework</b>, <b>Foundation</b>, <b>Structure</b>, <b>MEP</b> (plumbing/electric/HVAC), <b>Enclosure</b>, <b>Finishes</b>, <b>Closeout</b>. Bar length is duration. When two bars overlap, those phases run at the same time.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="time-slider"]',
+              placement: "top",
+              title: "Scrub through time",
+              body: (
+                <>
+                  Drag this slider to fast-forward the build. The 3D preview above updates as you go &mdash; you&rsquo;ll see foundation pour, framing rise, then finishes appear.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="phase-list"]',
+              placement: "left",
+              title: "Phase details",
+              body: (
+                <>
+                  Click any phase to see what&rsquo;s being done that week, the cost allocated, and which
+                  trades are on site. Helpful when a builder asks &ldquo;where are we at?&rdquo;.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              title: "That&rsquo;s the journey",
+              body: (
+                <>
+                  Floor plan &rarr; 3D preview &rarr; layers &amp; cost &rarr; land feasibility &rarr;
+                  executive summary &rarr; schedule. From here, head to <b>Browse Builders</b> to send
+                  your plan to a contractor for a real quote.
+                </>
+              ),
+            },
           ]}
         />
       )}
 
       {/* ── Header ── */}
-      <div style={{ padding: "10px 16px 6px", flexShrink: 0 }}>
+      <div data-tour="schedule-header" style={{ padding: "10px 16px 6px", flexShrink: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1088,8 +1149,8 @@ function ScheduleTimelineInner() {
         </div>
 
         {/* Scrollable rows area */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "0 12px" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+        <div data-tour="gantt" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "0 12px" }}>
+          <div data-tour="phase-list" style={{ display: "flex", flexDirection: "column", gap: 1 }}>
             {schedule.map((ph) => {
               const sw       = weeksBetween(projectStart, ph.startDate);
               const leftPct  = totalWeeks > 0 ? (sw / totalWeeks) * 100 : 0;
@@ -1287,7 +1348,7 @@ function ScheduleTimelineInner() {
         </div>
 
         {/* 3D scrubber — fixed at bottom of card */}
-        <div style={{ padding: "8px 12px 10px", flexShrink: 0, borderTop: `1px solid ${colors.cardBorder}` }}>
+        <div data-tour="time-slider" style={{ padding: "8px 12px 10px", flexShrink: 0, borderTop: `1px solid ${colors.cardBorder}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontFamily: fonts.label, fontSize: 9, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.6px", width: 110, flexShrink: 0 }}>
               Scrub 3D View

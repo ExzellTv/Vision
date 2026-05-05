@@ -7,7 +7,7 @@ import { useProject } from "../../hooks/useProjectStore";
 import NewProjectModal from "../../components/shared/NewProjectModal";
 import HomeownerProjectModal from "../../components/shared/HomeownerProjectModal";
 import HelpTip from "../../components/shared/HelpTip";
-import FirstTimeHint from "../../components/shared/FirstTimeHint";
+import GuidedTour from "../../components/shared/GuidedTour";
 import { useUserType } from "../../context/UserTypeContext";
 
 // Accepted structural-model extensions for the import card
@@ -375,12 +375,14 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
   const [hovered, setHovered] = useState(false);
   const { projectId: activeProjectId, ragViolations } = useProject();
   const hasComplianceIssues = project.id === activeProjectId && ragViolations?.length > 0;
+  const tourFirst = index === 0;
 
   return (
     <>
       <div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        data-tour={tourFirst ? "project-card" : undefined}
         style={{
           background: colors.cardSurface,
           border: `1px solid ${hovered ? colors.secondary + "55" : colors.cardBorder}`,
@@ -458,7 +460,7 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
                     {sf ? Math.round(sf).toLocaleString() : "—"} SF
                   </span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <div data-tour={tourFirst ? "ready-badge" : undefined} style={{ display: "flex", alignItems: "center", gap: 5 }}>
                   <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, boxShadow: `0 0 6px ${dotColor}` }} />
                   <span style={{ fontSize: 11, fontWeight: 700, color: dotColor, fontFamily: fonts.label, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                     {badgeLabel}
@@ -486,6 +488,7 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
         <div style={{ padding: "14px 20px 20px", marginTop: "auto", display: "flex", gap: 8 }}>
           <button
             onClick={() => onEditFloorPlan(project)}
+            data-tour={tourFirst ? "edit-floor-plan-btn" : undefined}
             style={{
               flex: 1,
               padding: "12px 0",
@@ -520,6 +523,7 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
           </button>
           <button
             onClick={() => onOpenSchedule(project)}
+            data-tour={tourFirst ? "schedule-btn" : undefined}
             style={{
               flex: 1,
               padding: "12px 0",
@@ -568,6 +572,7 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
           )}
           <button
             onClick={() => onAssessLocation(project)}
+            data-tour={tourFirst ? "assess-land-btn" : undefined}
             style={{
               width: "100%",
               padding: "12px 0",
@@ -670,6 +675,7 @@ function ImportCard({ onImported }) {
       onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}
+      data-tour="import-card"
       style={{
         border: `2px dashed ${accentBorder}`,
         borderRadius: radii.xl,
@@ -1139,13 +1145,98 @@ export default function ProjectsScreen() {
       `}</style>
 
       {isHomeowner && (
-        <FirstTimeHint
+        <GuidedTour
           storageKey="projects"
-          title="Your homes live here"
+          title="Your Projects"
           steps={[
-            { text: "Each card is one home you're planning. Tap one to keep editing it." },
-            { text: "Use the three buttons on a card: Edit Floor Plan to draw rooms, View Schedule to see the build timeline, and Assess Plot of Land to study a building site." },
-            { text: "Look for small ? icons throughout — tap any of them for plain-English help." },
+            {
+              title: "One card per home",
+              body: (
+                <>
+                  Every home you&rsquo;re planning lives on this page. Each card is its own project
+                  &mdash; with a floor plan, materials, building site, and schedule attached. We&rsquo;ll
+                  walk through what&rsquo;s on a card.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="new-project-btn"]',
+              placement: "bottom",
+              title: "Add a new home",
+              body: (
+                <>
+                  <b>+ New Project</b> launches the AI chat that drafts a fresh floor plan. You can have as
+                  many projects as you want &mdash; one per home you&rsquo;re considering.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="project-card"]',
+              placement: "right",
+              title: "Anatomy of a project card",
+              body: (
+                <>
+                  The thumbnail shows your floor plan. Below it: the city, room count, square footage,
+                  and a status badge. Tap the pencil to rename, the trash icon to delete.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="ready-badge"]',
+              placement: "right",
+              title: "The Ready-to-Build badge",
+              body: (
+                <>
+                  <b style={{ color: "#22c55e" }}>Green</b> means floor plan saved and a building site
+                  picked. <b style={{ color: "#ef4444" }}>Red</b> means something is missing or there&rsquo;s a code
+                  issue. The badge is your quick health check.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="edit-floor-plan-btn"]',
+              placement: "top",
+              title: "Edit Floor Plan",
+              body: (
+                <>
+                  Reopens this home in the 2D floor plan editor &mdash; drag rooms, add doors, drop in
+                  furniture, then jump into 3D.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="schedule-btn"]',
+              placement: "top",
+              title: "View Schedule",
+              body: (
+                <>
+                  Opens a Gantt timeline of the build &mdash; sitework, foundation, framing, MEP, finishes,
+                  and closeout. Lets you see roughly how long each phase takes.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="assess-land-btn"]',
+              placement: "top",
+              title: "Assess Plot of Land",
+              body: (
+                <>
+                  This is where you go shopping for the actual building site. An interactive map of
+                  Dallas with land for sale, nearby home prices, zoning, and a feasibility score for
+                  each parcel.
+                </>
+              ),
+            },
+            {
+              title: "You're set",
+              body: (
+                <>
+                  Pick a project to keep editing, or hit <b>+ New Project</b> to start another. The little
+                  <b> ?</b> icons next to any label give you plain-English help &mdash; tap them whenever
+                  you want.
+                </>
+              ),
+            },
           ]}
         />
       )}
@@ -1197,6 +1288,7 @@ export default function ProjectsScreen() {
 
           <button
             onClick={handleNewProject}
+            data-tour="new-project-btn"
             style={{
               display: "flex",
               alignItems: "center",
