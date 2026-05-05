@@ -6,12 +6,7 @@ import {
   Environment,
   ContactShadows,
   PerspectiveCamera,
-  Sky,
-  PivotControls,
   SoftShadows,
-  AccumulativeShadows,
-  RandomizedLight,
-  BakeShadows,
 } from "@react-three/drei";
 import { Geometry, Base, Subtraction, Addition } from "@react-three/csg";
 import { EffectComposer, SSAO, Bloom, Vignette, SMAA } from "@react-three/postprocessing";
@@ -769,13 +764,29 @@ function Scene({
       {/* ── Soft shadows (PCSS-style) — single call per scene ── */}
       <SoftShadows size={24} samples={16} focus={0.7} />
 
-      {/* ── Lighting — warm key + cool fill + sky hemisphere ── */}
-      <hemisphereLight args={["#cfe7ff", "#3b2a1a", 0.55]} />
-      <ambientLight intensity={0.18} />
+      {/* ── HDRI environment — the lighting workhorse.
+           kloppenheim_06_puresky gives bright clear-sky daylight with realistic
+           specular highlights baked in. `ground` projects the HDR onto a ground
+           plane so the horizon line aligns with y=0 (foundation). When showSky
+           is off, the HDR still lights the scene but doesn't render as background. ── */}
+      <Suspense fallback={null}>
+        <Environment
+          files="https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/kloppenheim_06_puresky_1k.hdr"
+          background={showSky}
+          ground={showSky ? { height: 4, radius: 80, scale: 100 } : false}
+          resolution={1024}
+          environmentIntensity={1.0}
+        />
+      </Suspense>
+
+      {/* ── Sun + bounce — HDRI carries most of the IBL; these add crisp shadows
+           and a touch of warm key. Sun direction matches kloppenheim's sun. ── */}
+      <hemisphereLight args={["#dde9ff", "#4a3826", 0.22]} />
+      <ambientLight intensity={0.06} />
       <directionalLight
-        position={[14, 20, 10]}
-        intensity={2.2}
-        color="#fff3df"
+        position={[18, 22, 9]}
+        intensity={1.6}
+        color="#fff5e0"
         castShadow
         shadow-mapSize={[4096, 4096]}
         shadow-bias={-0.0002}
@@ -786,14 +797,8 @@ function Scene({
         shadow-camera-top={maxDimension}
         shadow-camera-bottom={-maxDimension}
       />
-      {/* Rim light for edge separation */}
-      <directionalLight position={[-8, 10, -6]} intensity={0.35} color="#b4c6ff" />
-
-      {/* Sky — backdrop when not using env ground-projection */}
-      {showSky && <Sky sunPosition={[100, 20, 100]} turbidity={6} rayleigh={0.9} mieCoefficient={0.005} />}
-
-      {/* Image-based lighting — "sunset" gives warmer architectural reflections than "city" */}
-      <Environment preset="sunset" />
+      {/* Cool rim light for edge separation against bright sky */}
+      <directionalLight position={[-9, 8, -7]} intensity={0.28} color="#b4c6ff" />
 
       {/* Ground */}
       {showGround && <Ground />}
@@ -801,14 +806,15 @@ function Scene({
       {/* Grass decorations */}
       {showGrass && <GrassPatches />}
 
-      {/* Contact shadow under the house — grounds it visually */}
+      {/* Contact shadow under the house — grounds it visually.
+           Higher resolution + tighter blur = sharper soft shadow at the foundation line. */}
       <ContactShadows
         position={[0, 0.005, 0]}
-        opacity={0.75}
+        opacity={0.82}
         scale={Math.max(30, maxDimension * 3)}
-        blur={2.4}
-        far={8}
-        resolution={1024}
+        blur={1.8}
+        far={6}
+        resolution={2048}
       />
 
       {/* House — prefer the plan-driven geometry when the floor plan has rooms.
@@ -827,28 +833,31 @@ function Scene({
         <HouseCSG {...houseProps} />
       )}
 
-      {/* ── Post-processing — subtle SSAO + soft bloom + vignette ── */}
+      {/* ── Post-processing — subtle SSAO + soft bloom + vignette.
+           SSAO intensity dialed back so corners read as shaded rather than dirty.
+           Bloom threshold raised so only the brightest highlights bloom — keeps
+           white/cream walls clean instead of glowing. ── */}
       <EffectComposer multisampling={0} disableNormalPass>
         <SSAO
           blendFunction={BlendFunction.MULTIPLY}
-          samples={16}
+          samples={14}
           rings={4}
           distanceThreshold={0.6}
           distanceFalloff={0.15}
           rangeThreshold={0.01}
           rangeFalloff={0.005}
-          luminanceInfluence={0.7}
-          radius={4}
-          bias={0.035}
-          intensity={18}
+          luminanceInfluence={0.6}
+          radius={3}
+          bias={0.04}
+          intensity={11}
         />
         <Bloom
-          intensity={0.35}
-          luminanceThreshold={0.85}
-          luminanceSmoothing={0.2}
+          intensity={0.22}
+          luminanceThreshold={0.92}
+          luminanceSmoothing={0.18}
           mipmapBlur
         />
-        <Vignette eskil={false} offset={0.2} darkness={0.55} />
+        <Vignette eskil={false} offset={0.22} darkness={0.45} />
         <SMAA />
       </EffectComposer>
     </>

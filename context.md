@@ -214,6 +214,23 @@ cd backend && uvicorn app.main:app --reload
 
 The frontend will start without the backend, but data-fetching screens (projects list, AI render, cost predictions) will show empty states or proxy errors.
 
+## Floor plan generation (chat-driven)
+
+The homeowner describes their dream home in [`HomeownerProjectModal.jsx`](frontend/src/components/shared/HomeownerProjectModal.jsx) (frontend-only chat against Cerebras `llama3.1-8b`). The model is prompted to emit a fenced JSON block listing the actual rooms the user asked for:
+
+```json
+{ "style": "Modern", "garage": "2-car", "total_sqft_estimate": 2200,
+  "rooms": [{ "type": "bedroom", "label": "Master Bedroom", "furniture": ["bed","dresser"] }, …] }
+```
+
+That `rooms` array becomes `generateParams.aiRooms` in the project store. From there:
+
+- **Layout** — [`_buildFromAiRooms`](frontend/src/screens/FloorPlanEditor/FloorPlanEditor.jsx) places those exact rooms (with their labels) into a tile-perfect footprint. The chosen `style` selects a zoning strategy: Ranch/Craftsman = public front / private back, Colonial = three horizontal strips, Modern = public column / private column, Mediterranean = hallway spine. Master suite is detected by label keywords (`master`/`primary` for the bedroom, `master bath`/`ensuite` for the bath, `walk-in` for the closet) and anchored at one end of the private zone.
+- **Variation** — a seeded RNG (`_mulberry32` + `_hashSeed`) jitters aspect ratio, master-suite side L↔R, kitchen/dining order, and bedroom interleaving. Each regenerate produces a visibly different plan; the two variants in the editor get distinct seeds. The seed is stored on the returned plan so a saved layout is reproducible.
+- **Multi-story** — `_splitAiRoomsByFloor` keeps public rooms + service rooms + the master suite on floor 1 and round-robins secondary bedrooms / baths / closets / offices across upper floors.
+- **Furniture** — `buildFurnitureFromAiRooms` matches each AI room to the generated room of the same type and drops the requested furniture along its bottom edge.
+- **Fallback** — if `aiRooms` is missing or has fewer than 3 entries (manual dropdown demo, no chat), the original 5 style template builders run instead and the rest of the pipeline behaves as before.
+
 ## AI render
 
 The 3D preview's "Generate AI Render" sends a viewport screenshot to Replicate. Model defined at `backend/app/services/image_generation.py:6`:

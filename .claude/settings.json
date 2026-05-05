@@ -94,10 +94,19 @@
       "Bash(curl -s -o /dev/null -w \"backend /api/health: %{http_code}\\\\n\" http://127.0.0.1:8000/api/health)",
       "Bash(curl -s -o /dev/null -w \"frontend /:        %{http_code}\\\\n\" http://localhost:5173/)",
       "Bash(taskkill //PID 10968 //F)",
-      "Bash(taskkill //PID 24356 //T //F)"
+      "Bash(taskkill //PID 24356 //T //F)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\exzell\\\\Documents\\\\GitHub\\\\BFI\\\\Vision\" -Recurse -Directory)",
+      "Bash(Select-Object -First 30)",
+      "Bash(node -e \"const fs=require\\('fs'\\);const src=fs.readFileSync\\('src/screens/FloorPlanEditor/FloorPlanEditor.jsx','utf8'\\);console.log\\('lines:',src.split\\('\\\\n'\\).length,'chars:',src.length\\);\")",
+      "Bash(npx --yes esbuild --bundle=false --loader=jsx src/screens/FloorPlanEditor/FloorPlanEditor.jsx --outfile=/tmp/fpe-check.js)",
+      "Bash(npx --yes esbuild --loader:.jsx=jsx --bundle=false src/screens/FloorPlanEditor/FloorPlanEditor.jsx --outfile=/tmp/fpe-check.js)",
+      "Bash(node \"C:/Users/exzell/AppData/Local/Temp/fpe-aitest.mjs\")",
+      "Bash(node \"C:/Users/exzell/AppData/Local/Temp/fpe-floor2.mjs\")",
+      "Bash(node \"C:/Users/exzell/AppData/Local/Temp/stair-filter-test.mjs\")"
     ],
     "additionalDirectories": [
-      "c:\\Users\\exzell\\AppData\\Local\\Temp\\hf_render\\rig"
+      "c:\\Users\\exzell\\AppData\\Local\\Temp\\hf_render\\rig",
+      "c:\\Users\\exzell\\AppData\\Local\\Temp"
     ]
   }
 }

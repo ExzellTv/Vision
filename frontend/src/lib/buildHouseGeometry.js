@@ -24,9 +24,15 @@ const WALL_H = 0.9;     // 9 ft story height in world units
 const SLAB_H = 0.04;    // 0.4 ft slab
 
 // ── Materials ────────────────────────────────────────────────────────────────
+// Exterior wall uses MeshPhysicalMaterial so we get a subtle clearcoat — that's
+// what gives painted plaster/stucco its slight sheen under directional light
+// instead of looking matte and chalky. Clearcoat roughness is high so it's not
+// gloss-paint shiny, just a hint of reflective top layer.
 const mat = {
-  exteriorWall: new THREE.MeshStandardMaterial({
+  exteriorWall: new THREE.MeshPhysicalMaterial({
     color: "#F5F0E8", roughness: 0.85, metalness: 0.0,
+    clearcoat: 0.18, clearcoatRoughness: 0.55,
+    envMapIntensity: 1.0,
     side: THREE.DoubleSide,
   }),
   interiorWall: new THREE.MeshStandardMaterial({
@@ -39,8 +45,12 @@ const mat = {
   slab: new THREE.MeshStandardMaterial({
     color: "#8a8a8a", roughness: 0.9, metalness: 0.0,
   }),
-  roof: new THREE.MeshStandardMaterial({
+  // Roof picks up a small clearcoat too — asphalt shingles have a slight sheen
+  // when wet/new. Subtle so it doesn't read as plastic.
+  roof: new THREE.MeshPhysicalMaterial({
     color: "#3A3A3A", roughness: 0.8, metalness: 0.1,
+    clearcoat: 0.12, clearcoatRoughness: 0.7,
+    envMapIntensity: 1.0,
     side: THREE.DoubleSide,
   }),
   windowFrame: new THREE.MeshStandardMaterial({
@@ -254,7 +264,9 @@ function buildExteriorWalls(plan, center) {
 // sides. This naturally dedupes shared walls between adjacent rooms (no
 // double-render) and extends to L/T/U-shaped plans for free.
 function buildInteriorWalls(plan, center) {
-  const { interior } = classifyWalls(plan.rooms);
+  const stairs = (plan.rooms || []).filter((r) => r.type === "stair" || r.isStair);
+  const { interior: rawInterior } = classifyWalls(plan.rooms);
+  const interior = rawInterior.filter((seg) => !_isStairPerimeterSegment(seg, stairs));
   const meshes = [];
   const thick = WALL_THICK * 0.6;
   const wallHeight = WALL_H * 0.95;
@@ -864,15 +876,23 @@ function buildFoundation(plan, center) {
 
 // ── Furniture ────────────────────────────────────────────────────────────────
 //
-// Renders items the user dropped on the 2D canvas as simple 3D boxes inside
-// the house. Rooms / openings are filtered out — they're already built as
-// structural geometry above.
+// Each placed item becomes a small Three.js Group with composite child meshes
+// so the cutaway view (Remove Roof) shows recognisable furniture rather than
+// flat coloured boxes.
 //
-// Heights and default colors per item type (matches the 2D catalog palette).
+// Conventions for every per-type builder:
+//   - Local origin at the centre of the item's footprint, floor at y = 0.
+//   - Box width  = ftToWorld(item.w) along world X
+//   - Box depth  = ftToWorld(item.h) along world Z
+//   - "Back" of furniture (sofa back, headboard, fridge hinges, shower wall)
+//     is on the −Z face. AI-placed items always sit at the south edge of a
+//     room, which maps to −Z, so the back lines up against the wall.
+//
+// Heights and base body colours per item type.
 const FURNITURE_DEFAULTS = {
   sofa:    { heightFt: 2.8, color: "#6b7f9c" },
   tv:      { heightFt: 3.5, color: "#1a1a1a" },
-  bed:     { heightFt: 2.2, color: "#c8a574" },
+  bed:     { heightFt: 2.6, color: "#c8a574" },
   dresser: { heightFt: 3.8, color: "#8a6a48" },
   oven:    { heightFt: 3.0, color: "#2a2a2a" },
   fridge:  { heightFt: 5.8, color: "#c0c4c8" },
@@ -882,7 +902,6 @@ const FURNITURE_DEFAULTS = {
   dryer:   { heightFt: 3.0, color: "#d8d8d8" },
   table:   { heightFt: 2.5, color: "#8a6a48" },
   stair:   { heightFt: 3.0, color: "#8a6a48" },
-  // generic fallback for unknown / custom types
   _default:{ heightFt: 2.5, color: "#9a8a7a" },
 };
 
@@ -890,6 +909,270 @@ const FURNITURE_DEFAULTS = {
 const STRUCTURAL_PLACED_TYPES = new Set([
   "door", "window", "glazing", "garage", "wall",
 ]);
+
+// ── Furniture materials ───────────────────────────────────────────────────────
+// Module-level singletons so disposeHouseGeometry can dispose only geometries.
+// `_FURN_BODY_MATS` caches body materials by colour so user-coloured furniture
+// doesn't leak a fresh material every render.
+const _FURN_BODY_MATS = new Map();
+function _bodyMat(color, metalness = 0.05) {
+  const key = `${color}|${metalness}`;
+  if (!_FURN_BODY_MATS.has(key)) {
+    _FURN_BODY_MATS.set(key, new THREE.MeshStandardMaterial({
+      color, roughness: 0.72, metalness,
+    }));
+  }
+  return _FURN_BODY_MATS.get(key);
+}
+const _FURN = {
+  pillow:  new THREE.MeshStandardMaterial({ color: "#f4f1ea", roughness: 0.85 }),
+  cushion: new THREE.MeshStandardMaterial({ color: "#8898ad", roughness: 0.9 }),
+  wood:    new THREE.MeshStandardMaterial({ color: "#5a3d22", roughness: 0.75 }),
+  woodLt:  new THREE.MeshStandardMaterial({ color: "#a8835a", roughness: 0.7 }),
+  metal:   new THREE.MeshStandardMaterial({ color: "#4a4a4a", roughness: 0.4, metalness: 0.7 }),
+  chrome:  new THREE.MeshStandardMaterial({ color: "#bcbcbc", roughness: 0.25, metalness: 0.85 }),
+  ceramic: new THREE.MeshStandardMaterial({ color: "#fafafa", roughness: 0.35 }),
+  screen:  new THREE.MeshStandardMaterial({ color: "#0a0a14", roughness: 0.18, emissive: "#0a1a2a", emissiveIntensity: 0.18 }),
+  knob:    new THREE.MeshStandardMaterial({ color: "#1a1a1a", roughness: 0.4, metalness: 0.6 }),
+  shroud:  new THREE.MeshStandardMaterial({ color: "#2a2a2a", roughness: 0.5 }),
+  glass:   new THREE.MeshPhysicalMaterial({
+    color: "#cce4f0", roughness: 0.1, metalness: 0,
+    transmission: 0.78, opacity: 0.55, transparent: true,
+    ior: 1.4, thickness: 0.02, side: THREE.DoubleSide,
+  }),
+};
+
+// Convenience: append a Box mesh to `group`. Position is the bottom-centre of
+// the box (Y = 0 means resting on floor) so callers can think in stack order.
+function _addBox(group, w, h, d, material, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+  m.position.set(x, y + h / 2, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  group.add(m);
+  return m;
+}
+function _addCyl(group, r, h, material, x = 0, y = 0, z = 0, segments = 16, axis = "y") {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, segments), material);
+  if (axis === "x") m.rotation.z = Math.PI / 2;
+  else if (axis === "z") m.rotation.x = Math.PI / 2;
+  m.position.set(x, y + (axis === "y" ? h / 2 : 0), z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  group.add(m);
+  return m;
+}
+
+// ── Per-type composite builders ──────────────────────────────────────────────
+function _buildSofaGroup(W, H, D, body) {
+  const g = new THREE.Group();
+  const armW = Math.min(W * 0.14, ftToWorld(0.8));
+  const backD = Math.min(D * 0.22, ftToWorld(0.6));
+  const seatH = H * 0.42, backH = H, armH = H * 0.78;
+  const seatW = W - armW * 2;
+  const seatD = D - backD;
+  // Backrest at −Z
+  _addBox(g, W, backH, backD, body, 0, 0, -D / 2 + backD / 2);
+  // Seat slab
+  _addBox(g, seatW, seatH, seatD, body, 0, 0, backD / 2);
+  // Cushions on the seat (3 if wide, otherwise 2)
+  const cushCount = seatW > ftToWorld(5) ? 3 : 2;
+  const cushPad = seatW * 0.04;
+  const cushW = (seatW - cushPad * (cushCount + 1)) / cushCount;
+  for (let i = 0; i < cushCount; i++) {
+    const cx = -seatW / 2 + cushPad + cushW / 2 + i * (cushW + cushPad);
+    _addBox(g, cushW, H * 0.18, seatD * 0.85, _FURN.cushion, cx, seatH, backD / 2 + (D - backD) * 0.05);
+  }
+  // Armrests
+  _addBox(g, armW, armH, D - backD * 0.5, body, -W / 2 + armW / 2, 0, backD / 4);
+  _addBox(g, armW, armH, D - backD * 0.5, body,  W / 2 - armW / 2, 0, backD / 4);
+  return g;
+}
+
+function _buildTvGroup(W, H, D, body) {
+  const g = new THREE.Group();
+  // Stand (low base)
+  _addBox(g, W * 0.45, H * 0.18, D * 0.6, _FURN.wood, 0, 0, 0);
+  // Vertical post on the stand
+  _addBox(g, W * 0.06, H * 0.4, D * 0.06, _FURN.metal, 0, H * 0.18, 0);
+  // Screen — thin upright slab
+  const scrH = H * 0.55;
+  _addBox(g, W, scrH, D * 0.08, _FURN.screen, 0, H * 0.42, -D * 0.02);
+  // Bezel ring around the screen (thin frame)
+  _addBox(g, W * 1.02, scrH * 0.04, D * 0.09, body, 0, H * 0.42 + scrH - scrH * 0.02, -D * 0.02);
+  return g;
+}
+
+function _buildBedGroup(W, H, D, body) {
+  const g = new THREE.Group();
+  // Base (boxspring)
+  const baseH = H * 0.32;
+  _addBox(g, W, baseH, D, _FURN.wood, 0, 0, 0);
+  // Mattress
+  const matH = H * 0.32;
+  _addBox(g, W * 0.95, matH, D * 0.95, _FURN.pillow, 0, baseH, 0);
+  // Headboard at −Z
+  const hbH = H * 1.15;
+  _addBox(g, W, hbH, ftToWorld(0.25), _FURN.wood, 0, 0, -D / 2 + ftToWorld(0.125));
+  // Two pillows along headboard
+  const pillowW = W * 0.42, pillowD = D * 0.18;
+  _addBox(g, pillowW, H * 0.18, pillowD, _FURN.pillow, -W * 0.22, baseH + matH, -D / 2 + pillowD / 2 + ftToWorld(0.2));
+  _addBox(g, pillowW, H * 0.18, pillowD, _FURN.pillow,  W * 0.22, baseH + matH, -D / 2 + pillowD / 2 + ftToWorld(0.2));
+  // Comforter accent on the foot
+  _addBox(g, W * 0.95, H * 0.04, D * 0.35, body, 0, baseH + matH, D * 0.3);
+  return g;
+}
+
+function _buildDresserGroup(W, H, D, body) {
+  const g = new THREE.Group();
+  // Body
+  _addBox(g, W, H, D, body, 0, 0, 0);
+  // 3 drawer faces — slightly inset on +Z (front)
+  const drawerD = ftToWorld(0.05);
+  const drawerH = H / 3 * 0.85;
+  for (let i = 0; i < 3; i++) {
+    const dy = i * (H / 3) + H / 6 - drawerH / 2;
+    _addBox(g, W * 0.92, drawerH, drawerD, _FURN.woodLt, 0, dy, D / 2 + drawerD / 2 - drawerD * 0.4);
+    // Two knobs per drawer
+    _addCyl(g, ftToWorld(0.08), ftToWorld(0.1), _FURN.knob, -W * 0.18, dy + drawerH / 2, D / 2 + drawerD * 0.6, 8, "z");
+    _addCyl(g, ftToWorld(0.08), ftToWorld(0.1), _FURN.knob,  W * 0.18, dy + drawerH / 2, D / 2 + drawerD * 0.6, 8, "z");
+  }
+  return g;
+}
+
+function _buildOvenGroup(W, H, D, body) {
+  const g = new THREE.Group();
+  // Body
+  _addBox(g, W, H, D, body, 0, 0, 0);
+  // Door (darker face on +Z)
+  _addBox(g, W * 0.9, H * 0.62, ftToWorld(0.05), _FURN.shroud, 0, H * 0.06, D / 2 + ftToWorld(0.02));
+  // Handle (horizontal bar across door)
+  _addCyl(g, ftToWorld(0.06), W * 0.85, _FURN.chrome, 0, H * 0.62, D / 2 + ftToWorld(0.07), 10, "x");
+  // Control panel knobs along top of door
+  const knobY = H * 0.86;
+  for (let i = 0; i < 4; i++) {
+    const kx = -W * 0.3 + i * (W * 0.2);
+    _addCyl(g, ftToWorld(0.07), ftToWorld(0.08), _FURN.chrome, kx, knobY, D / 2 + ftToWorld(0.04), 12, "z");
+  }
+  return g;
+}
+
+function _buildFridgeGroup(W, H, D, body) {
+  const g = new THREE.Group();
+  _addBox(g, W, H, D, body, 0, 0, 0);
+  // Door split — thin dark vertical seam at +Z face (top compartment break)
+  _addBox(g, W, ftToWorld(0.05), ftToWorld(0.05), _FURN.shroud, 0, H * 0.66, D / 2 + ftToWorld(0.005));
+  // Two vertical handles (one per door)
+  _addCyl(g, ftToWorld(0.05), H * 0.55, _FURN.chrome, -W * 0.42, H * 0.08, D / 2 + ftToWorld(0.04), 10);
+  _addCyl(g, ftToWorld(0.05), H * 0.28, _FURN.chrome, -W * 0.42, H * 0.7,  D / 2 + ftToWorld(0.04), 10);
+  return g;
+}
+
+function _buildToiletGroup(W, H, D, body) {
+  const g = new THREE.Group();
+  // Bowl — short box at +Z half
+  const bowlH = H * 0.5;
+  _addBox(g, W * 0.7, bowlH, D * 0.65, body, 0, 0, D * 0.1);
+  // Seat lid
+  _addBox(g, W * 0.78, ftToWorld(0.04), D * 0.7, _FURN.ceramic, 0, bowlH, D * 0.1);
+  // Tank at −Z
+  _addBox(g, W * 0.85, H * 0.78, D * 0.32, body, 0, 0, -D * 0.32);
+  // Flush button
+  _addBox(g, W * 0.12, ftToWorld(0.02), D * 0.04, _FURN.chrome, 0, H * 0.78, -D * 0.32);
+  return g;
+}
+
+function _buildShowerGroup(W, H, D, body) {
+  const g = new THREE.Group();
+  const wall = ftToWorld(0.08);
+  // Floor pan
+  _addBox(g, W, ftToWorld(0.12), D, _FURN.ceramic, 0, 0, 0);
+  // Back wall (-Z)
+  _addBox(g, W, H, wall, body, 0, 0, -D / 2 + wall / 2);
+  // Side walls
+  _addBox(g, wall, H, D, body, -W / 2 + wall / 2, 0, 0);
+  _addBox(g, wall, H, D, body,  W / 2 - wall / 2, 0, 0);
+  // Front glass door (+Z), partial coverage so you can see in
+  _addBox(g, W - wall * 2, H * 0.92, wall * 0.6, _FURN.glass, 0, 0, D / 2 - wall * 0.3);
+  // Showerhead on back wall, top
+  _addCyl(g, ftToWorld(0.18), ftToWorld(0.05), _FURN.chrome, 0, H * 0.85, -D / 2 + wall + ftToWorld(0.05), 16);
+  _addCyl(g, ftToWorld(0.04), ftToWorld(0.4), _FURN.chrome, 0, H * 0.65, -D / 2 + wall + ftToWorld(0.02), 10, "z");
+  return g;
+}
+
+function _buildTableGroup(W, H, D, body) {
+  const g = new THREE.Group();
+  const topH = ftToWorld(0.12);
+  const legW = ftToWorld(0.18);
+  const legH = H - topH;
+  // Tabletop
+  _addBox(g, W, topH, D, body, 0, legH, 0);
+  // Four legs at corners (inset by leg width so they sit visibly under the top)
+  const lx = W / 2 - legW * 1.6;
+  const lz = D / 2 - legW * 1.6;
+  _addBox(g, legW, legH, legW, _FURN.wood, -lx, 0, -lz);
+  _addBox(g, legW, legH, legW, _FURN.wood,  lx, 0, -lz);
+  _addBox(g, legW, legH, legW, _FURN.wood, -lx, 0,  lz);
+  _addBox(g, legW, legH, legW, _FURN.wood,  lx, 0,  lz);
+  return g;
+}
+
+function _buildLaundryGroup(W, H, D, body) {
+  const g = new THREE.Group();
+  // Body
+  _addBox(g, W, H * 0.92, D, body, 0, 0, 0);
+  // Top control panel (slight overhang)
+  _addBox(g, W, H * 0.08, D, _FURN.shroud, 0, H * 0.92, 0);
+  // Circular front door — recessed dark ring + lighter glass disc
+  const r = Math.min(W, H * 0.92) * 0.34;
+  _addCyl(g, r * 1.05, ftToWorld(0.05), _FURN.shroud, 0, H * 0.42, D / 2 + ftToWorld(0.005), 24, "z");
+  _addCyl(g, r,        ftToWorld(0.07), _FURN.glass,  0, H * 0.42, D / 2 + ftToWorld(0.04), 24, "z");
+  // Two knobs on the control panel
+  _addCyl(g, ftToWorld(0.08), ftToWorld(0.06), _FURN.chrome, -W * 0.28, H * 0.96, D / 2 + ftToWorld(0.005), 12, "z");
+  _addCyl(g, ftToWorld(0.08), ftToWorld(0.06), _FURN.chrome,  W * 0.28, H * 0.96, D / 2 + ftToWorld(0.005), 12, "z");
+  return g;
+}
+
+function _buildStairGroup(W, H, D, body) {
+  const g = new THREE.Group();
+  // Step stack — 8 risers along +Z
+  const steps = 8;
+  const stepH = H / steps;
+  const stepD = D / steps;
+  for (let i = 0; i < steps; i++) {
+    _addBox(g, W * 0.95, stepH, D - stepD * i, body, 0, i * stepH, -D / 2 + (D - stepD * i) / 2);
+  }
+  return g;
+}
+
+function _buildFurnitureMesh(item, def) {
+  const W = ftToWorld(item.w);
+  const D = ftToWorld(item.h);
+  const H = ftToWorld(def.heightFt);
+  const color = item.customColor || def.color;
+  const metal = (item.type === "fridge" || item.type === "oven") ? 0.4 : 0.05;
+  const body = _bodyMat(color, metal);
+  switch (item.type) {
+    case "sofa":    return _buildSofaGroup(W, H, D, body);
+    case "tv":      return _buildTvGroup(W, H, D, body);
+    case "bed":     return _buildBedGroup(W, H, D, body);
+    case "dresser": return _buildDresserGroup(W, H, D, body);
+    case "oven":    return _buildOvenGroup(W, H, D, body);
+    case "fridge":  return _buildFridgeGroup(W, H, D, body);
+    case "toilet":  return _buildToiletGroup(W, H, D, body);
+    case "shower":  return _buildShowerGroup(W, H, D, body);
+    case "table":   return _buildTableGroup(W, H, D, body);
+    case "washer":
+    case "dryer":   return _buildLaundryGroup(W, H, D, body);
+    case "stair":   return _buildStairGroup(W, H, D, body);
+    default: {
+      // Unknown / custom block — fall back to a single body box.
+      const g = new THREE.Group();
+      _addBox(g, W, H, D, body, 0, 0, 0);
+      return g;
+    }
+  }
+}
 
 function buildFurniture(plan, center) {
   const placed = plan.placed_items || plan.placedItems || [];
@@ -902,34 +1185,70 @@ function buildFurniture(plan, center) {
     if (!(item.w > 0) || !(item.h > 0)) return;
 
     const def = FURNITURE_DEFAULTS[item.type] || FURNITURE_DEFAULTS._default;
-    const heightWorld = ftToWorld(def.heightFt);
-    const color = item.customColor || def.color;
-
-    const geo = new THREE.BoxGeometry(
-      ftToWorld(item.w),
-      heightWorld,
-      ftToWorld(item.h),
-    );
-    const material = new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.7,
-      metalness: item.type === "fridge" || item.type === "oven" ? 0.4 : 0.05,
-    });
-    const mesh = new THREE.Mesh(geo, material);
+    const group = _buildFurnitureMesh(item, def);
 
     const cxPlan = item.x + item.w / 2;
     const cyPlan = item.y + item.h / 2;
-    mesh.position.set(
+    group.position.set(
       ftToWorld(cxPlan - center.cx),
-      SLAB_H + heightWorld / 2,
+      SLAB_H,
       -ftToWorld(cyPlan - center.cy),
     );
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
 
-    meshes.push({ mesh, name: `furniture-${item.type}-${i}`, layer: "furniture" });
+    meshes.push({ mesh: group, name: `furniture-${item.type}-${i}`, layer: "furniture" });
   });
 
+  return meshes;
+}
+
+// ── Stairs ───────────────────────────────────────────────────────────────────
+// Stair rooms come from `placeStairs()` in FloorPlanEditor — they live in
+// `plan.rooms[]` with `isStair: true`.  classifyWalls() treats them like any
+// other room and emits interior wall segments around their perimeter, which
+// in 3D would render as a hollow box around the stair.  `_isStairPerimeterSegment`
+// lets the wall builders filter those segments out so the stair area stays
+// open to the rooms it was carved from.
+function _isStairPerimeterSegment(seg, stairs) {
+  if (!stairs.length) return false;
+  const eps = 0.05;
+  for (const s of stairs) {
+    const sx2 = s.x + s.w, sy2 = s.y + s.h;
+    if (seg.axis === "h") {
+      // Horizontal segment at y=seg.at, spanning [seg.from, seg.to] in x
+      const onTopOrBottom = Math.abs(seg.at - s.y) < eps || Math.abs(seg.at - sy2) < eps;
+      if (onTopOrBottom && seg.from < sx2 - eps && seg.to > s.x + eps) return true;
+    } else {
+      const onLeftOrRight = Math.abs(seg.at - s.x) < eps || Math.abs(seg.at - sx2) < eps;
+      if (onLeftOrRight && seg.from < sy2 - eps && seg.to > s.y + eps) return true;
+    }
+  }
+  return false;
+}
+
+// Render the actual ascending stair geometry (8 risers stepping up along +Z)
+// for every stair room.  Lower stories only — upper-floor "stairs" are just
+// the landing aligned with floor 1's stair coords; their geometry already lives
+// on floor 1.
+function buildStairsFromRooms(plan, center, isLowerStory) {
+  if (!isLowerStory) return [];
+  const meshes = [];
+  (plan.rooms || []).forEach((room, i) => {
+    if (room.type !== "stair" && !room.isStair) return;
+    if (!(room.w > 0) || !(room.h > 0)) return;
+    const W = ftToWorld(room.w);
+    const D = ftToWorld(room.h);
+    const H = ftToWorld(3.0); // total rise from one floor to the next
+    const body = _bodyMat("#a8835a", 0.05);
+    const group = _buildStairGroup(W, H, D, body);
+    const cxPlan = room.x + room.w / 2;
+    const cyPlan = room.y + room.h / 2;
+    group.position.set(
+      ftToWorld(cxPlan - center.cx),
+      SLAB_H,
+      -ftToWorld(cyPlan - center.cy),
+    );
+    meshes.push({ mesh: group, name: `stair-${i}`, layer: "stair" });
+  });
   return meshes;
 }
 
@@ -1054,6 +1373,11 @@ export function buildHouseGeometry(plan, options = {}) {
     ...canopyMeshes,
     ...pillarMeshes,
     ...buildFurniture(plan, center),
+    // Stair geometry only goes on the story that has the foundation (story 0)
+    // — it ascends from there to the next story.  Upper stories receive a
+    // flat landing implicit in the bonus-room slab, no extra stair geometry
+    // needed there.
+    ...buildStairsFromRooms(plan, center, includeFoundation),
   ];
 }
 

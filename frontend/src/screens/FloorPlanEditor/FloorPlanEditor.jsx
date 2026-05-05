@@ -577,7 +577,10 @@ function generateDoors(rooms, garage) {
 function extractOpeningsFromPlacedItems(placedItems, bbox) {
   const doors = [];
   const windows = [];
-  const TOL = 2.0; // feet — snap tolerance for inferring which wall
+  // Cone of items eligible for the exterior path: must be within `TOL` feet
+  // of the building's bounding box.  Anything further away is an interior
+  // door (between two rooms) and is left to interior wall handling.
+  const TOL = 2.0;
 
   (placedItems || []).forEach((item) => {
     if (!item || item.isRoom) return;
@@ -595,15 +598,21 @@ function extractOpeningsFromPlacedItems(placedItems, bbox) {
     const minDist    = Math.min(distTop, distBottom, distLeft, distRight);
     if (minDist > TOL) return;
 
+    // Use the item's ACTUAL edge as the wall coordinate — don't force-snap to
+    // the building bbox.  Doors that genuinely sit on the exterior wall will
+    // match an exterior wall via findWallForOpening's tighter tolerance
+    // (0.75 ft).  Doors close to the bbox but actually on an interior wall
+    // are filtered out by that step instead of punching a phantom hole
+    // through the exterior.
     let side, x, y, width;
     if (minDist === distTop) {
-      side = "top";    x = centerX;     y = bbox.minY; width = item.w;
+      side = "top";    x = centerX;     y = item.y;             width = item.w;
     } else if (minDist === distBottom) {
-      side = "bottom"; x = centerX;     y = bbox.maxY; width = item.w;
+      side = "bottom"; x = centerX;     y = item.y + item.h;    width = item.w;
     } else if (minDist === distLeft) {
-      side = "left";   x = bbox.minX;   y = centerY;   width = item.h;
+      side = "left";   x = item.x;      y = centerY;            width = item.h;
     } else {
-      side = "right";  x = bbox.maxX;   y = centerY;   width = item.h;
+      side = "right";  x = item.x + item.w; y = centerY;        width = item.h;
     }
 
     const opening = {
@@ -1056,20 +1065,446 @@ function _placeSecondaryRooms(rooms, x, y, w, h, secBeds, secBaths) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Seeded RNG + AI-driven floor plan builder
+// When the user designs their home through the chatbot the AI returns
+// a structured `aiRooms` list — the actual rooms they asked for, with
+// labels.  These helpers turn that list into a tile-perfect floor plan
+// using the chosen `style` as a zoning strategy.  A seeded RNG drives
+// per-generation variation so each draft looks different.
+// ─────────────────────────────────────────────────────────────────
+
+function _mulberry32(seed) {
+  let t = (seed | 0) || 1;
+  return function () {
+    t = (t + 0x6D2B79F5) | 0;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function _hashSeed(...args) {
+  let h = 2166136261;
+  for (const a of args) {
+    const s = String(a);
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+  }
+  return h >>> 0;
+}
+
+const _AI_PUBLIC_TYPES  = new Set(["living", "dining", "kitchen", "entry"]);
+const _AI_PRIVATE_TYPES = new Set(["bedroom", "bathroom", "closet", "office"]);
+const _AI_SERVICE_TYPES = new Set(["laundry", "hallway"]);
+const _AI_ROOM_WEIGHTS = {
+  living: 1.5, dining: 0.9, kitchen: 1.1, entry: 0.5,
+  bedroom: 1.0, bathroom: 0.5, closet: 0.4, office: 0.85,
+  laundry: 0.55, hallway: 0.3,
+};
+
+function _isMasterLabel(label) {
+  const l = (label || "").toLowerCase();
+  return l.includes("master") || l.includes("primary") || l.includes("main bed");
+}
+function _isEnsuiteBath(label) {
+  const l = (label || "").toLowerCase();
+  return l.includes("master bath") || l.includes("primary bath") ||
+         l.includes("ensuite") || l.includes("en-suite") || l.includes("en suite");
+}
+function _isWalkInCloset(label, type) {
+  if (type !== "closet") return false;
+  const l = (label || "").toLowerCase();
+  return l.includes("walk") || l.includes("master") || l.includes("primary");
+}
+function _normAiType(t) { return t === "dining-room" ? "dining" : t; }
+function _defaultAiLabel(type) {
+  return ({
+    living: "Living Room", dining: "Dining Room", kitchen: "Kitchen",
+    entry: "Entry", bedroom: "Bedroom", bathroom: "Bathroom",
+    closet: "Closet", office: "Home Office", laundry: "Laundry",
+    hallway: "Hall",
+  })[type] || type;
+}
+
+function _zoneFromAiRooms(aiRooms) {
+  const pub = [], priv = [], service = [];
+  let master = null, masterBath = null, masterCloset = null;
+  for (const r of aiRooms || []) {
+    if (!r || !r.type) continue;
+    const t = _normAiType(r.type);
+    if (t === "garage") continue; // garage handled at the generateLocalFloorPlan level
+    const item = { type: t, label: r.label || _defaultAiLabel(t), weight: _AI_ROOM_WEIGHTS[t] || 0.7 };
+    if (t === "bedroom" && !master && _isMasterLabel(r.label)) {
+      master = { ...item, weight: 1.5 }; continue;
+    }
+    if (t === "bathroom" && !masterBath && _isEnsuiteBath(r.label)) {
+      masterBath = item; continue;
+    }
+    if (t === "closet" && !masterCloset && _isWalkInCloset(r.label, t)) {
+      masterCloset = item; continue;
+    }
+    if (_AI_PUBLIC_TYPES.has(t)) pub.push(item);
+    else if (_AI_PRIVATE_TYPES.has(t)) priv.push(item);
+    else if (_AI_SERVICE_TYPES.has(t)) service.push(item);
+    else priv.push(item);
+  }
+  // If no master flagged but bedrooms exist, promote the first bedroom
+  if (!master) {
+    const idx = priv.findIndex((it) => it.type === "bedroom");
+    if (idx >= 0) {
+      const promoted = priv.splice(idx, 1)[0];
+      master = { ...promoted, weight: 1.5, label: promoted.label || "Master Bedroom" };
+    }
+  }
+  // Synthesise a master bath/closet if a master suite has neither — keeps
+  // the suite block from feeling unfinished.
+  if (master && !masterBath) masterBath = { type: "bathroom", label: "Master Bath", weight: 0.5 };
+  if (master && !masterCloset) masterCloset = { type: "closet", label: "Walk-in Closet", weight: 0.4 };
+  return { pub, priv, service, master, masterBath, masterCloset };
+}
+
+function _aiStripHorizontal(rooms, items, x, y, w, h) {
+  if (!items.length || w <= 0 || h <= 0) return;
+  const totalW = items.reduce((s, it) => s + (it.weight || 1), 0);
+  let curX = x;
+  items.forEach((it, idx) => {
+    const itW = idx === items.length - 1
+      ? (x + w) - curX
+      : Math.max(6, Math.round(((it.weight || 1) / totalW) * w));
+    rooms.push({ type: it.type, label: it.label, x: curX, y, w: itW, h });
+    curX += itW;
+  });
+}
+function _aiStripVertical(rooms, items, x, y, w, h) {
+  if (!items.length || w <= 0 || h <= 0) return;
+  const totalH = items.reduce((s, it) => s + (it.weight || 1), 0);
+  let curY = y;
+  items.forEach((it, idx) => {
+    const itH = idx === items.length - 1
+      ? (y + h) - curY
+      : Math.max(6, Math.round(((it.weight || 1) / totalH) * h));
+    rooms.push({ type: it.type, label: it.label, x, y: curY, w, h: itH });
+    curY += itH;
+  });
+}
+
+function _orderPublic(list, rng) {
+  if (!list.length) return list;
+  const entry  = list.filter((it) => it.type === "entry");
+  const living = list.filter((it) => it.type === "living");
+  const kitchen = list.filter((it) => it.type === "kitchen");
+  const dining = list.filter((it) => it.type === "dining");
+  const rest   = list.filter((it) => !["entry","living","kitchen","dining"].includes(it.type));
+  const ordered = [...entry];
+  // Two valid arrangements — randomise so plans look different
+  if (rng() > 0.5) ordered.push(...living, ...kitchen, ...dining);
+  else             ordered.push(...dining, ...living, ...kitchen);
+  ordered.push(...rest);
+  return ordered;
+}
+function _orderPrivate(priv, service, rng) {
+  if (!priv.length && !service.length) return [];
+  const beds    = priv.filter((it) => it.type === "bedroom");
+  const baths   = priv.filter((it) => it.type === "bathroom");
+  const closets = priv.filter((it) => it.type === "closet");
+  const offices = priv.filter((it) => it.type === "office");
+  const others  = priv.filter((it) => !["bedroom","bathroom","closet","office"].includes(it.type));
+  const out = [];
+  // Office sometimes goes near the hall, sometimes at the back
+  const officeUpFront = offices.length && rng() > 0.5;
+  if (officeUpFront) out.push(...offices);
+  // Interleave bedrooms and shared baths so each bed has a bath nearby
+  const maxLen = Math.max(beds.length, baths.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (i < beds.length)  out.push(beds[i]);
+    if (i < baths.length) out.push(baths[i]);
+  }
+  if (!officeUpFront) out.push(...offices);
+  out.push(...closets, ...others);
+  out.push(...service.filter((it) => it.type === "laundry"));
+  return out;
+}
+
+function _placeMasterSuiteH(rooms, x, y, w, h, master, masterBath, masterCloset, rng) {
+  // Suite block in a horizontal strip: bedroom on top (~60-70% of h),
+  // closet+bath stacked on bottom.
+  const bedH = Math.max(8, Math.round(h * (0.6 + rng() * 0.1)));
+  rooms.push({ type: "bedroom", label: master.label || "Master Bedroom", x, y, w, h: bedH });
+  const suiteH = h - bedH;
+  if (suiteH <= 0) return;
+  if (masterCloset && masterBath) {
+    const closetW = Math.round(w * (0.45 + rng() * 0.1));
+    rooms.push({ type: "closet",   label: masterCloset.label, x,             y: y + bedH, w: closetW,    h: suiteH });
+    rooms.push({ type: "bathroom", label: masterBath.label,   x: x + closetW, y: y + bedH, w: w - closetW, h: suiteH });
+  } else if (masterBath) {
+    rooms.push({ type: "bathroom", label: masterBath.label, x, y: y + bedH, w, h: suiteH });
+  } else if (masterCloset) {
+    rooms.push({ type: "closet", label: masterCloset.label, x, y: y + bedH, w, h: suiteH });
+  } else {
+    rooms.push({ type: "hallway", label: "Hall", x, y: y + bedH, w, h: suiteH });
+  }
+}
+function _placeMasterSuiteV(rooms, x, y, w, h, master, masterBath, masterCloset, rng) {
+  // Same idea but for a vertical column (Modern / Mediterranean).
+  const bedH = Math.max(8, Math.round(h * (0.6 + rng() * 0.1)));
+  rooms.push({ type: "bedroom", label: master.label || "Master Bedroom", x, y, w, h: bedH });
+  const suiteH = h - bedH;
+  if (suiteH <= 0) return;
+  if (masterCloset && masterBath) {
+    const closetW = Math.round(w * (0.45 + rng() * 0.1));
+    rooms.push({ type: "closet",   label: masterCloset.label, x,             y: y + bedH, w: closetW,    h: suiteH });
+    rooms.push({ type: "bathroom", label: masterBath.label,   x: x + closetW, y: y + bedH, w: w - closetW, h: suiteH });
+  } else if (masterBath) {
+    rooms.push({ type: "bathroom", label: masterBath.label, x, y: y + bedH, w, h: suiteH });
+  } else if (masterCloset) {
+    rooms.push({ type: "closet", label: masterCloset.label, x, y: y + bedH, w, h: suiteH });
+  } else {
+    rooms.push({ type: "hallway", label: "Hall", x, y: y + bedH, w, h: suiteH });
+  }
+}
+
+// When the AI split moves every secondary bedroom upstairs, floor 1's
+// secondary slot would be empty.  Fall back to a single utility room so the
+// zone stays tile-perfect and its divider stacks with floor 2's secondary
+// zone.
+function _backfillPrivList(privList) {
+  return privList.length > 0
+    ? privList
+    : [{ type: "office", label: "Study", weight: 1 }];
+}
+
+// Public front + private back (Ranch / Craftsman)
+function _aiLayoutTwoStripH(rooms, W, D, zones, rng, opts) {
+  const { pub, priv, service, master, masterBath, masterCloset } = zones;
+  const frontH = Math.max(14, Math.round(D * (opts.frontPct || 0.45)));
+  const backH  = D - frontH;
+  _aiStripHorizontal(rooms, _orderPublic(pub, rng), 0, 0, W, frontH);
+  if (master) {
+    const masterW = Math.max(12, Math.round(W * (0.34 + rng() * 0.06)));
+    const hallW   = Math.max(3, Math.min(5, Math.round(W * 0.07)));
+    const secW    = W - masterW - hallW;
+    const masterOnLeft = rng() > 0.5;
+    const secList = _backfillPrivList(_orderPrivate(priv, service, rng));
+    if (masterOnLeft) {
+      _placeMasterSuiteH(rooms, 0, frontH, masterW, backH, master, masterBath, masterCloset, rng);
+      rooms.push({ type: "hallway", label: "Hall", x: masterW, y: frontH, w: hallW, h: backH });
+      _aiStripVertical(rooms, secList, masterW + hallW, frontH, secW, backH);
+    } else {
+      _aiStripVertical(rooms, secList, 0, frontH, secW, backH);
+      rooms.push({ type: "hallway", label: "Hall", x: secW, y: frontH, w: hallW, h: backH });
+      _placeMasterSuiteH(rooms, secW + hallW, frontH, masterW, backH, master, masterBath, masterCloset, rng);
+    }
+  } else {
+    _aiStripVertical(rooms, _backfillPrivList(_orderPrivate(priv, service, rng)), 0, frontH, W, backH);
+  }
+}
+
+// Three horizontal strips (Colonial)
+// `opts.upperFloor`: when true the auto-substituted kitchen + family room in
+// the middle band are replaced with bonus / loft labels appropriate for an
+// upper story.
+function _aiLayoutThreeStripH(rooms, W, D, zones, rng, opts) {
+  const upperFloor = !!(opts && opts.upperFloor);
+  const { pub, priv, service, master, masterBath, masterCloset } = zones;
+  const pubCopy = [...pub];
+  const kIdx = pubCopy.findIndex((it) => it.type === "kitchen");
+  const kitchen = kIdx >= 0 ? pubCopy.splice(kIdx, 1)[0] : null;
+  const frontH = Math.max(12, Math.round(D * (0.24 + rng() * 0.06)));
+  const midH   = Math.max(12, Math.round(D * (0.34 + rng() * 0.06)));
+  const backH  = D - frontH - midH;
+  _aiStripHorizontal(rooms, _orderPublic(pubCopy, rng), 0, 0, W, frontH);
+  const midItems = [];
+  if (upperFloor) {
+    midItems.push({ type: "living", label: "Loft",       weight: 1.1 });
+    midItems.push({ type: "living", label: "Bonus Room", weight: 1.3 });
+  } else {
+    midItems.push(kitchen || { type: "kitchen", label: "Kitchen", weight: 1.1 });
+    midItems.push({ type: "living", label: "Family Room", weight: 1.3 });
+  }
+  // Random order: kitchen left or right
+  if (rng() > 0.5) midItems.reverse();
+  _aiStripHorizontal(rooms, midItems, 0, frontH, W, midH);
+  if (master) {
+    const masterW = Math.max(12, Math.round(W * (0.34 + rng() * 0.06)));
+    const hallW   = Math.max(3, Math.min(5, Math.round(W * 0.07)));
+    const secW    = W - masterW - hallW;
+    const masterOnLeft = rng() > 0.5;
+    const secList = _backfillPrivList(_orderPrivate(priv, service, rng));
+    if (masterOnLeft) {
+      _placeMasterSuiteH(rooms, 0, frontH + midH, masterW, backH, master, masterBath, masterCloset, rng);
+      rooms.push({ type: "hallway", label: "Hall", x: masterW, y: frontH + midH, w: hallW, h: backH });
+      _aiStripVertical(rooms, secList, masterW + hallW, frontH + midH, secW, backH);
+    } else {
+      _aiStripVertical(rooms, secList, 0, frontH + midH, secW, backH);
+      rooms.push({ type: "hallway", label: "Hall", x: secW, y: frontH + midH, w: hallW, h: backH });
+      _placeMasterSuiteH(rooms, secW + hallW, frontH + midH, masterW, backH, master, masterBath, masterCloset, rng);
+    }
+  } else {
+    _aiStripVertical(rooms, _backfillPrivList(_orderPrivate(priv, service, rng)), 0, frontH + midH, W, backH);
+  }
+}
+
+// Public column + private column (Modern)
+function _aiLayoutTwoStripV(rooms, W, D, zones, rng, opts) {
+  const { pub, priv, service, master, masterBath, masterCloset } = zones;
+  const flip = !!opts.flip;
+  const pubW = Math.max(14, Math.round(W * (opts.pubPct || 0.5)));
+  const privW = W - pubW;
+  const pubX  = flip ? privW : 0;
+  const privX = flip ? 0 : pubW;
+  _aiStripVertical(rooms, _orderPublic(pub, rng), pubX, 0, pubW, D);
+  if (master) {
+    const masterH = Math.max(12, Math.round(D * (0.4 + rng() * 0.08)));
+    _placeMasterSuiteV(rooms, privX, 0, privW, masterH, master, masterBath, masterCloset, rng);
+    const hallH = Math.max(3, Math.min(5, Math.round(D * 0.06)));
+    rooms.push({ type: "hallway", label: "Hall", x: privX, y: masterH, w: privW, h: hallH,
+      bearing: [false, true, false, true] });
+    _aiStripVertical(rooms, _backfillPrivList(_orderPrivate(priv, service, rng)), privX, masterH + hallH, privW, D - masterH - hallH);
+  } else {
+    _aiStripVertical(rooms, _backfillPrivList(_orderPrivate(priv, service, rng)), privX, 0, privW, D);
+  }
+}
+
+// Hallway spine (Mediterranean)
+function _aiLayoutSpineV(rooms, W, D, zones, rng) {
+  const { pub, priv, service, master, masterBath, masterCloset } = zones;
+  const hallW = Math.max(4, Math.round(W * 0.08));
+  const flip  = rng() > 0.5;
+  const pubW  = Math.max(12, Math.round((W - hallW) * (0.46 + rng() * 0.06)));
+  const privW = W - hallW - pubW;
+  const pubX  = flip ? hallW + privW : 0;
+  const hallX = flip ? privW : pubW;
+  const privX = flip ? 0 : pubW + hallW;
+  rooms.push({ type: "hallway", label: "Hall", x: hallX, y: 0, w: hallW, h: D,
+    bearing: [true, false, true, false] });
+  _aiStripVertical(rooms, _orderPublic(pub, rng), pubX, 0, pubW, D);
+  if (master) {
+    const masterH = Math.max(12, Math.round(D * (0.4 + rng() * 0.08)));
+    _placeMasterSuiteV(rooms, privX, 0, privW, masterH, master, masterBath, masterCloset, rng);
+    const breakH = Math.max(3, Math.round(D * 0.04));
+    rooms.push({ type: "hallway", label: "Hall", x: privX, y: masterH, w: privW, h: breakH,
+      bearing: [false, true, false, true] });
+    _aiStripVertical(rooms, _backfillPrivList(_orderPrivate(priv, service, rng)), privX, masterH + breakH, privW, D - masterH - breakH);
+  } else {
+    _aiStripVertical(rooms, _backfillPrivList(_orderPrivate(priv, service, rng)), privX, 0, privW, D);
+  }
+}
+
+function _buildFromAiRooms(rooms, W, D, aiRooms, style, rng, opts) {
+  const upperFloor = !!(opts && opts.upperFloor);
+  const zones = _zoneFromAiRooms(aiRooms);
+  const hasPub  = zones.pub.length > 0;
+  const hasPriv = !!zones.master || zones.priv.length > 0;
+  if (!hasPub && !hasPriv) {
+    rooms.push({ type: "hallway", label: "Hall", x: 0, y: 0, w: W, h: D });
+    return;
+  }
+  if (!hasPub) {
+    if (zones.master) {
+      _aiLayoutTwoStripV(rooms, W, D, zones, rng, { pubPct: 0, flip: false });
+    } else {
+      _aiStripVertical(rooms, _orderPrivate(zones.priv, zones.service, rng), 0, 0, W, D);
+    }
+    return;
+  }
+  if (!hasPriv) {
+    _aiStripHorizontal(rooms, _orderPublic(zones.pub, rng), 0, 0, W, D);
+    return;
+  }
+  switch (style) {
+    case "Colonial":      _aiLayoutThreeStripH(rooms, W, D, zones, rng, { upperFloor }); break;
+    case "Modern":        _aiLayoutTwoStripV(rooms, W, D, zones, rng, { pubPct: 0.46 + rng() * 0.08, flip: rng() > 0.5 }); break;
+    case "Mediterranean": _aiLayoutSpineV(rooms, W, D, zones, rng); break;
+    case "Craftsman":     _aiLayoutTwoStripH(rooms, W, D, zones, rng, { frontPct: 0.42 + rng() * 0.06 }); break;
+    case "Ranch":
+    default:              _aiLayoutTwoStripH(rooms, W, D, zones, rng, { frontPct: 0.44 + rng() * 0.06 }); break;
+  }
+}
+
+// Mirror floor 1's stair onto an upper floor at the same coordinates so the
+// staircase column stacks between stories.  Stairs carry an all-false bearing
+// flag, so the wall classifier ignores their edges — that's why we can stamp
+// the stair on top of whatever room currently sits at that location without
+// fragmenting the layout.  The 3D builder renders the floor slab beneath the
+// stair plus the stair geometry, which is what you want visually for a
+// staircase landing on the upper floor.
+function _placeStairOnUpperFloor(rooms, refStair) {
+  if (!refStair || !(refStair.w > 0) || !(refStair.h > 0)) return;
+  rooms.push({
+    type: "stair", label: "Stairs",
+    x: refStair.x, y: refStair.y, w: refStair.w, h: refStair.h,
+    bearing: [false, false, false, false],
+    isStair: true,
+  });
+}
+
+// Distribute the AI-derived room list across stories.  Floor 1 keeps every
+// public room, every service room, and the master suite.  Remaining
+// secondary bedrooms / baths / closets / offices round-robin across upper
+// floors so each upstairs floor gets a sensible share.
+function _splitAiRoomsByFloor(aiRooms, stories) {
+  if (!Array.isArray(aiRooms) || aiRooms.length === 0) {
+    return Array(Math.max(1, stories)).fill(null);
+  }
+  if (stories <= 1) return [aiRooms];
+  const result = Array.from({ length: stories }, () => []);
+  const floor1Types = new Set(["living","dining","kitchen","entry","laundry","hallway","garage"]);
+  const remaining = [];
+  let masterDone = false, masterBathDone = false, masterClosetDone = false;
+  for (const r of aiRooms) {
+    if (!r || !r.type) continue;
+    const t = _normAiType(r.type);
+    if (floor1Types.has(t)) { result[0].push(r); continue; }
+    if (t === "bedroom" && !masterDone && _isMasterLabel(r.label)) {
+      result[0].push(r); masterDone = true; continue;
+    }
+    if (t === "bathroom" && !masterBathDone && _isEnsuiteBath(r.label)) {
+      result[0].push(r); masterBathDone = true; continue;
+    }
+    if (t === "closet" && !masterClosetDone && _isWalkInCloset(r.label, t)) {
+      result[0].push(r); masterClosetDone = true; continue;
+    }
+    remaining.push(r);
+  }
+  // If no master flagged, promote the first remaining bedroom to floor 1
+  if (!masterDone) {
+    const i = remaining.findIndex((r) => _normAiType(r.type) === "bedroom");
+    if (i >= 0) result[0].push(remaining.splice(i, 1)[0]);
+  }
+  let f = 1;
+  for (const r of remaining) {
+    result[f].push(r);
+    f += 1;
+    if (f >= stories) f = 1;
+  }
+  return result;
+}
+
 /**
  * Generate a tile-perfect floor plan from user preferences.
- * Style drives the room arrangement; bedrooms/bathrooms are distributed
- * proportionally so each gets adequate space.
+ * When `aiRooms` is supplied (from the dream-home chatbot), those rooms
+ * drive the layout directly; otherwise we fall back to the style template
+ * builders.  Style always controls the zoning strategy and a seeded RNG
+ * varies proportions so each generation looks different.
  * Every cell in the bounding box is covered by exactly one room.
  */
 function generateLocalFloorPlan(params) {
-  const { targetSF, bedrooms, bathrooms, stories, style, garage } = params;
+  const { targetSF, bedrooms, bathrooms, stories, style, garage, aiRooms, planSeed } = params;
   const storyArea = Math.round(targetSF / (stories || 1));
 
   // Style-specific aspect ratio (width : depth)
   const ASPECT = { Ranch: 1.75, Colonial: 1.15, Modern: 1.35, Craftsman: 1.5, Mediterranean: 1.05 };
   const ratio = ASPECT[style] || 1.5;
-  const depth = Math.max(20, Math.round(Math.sqrt(storyArea / ratio)));
+
+  const seed = (planSeed != null) ? (planSeed >>> 0) : _hashSeed(Date.now(), Math.random());
+  const rng  = _mulberry32(seed);
+
+  // Slight aspect jitter so two regenerations of the same brief don't
+  // produce identical footprints
+  const ratioJitter = ratio * (0.95 + rng() * 0.1);
+  const depth = Math.max(20, Math.round(Math.sqrt(storyArea / ratioJitter)));
   const width = Math.max(20, Math.round(storyArea / depth));
 
   const hasGarage = garage && garage !== "None" && garage !== "Detached";
@@ -1077,14 +1512,19 @@ function generateLocalFloorPlan(params) {
   const mainW     = width - garageW;
 
   const rooms = [];
+  const useAiPath = Array.isArray(aiRooms) && aiRooms.length >= 3;
 
-  // Dispatch to style-specific layout builder
-  switch (style) {
-    case "Colonial":      _buildColonial(rooms, mainW, depth, bedrooms, bathrooms);     break;
-    case "Modern":        _buildModern(rooms, mainW, depth, bedrooms, bathrooms);       break;
-    case "Mediterranean": _buildMediterranean(rooms, mainW, depth, bedrooms, bathrooms); break;
-    case "Craftsman":     _buildCraftsman(rooms, mainW, depth, bedrooms, bathrooms);    break;
-    default:              _buildRanch(rooms, mainW, depth, bedrooms, bathrooms);        break;
+  if (useAiPath) {
+    _buildFromAiRooms(rooms, mainW, depth, aiRooms, style, rng);
+  } else {
+    // Fallback: style template builders (manual dropdown / no AI input)
+    switch (style) {
+      case "Colonial":      _buildColonial(rooms, mainW, depth, bedrooms, bathrooms);     break;
+      case "Modern":        _buildModern(rooms, mainW, depth, bedrooms, bathrooms);       break;
+      case "Mediterranean": _buildMediterranean(rooms, mainW, depth, bedrooms, bathrooms); break;
+      case "Craftsman":     _buildCraftsman(rooms, mainW, depth, bedrooms, bathrooms);    break;
+      default:              _buildRanch(rooms, mainW, depth, bedrooms, bathrooms);        break;
+    }
   }
 
   // Attached garage: front bay + office/storage behind
@@ -1115,25 +1555,26 @@ function generateLocalFloorPlan(params) {
     ...interiorDoors,
   ];
   const windows = generateExteriorWindows(rooms, width, depth, doors);
-  const score = Math.round((0.82 + Math.random() * 0.15) * 100) / 100;
+  const score = Math.round((0.82 + rng() * 0.15) * 100) / 100;
   return {
-    id: `local-${Date.now()}`,
+    id: `local-${Date.now()}-${(seed >>> 0).toString(36)}`,
     width, depth, rooms, doors, windows,
     totalSF: rooms.reduce((s, r) => s + (r.w || 0) * (r.h || 0), 0),
-    score, stories, style,
+    score, stories, style, seed,
   };
 }
 
 /* ── Upper floor generator (story 2+): bedroom/bath focused, no garage ── */
 function generateUpperFloorPlan(params, refPlan) {
-  const { bedrooms, bathrooms, style, stories } = params;
+  const { bedrooms, bathrooms, style, stories, aiRooms, planSeed } = params;
   const width  = refPlan?.width  || 44;
   const depth  = refPlan?.depth  || 50;
 
   const rooms = [];
+  const useAi = Array.isArray(aiRooms) && aiRooms.length >= 1;
 
-  // If zero bedrooms and bathrooms allocated, return an empty floor for user customization
-  if (bedrooms === 0 && bathrooms === 0) {
+  // No allocated rooms and no AI rooms — return an empty floor for user customization
+  if (!useAi && bedrooms === 0 && bathrooms === 0) {
     return {
       id: `upper-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       width, depth, rooms: [], doors: [],
@@ -1144,61 +1585,83 @@ function generateUpperFloorPlan(params, refPlan) {
     };
   }
 
-  // Center hallway spine
-  const hallW = Math.max(4, Math.round(width * 0.08));
-  const hallX = Math.round(width / 2) - Math.round(hallW / 2);
-  rooms.push({ type: "hallway", label: "Hall", x: hallX, y: 0, w: hallW, h: depth,
-    bearing: [true, false, true, false] });
+  // Reuse floor 1's seed so RNG-derived zone breakpoints (front/back split,
+  // public column width, master-suite side, hallway position) match across
+  // stories — the load-bearing dividers stack instead of drifting.
+  const seed = (planSeed != null) ? (planSeed >>> 0)
+             : (refPlan?.seed != null ? (refPlan.seed >>> 0)
+             : _hashSeed(Date.now(), Math.random(), "upper", style || ""));
+  const rng  = _mulberry32(seed);
 
-  // Left side: primary suite (only if bedrooms allocated)
-  const leftW = hallX;
-  if (bedrooms >= 1) {
-    const primaryH = Math.round(depth * 0.55);
-    rooms.push({ type: "bedroom", label: "Primary Bedroom",
-      x: 0, y: 0, w: leftW, h: primaryH, bearing: [true, false, false, true] });
+  if (useAi) {
+    // Upper-floor aiRooms typically have no public rooms (those live on
+    // floor 1).  Inject a synthetic Bonus Room (typed `living` for layout
+    // purposes) so floor 2 has a real public zone too — that's what gives
+    // the same front/back or left/right divider as floor 1, instead of
+    // floor 2 collapsing to a single full-width column.
+    const upperAiRooms = [{ type: "living", label: "Bonus Room" }, ...aiRooms];
+    _buildFromAiRooms(rooms, width, depth, upperAiRooms, style, rng, { upperFloor: true });
+  } else {
+    // Center hallway spine
+    const hallW = Math.max(4, Math.round(width * 0.08));
+    const hallX = Math.round(width / 2) - Math.round(hallW / 2);
+    rooms.push({ type: "hallway", label: "Hall", x: hallX, y: 0, w: hallW, h: depth,
+      bearing: [true, false, true, false] });
 
-    if (bathrooms >= 1) {
-      const enSuiteH = Math.round(depth * 0.22);
-      rooms.push({ type: "bathroom", label: "Primary Bath",
-        x: 0, y: primaryH, w: leftW, h: enSuiteH, bearing: [false, false, false, true] });
-      const leftRemain = depth - primaryH - enSuiteH;
-      if (leftRemain > 4) {
-        rooms.push({ type: "laundry", label: "Laundry",
-          x: 0, y: primaryH + enSuiteH, w: leftW, h: leftRemain, bearing: [false, false, true, true] });
+    // Left side: primary suite (only if bedrooms allocated)
+    const leftW = hallX;
+    if (bedrooms >= 1) {
+      const primaryH = Math.round(depth * 0.55);
+      rooms.push({ type: "bedroom", label: "Primary Bedroom",
+        x: 0, y: 0, w: leftW, h: primaryH, bearing: [true, false, false, true] });
+
+      if (bathrooms >= 1) {
+        const enSuiteH = Math.round(depth * 0.22);
+        rooms.push({ type: "bathroom", label: "Primary Bath",
+          x: 0, y: primaryH, w: leftW, h: enSuiteH, bearing: [false, false, false, true] });
+        const leftRemain = depth - primaryH - enSuiteH;
+        if (leftRemain > 4) {
+          rooms.push({ type: "laundry", label: "Laundry",
+            x: 0, y: primaryH + enSuiteH, w: leftW, h: leftRemain, bearing: [false, false, true, true] });
+        }
+      } else {
+        const leftRemain = depth - primaryH;
+        if (leftRemain > 4) {
+          rooms.push({ type: "closet", label: "Walk-in Closet",
+            x: 0, y: primaryH, w: leftW, h: leftRemain, bearing: [false, false, true, true] });
+        }
       }
-    } else {
-      const leftRemain = depth - primaryH;
-      if (leftRemain > 4) {
-        rooms.push({ type: "closet", label: "Walk-in Closet",
-          x: 0, y: primaryH, w: leftW, h: leftRemain, bearing: [false, false, true, true] });
+    }
+
+    // Right side: secondary bedrooms + shared bath
+    const rightX = hallX + hallW;
+    const rightW = width - rightX;
+    const secBeds = Math.max(0, bedrooms - 1);
+    if (secBeds > 0) {
+      const bedH = Math.round((depth * 0.65) / secBeds);
+      for (let i = 0; i < secBeds; i++) {
+        rooms.push({ type: "bedroom", label: `Bedroom ${i + 2}`,
+          x: rightX, y: i * bedH, w: rightW, h: bedH,
+          bearing: [i === 0, true, false, false] });
+      }
+      const usedH = secBeds * bedH;
+      const remainingBaths = Math.max(0, bathrooms - (bedrooms >= 1 ? 1 : 0));
+      if (remainingBaths > 0) {
+        const sharedBathH = Math.round((depth - usedH) * 0.65);
+        if (sharedBathH > 4) {
+          rooms.push({ type: "bathroom", label: remainingBaths >= 2 ? "Bath 2" : "Full Bath",
+            x: rightX, y: usedH, w: rightW, h: sharedBathH, bearing: [false, true, false, false] });
+        }
       }
     }
   }
-  // No bedrooms allocated — left side left blank for user customization
 
-  // Right side: secondary bedrooms + shared bath
-  const rightX = hallX + hallW;
-  const rightW = width - rightX;
-  const secBeds = Math.max(0, bedrooms - 1);
-  if (secBeds > 0) {
-    const bedH = Math.round((depth * 0.65) / secBeds);
-    for (let i = 0; i < secBeds; i++) {
-      rooms.push({ type: "bedroom", label: `Bedroom ${i + 2}`,
-        x: rightX, y: i * bedH, w: rightW, h: bedH,
-        bearing: [i === 0, true, false, false] });
-    }
-    const usedH = secBeds * bedH;
-    const remainingBaths = Math.max(0, bathrooms - (bedrooms >= 1 ? 1 : 0));
-    if (remainingBaths > 0) {
-      const sharedBathH = Math.round((depth - usedH) * 0.65);
-      if (sharedBathH > 4) {
-        rooms.push({ type: "bathroom", label: remainingBaths >= 2 ? "Bath 2" : "Full Bath",
-          x: rightX, y: usedH, w: rightW, h: sharedBathH, bearing: [false, true, false, false] });
-      }
-    }
+  // Mirror floor 1's stair onto this floor so the staircase column lines
+  // up across stories.
+  if (refPlan && Array.isArray(refPlan.rooms)) {
+    const refStair = refPlan.rooms.find((r) => r.type === "stair" || r.isStair);
+    if (refStair) _placeStairOnUpperFloor(rooms, refStair);
   }
-  // No secondary bedrooms — right side left blank for user customization
-  // (remaining vertical space intentionally left empty — no closet auto-generated)
 
   // Auto openings on the upper floor: interior doors between allowed
   // adjacent rooms and exterior windows on renderable walls.  No exterior
@@ -1206,11 +1669,11 @@ function generateUpperFloorPlan(params, refPlan) {
   const doors = generateInteriorDoors(rooms);
   const windows = generateExteriorWindows(rooms, width, depth, doors);
   return {
-    id: `upper-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    id: `upper-${Date.now()}-${(seed >>> 0).toString(36)}`,
     width, depth, rooms, doors, windows,
     totalSF: rooms.reduce((s, r) => s + r.w * r.h, 0),
-    score: Math.round((0.7 + Math.random() * 0.25) * 100) / 100,
-    stories, style,
+    score: Math.round((0.7 + rng() * 0.25) * 100) / 100,
+    stories, style, seed,
   };
 }
 
@@ -2428,9 +2891,27 @@ export default function FloorPlanEditor() {
 
   // Force redraw after mount so the canvas paints correctly after back-navigation
   // from Preview3D (layout must settle before dimensions are available).
+  // We hold the latest `render` in a ref and call it via two animation frames
+  // — one to clear the macrotask queue (so the placedItems-loading effect has
+  // run and `render` has been recreated with the populated state), one to
+  // ensure the canvas's bounding rect is settled.  Calling setTimeout(render)
+  // directly would capture the initial render closure (placedItems = []) and
+  // overwrite the canvas with empty rooms after the placedItems effect, which
+  // is exactly the "floor 1 blank on return from 3D" bug.
+  const renderLatestRef = useRef(render);
+  useEffect(() => { renderLatestRef.current = render; }, [render]);
   useEffect(() => {
-    const id = setTimeout(render, 0);
-    return () => clearTimeout(id);
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const fn = renderLatestRef.current;
+        if (typeof fn === "function") fn();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -2819,19 +3300,39 @@ export default function FloorPlanEditor() {
 
     // Distribute bedrooms/bathrooms evenly across all floors
     const alloc = computeFloorAllocation(storiesToGen, p.bedrooms, p.bathrooms);
+    // Distribute the AI-derived room list across floors so floor 1 gets the
+    // public + master suite and upstairs gets the secondary bedrooms.
+    const aiRoomsByFloor = _splitAiRoomsByFloor(p.aiRooms, storiesToGen);
+    // Distinct seed for each call so variants — and re-generations — look
+    // different even with identical inputs.
+    const seedBase = _hashSeed(Date.now(), p.style || "", p.targetSF || 0, p.bedrooms || 0);
 
     const newAllStoryVariants = [];
     for (let si = 0; si < storiesToGen; si++) {
       const { beds: storyBeds, baths: storyBaths } = alloc[si] ?? { beds: 1, baths: 1 };
+      const floorAi = aiRoomsByFloor[si] || null;
       if (si > 0) {
         const refPlan = newAllStoryVariants[0]?.[0];
-        const upperParams = { ...p, garage: "None", bedrooms: storyBeds, bathrooms: storyBaths };
+        const upperParams = {
+          ...p, garage: "None",
+          bedrooms: storyBeds, bathrooms: storyBaths,
+          aiRooms: floorAi,
+          // Reuse refPlan's seed so floor 2's RNG-derived dividers (front/back
+          // split, master-suite side, hallway widths) line up with floor 1.
+          planSeed: refPlan?.seed,
+        };
         newAllStoryVariants.push([generateUpperFloorPlan(upperParams, refPlan)]);
       } else {
-        const floorParams = storiesToGen > 1 ? { ...p, bedrooms: storyBeds, bathrooms: storyBaths } : p;
+        const floorParams = storiesToGen > 1
+          ? { ...p, bedrooms: storyBeds, bathrooms: storyBaths, aiRooms: floorAi }
+          : { ...p, aiRooms: floorAi };
         newAllStoryVariants.push([
-          generateLocalFloorPlan(floorParams),
-          generateLocalFloorPlan({ ...floorParams, openFloorPlan: !floorParams.openFloorPlan }),
+          generateLocalFloorPlan({ ...floorParams, planSeed: _hashSeed(seedBase, "v1") }),
+          generateLocalFloorPlan({
+            ...floorParams,
+            openFloorPlan: !floorParams.openFloorPlan,
+            planSeed: _hashSeed(seedBase, "v2"),
+          }),
         ]);
       }
     }
