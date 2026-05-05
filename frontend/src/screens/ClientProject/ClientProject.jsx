@@ -7,6 +7,9 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import House3D from "../../components/3d/House3D";
 import { resolveHouseColors } from "../../lib/housePrefs";
+import GuidedTour from "../../components/shared/GuidedTour";
+import HelpTip from "../../components/shared/HelpTip";
+import { useUserType } from "../../context/UserTypeContext";
 
 const CATEGORY_COLOR = {
   SITEWORK:   "#a78bfa",
@@ -586,6 +589,7 @@ export default function ClientProject() {
   const navigate = useNavigate();
   const location = useLocation();
   const { setProjectId } = useProject();
+  const { isBuilder } = useUserType();
 
   const [project, setProject] = useState(mockProjectsDatabase[id] ?? null);
   const [loading, setLoading] = useState(!mockProjectsDatabase[id]);
@@ -694,6 +698,96 @@ export default function ClientProject() {
         position: "relative"
       }}
     >
+      {isBuilder && (
+        <GuidedTour
+          storageKey="client-project"
+          title="Client Project Hub"
+          steps={[
+            {
+              title: "Everything for one client, one screen",
+              body: (
+                <>
+                  This is the operational view for a single client&rsquo;s build. 3D model, schedule,
+                  financials, feasibility, and a direct line to message them &mdash; everything you need
+                  to deliver the project lives here.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="cp-message-client"]',
+              placement: "bottom",
+              title: "Message Client",
+              body: (
+                <>
+                  Opens the threaded chat with this homeowner. They get notified in-app. Use it for
+                  status updates, change orders, and quick questions &mdash; everything is logged on the
+                  project.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="cp-generate-report"]',
+              placement: "bottom",
+              title: "Generate Report",
+              body: (
+                <>
+                  Print-ready PDF summary &mdash; project overview, full Gantt schedule, cost breakdown,
+                  and feasibility scan. Perfect for permitting submittals or a stakeholder packet.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="cp-architecture"]',
+              placement: "bottom",
+              title: "Architecture & Model",
+              body: (
+                <>
+                  Read-only 3D model + top-down floor plan, exactly what the client built in Vision.
+                  You can&rsquo;t edit it &mdash; if changes are needed, ask the client to update on their side.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="cp-schedule"]',
+              placement: "top",
+              title: "Schedule preview",
+              body: (
+                <>
+                  Live phase tracker with the current phase highlighted. Tap <b>View Detail</b> to
+                  open the full Gantt where you can edit start dates, mark phases complete, and
+                  export a builder PDF.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="cp-financial"]',
+              placement: "top",
+              title: "Financial Breakdown",
+              body: (
+                <>
+                  Per-layer cost split derived from the materials your client picked &mdash; foundation,
+                  framing, finishes, etc. Compare against your own bid to surface gaps before kickoff.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="cp-feasibility"]',
+              placement: "left",
+              title: "Feasibility Scan",
+              body: (
+                <>
+                  Score blends nearby comps, structural QA, and zoning approval status. Anything in
+                  <b> Pending</b> is something Vision couldn&rsquo;t auto-verify &mdash; do the manual check
+                  yourself before breaking ground.
+                </>
+              ),
+              optional: true,
+            },
+          ]}
+        />
+      )}
       {/* Ambient glow */}
       <div
         aria-hidden
@@ -746,12 +840,14 @@ export default function ClientProject() {
              </button>
              <button
                onClick={() => openProjectReport(project)}
+               data-tour="cp-generate-report"
                style={{ padding: "10px 20px", background: "rgba(255,255,255,0.05)", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, color: colors.textBright, fontWeight: "bold", cursor: "pointer" }}
              >
                Generate Report
              </button>
-             <button 
-               onClick={() => navigate('/builderchat', { state: { client: { name: project.client, initials: project.client.split(' ').map(n=>n[0]).join('') } } })} 
+             <button
+               onClick={() => navigate('/builderchat', { state: { client: { name: project.client, initials: project.client.split(' ').map(n=>n[0]).join('') } } })}
+               data-tour="cp-message-client"
                style={{ padding: "10px 20px", background: "linear-gradient(135deg, #2563eb, #1d4ed8)", border: "none", borderRadius: radii.md, color: "#fff", fontWeight: "bold", cursor: "pointer", boxShadow: "0 4px 14px rgba(37,99,235,0.4)" }}
              >
                Message Client
@@ -763,7 +859,7 @@ export default function ClientProject() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "24px", marginBottom: "24px" }}>
           
           {/* 3D Home & Floorplan Overview */}
-          <div style={{ gridColumn: "1 / -1" }}>
+          <div data-tour="cp-architecture" style={{ gridColumn: "1 / -1" }}>
             <WidgetCard title="Architecture & Model Overview" style={{ padding: "32px" }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", gap: "24px" }}>
                  {/* 3D Model — real data if available, placeholder for hardcoded */}
@@ -824,22 +920,37 @@ export default function ClientProject() {
           </div>
 
           {/* Schedule */}
-          <SchedulePreviewCard
-            schedule={project._schedule ?? null}
-            timeline={project.timeline}
-            onViewDetail={() => {
-              if (!mockProjectsDatabase[id]) setProjectId(id);
-              navigate("/schedule");
-            }}
-          />
+          <div data-tour="cp-schedule">
+            <SchedulePreviewCard
+              schedule={project._schedule ?? null}
+              timeline={project.timeline}
+              onViewDetail={() => {
+                if (!mockProjectsDatabase[id]) setProjectId(id);
+                navigate("/schedule");
+              }}
+            />
+          </div>
 
           {/* Cost Breakdown */}
+          <div data-tour="cp-financial">
           <WidgetCard title="Financial Breakdown">
             <div style={{ marginBottom: "24px" }}>
-              <div style={{ fontSize: "0.875rem", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Total Budget</div>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.875rem", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
+                Total Budget
+                <HelpTip
+                  size={11}
+                  title="Total Budget"
+                  body="Sum of all material layer costs scaled to the home's square footage. Sourced directly from the client's Vision build — does not include your labor markup, permit fees, or contingency."
+                />
+              </div>
               <div style={{ fontSize: "2rem", color: colors.textBright, fontWeight: "bold", fontFamily: fonts.data }}>{formatCurrency(project.cost.budget)}</div>
-              <div style={{ color: colors.success, fontSize: "0.875rem", fontWeight: 600, marginTop: 4 }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, color: colors.success, fontSize: "0.875rem", fontWeight: 600, marginTop: 4 }}>
                 {formatCurrency(project.cost.spent)} spent to date
+                <HelpTip
+                  size={11}
+                  title="Spent to date"
+                  body="Cumulative cost charged across completed and active phases. Updates automatically when you mark a phase complete in the Schedule view."
+                />
               </div>
             </div>
 
@@ -858,9 +969,10 @@ export default function ClientProject() {
               ))}
             </div>
           </WidgetCard>
+          </div>
 
           {/* Feasibility & Location */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+          <div data-tour="cp-feasibility" style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
             <WidgetCard title="Feasibility Scan">
               {(() => {
                 const plot = project._plot;

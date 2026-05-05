@@ -789,6 +789,83 @@ function ScheduleTimelineInner() {
   return (
     <div style={{ height: "100%", background: colors.bgGradient, display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
 
+      {!isHomeowner && (
+        <GuidedTour
+          storageKey="schedule-builder"
+          title="Construction Schedule"
+          steps={[
+            {
+              title: "Your project clock",
+              body: (
+                <>
+                  Builder mode unlocks edit controls homeowners don&rsquo;t see &mdash; start date, per-phase
+                  completion checkboxes, PDF export, and the View Client&rsquo;s Model jump.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="start-date-edit"]',
+              placement: "bottom",
+              title: "Editable start date",
+              body: (
+                <>
+                  Pick the actual project kickoff date here. Vision rolls all phase dates from this
+                  anchor &mdash; change it after a permit delay and the entire Gantt shifts.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="view-client-model"]',
+              placement: "bottom",
+              title: "View Client&rsquo;s Model",
+              body: (
+                <>
+                  Jumps to the read-only 3D preview the client sees. Useful when you need to
+                  reference geometry or color choices without leaving the schedule.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="gantt"]',
+              placement: "top",
+              title: "Phase rows",
+              body: (
+                <>
+                  Each row is one construction phase categorized as <b>Sitework / Foundation /
+                  Structure / MEP / Enclosure / Finishes / Closeout</b>. Bar length = duration; overlapping
+                  bars = parallel work. Vertical line marks today.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="phase-list"]',
+              placement: "left",
+              title: "Mark phases complete",
+              body: (
+                <>
+                  Click a phase row to expand it. Builder mode shows a checkbox &mdash; tick it to mark
+                  the phase done. The progress ring on the client&rsquo;s dashboard updates automatically.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="time-slider"]',
+              placement: "top",
+              title: "Scrub the build in 3D",
+              body: (
+                <>
+                  Drag to fast-forward construction. The 3D model above re-renders at that point in
+                  the build &mdash; great for client walkthroughs.
+                </>
+              ),
+              optional: true,
+            },
+          ]}
+        />
+      )}
       {isHomeowner && (
         <GuidedTour
           storageKey="schedule"
@@ -924,6 +1001,7 @@ function ScheduleTimelineInner() {
                   type="date"
                   value={startDateStr}
                   onChange={(e) => e.target.value && setStartDateStr(e.target.value)}
+                  data-tour="start-date-edit"
                   style={{ background: colors.panel, border: `1px solid ${colors.panelBorder}`, borderRadius: 6, color: colors.text, fontFamily: fonts.data, fontSize: 11, padding: "4px 8px", outline: "none", cursor: "pointer" }}
                 />
               )}
@@ -941,6 +1019,7 @@ function ScheduleTimelineInner() {
               <button
                 onClick={() => navigate("/preview3d")}
                 title="View client's 3D model"
+                data-tour="view-client-model"
                 style={{
                   padding: "5px 14px", borderRadius: 6, fontFamily: fonts.label, fontSize: 12, fontWeight: 600,
                   cursor: "pointer", transition: "all 0.2s ease", flexShrink: 0,

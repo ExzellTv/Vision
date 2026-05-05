@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { colors, fonts, radii, card } from "../../theme/tokens";
 import { useBuilderStore } from "../../context/BuilderContext";
+import GuidedTour from "../../components/shared/GuidedTour";
+import HelpTip from "../../components/shared/HelpTip";
+import { useUserType } from "../../context/UserTypeContext";
 
-function WidgetCard({ title, children, style = {} }) {
+function WidgetCard({ title, help, children, style = {} }) {
   return (
     <div
       style={{
@@ -18,23 +21,27 @@ function WidgetCard({ title, children, style = {} }) {
         ...style
       }}
     >
-      <h3 style={{ margin: "0 0 16px 0", fontSize: "1rem", color: colors.textBright, fontWeight: "bold", letterSpacing: "-0.01em" }}>
+      <h3 style={{ margin: "0 0 16px 0", fontSize: "1rem", color: colors.textBright, fontWeight: "bold", letterSpacing: "-0.01em", display: "inline-flex", alignItems: "center", gap: 6 }}>
         {title}
+        {help && <HelpTip size={12} title={title} body={help} />}
       </h3>
       <div style={{ flex: 1 }}>{children}</div>
     </div>
   );
 }
 
-function RequestExpansion({ project }) {
+function RequestExpansion({ project, tourFirst }) {
   const formatCurrency = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
 
   return (
-    <div style={{ padding: "24px", background: "rgba(0,0,0,0.2)", borderTop: `1px solid ${colors.cardBorder}` }}>
+    <div data-tour={tourFirst ? "request-expansion" : undefined} style={{ padding: "24px", background: "rgba(0,0,0,0.2)", borderTop: `1px solid ${colors.cardBorder}` }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px" }}>
-        
+
         {/* Architecture Placeholder */}
-        <WidgetCard title="3D & Plan Overview">
+        <WidgetCard
+          title="3D & Plan Overview"
+          help="A read-only preview of the home the client designed in Vision — the 3D massing model and the top-down floor plan. Use this to scope the build before you commit."
+        >
            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
              <div style={{ background: "rgba(10, 15, 26, 0.6)", borderRadius: radii.md, height: "140px", border: `1px solid ${colors.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", color: colors.textDim }}>
                [Interactive Model]
@@ -46,7 +53,10 @@ function RequestExpansion({ project }) {
         </WidgetCard>
 
         {/* Financial Setup */}
-        <WidgetCard title="Estimated Financial Setup">
+        <WidgetCard
+          title="Estimated Financial Setup"
+          help="Vision's pre-feasibility estimate of total project cash — land, construction, soft costs, and a contingency buffer. Treat as a starting point for your own bid; not binding."
+        >
           <div style={{ marginBottom: "16px" }}>
             <div style={{ fontSize: "0.875rem", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Proposed Budget</div>
             <div style={{ fontSize: "1.75rem", color: colors.textBright, fontWeight: "bold", fontFamily: fonts.data }}>{formatCurrency(project.cost?.budget || 800000)}</div>
@@ -57,7 +67,10 @@ function RequestExpansion({ project }) {
         </WidgetCard>
 
         {/* Feasibility Scan */}
-        <WidgetCard title="Feasibility Scan">
+        <WidgetCard
+          title="Feasibility Scan"
+          help="A 0–100 buildability + market score Vision auto-runs at request time. It blends nearby comparable sales (50%), cost-to-rebuild (30%), and projected resale/rental income (20%). Above 70 is a green light."
+        >
           <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px" }}>
             <div style={{ width: "60px", height: "60px", borderRadius: "50%", border: `4px solid ${colors.success}`, display: "flex", alignItems: "center", justifyContent: "center", color: colors.success, fontSize: "1.25rem", fontWeight: "bold", fontFamily: fonts.data }}>
               {project.feasibility?.score || 85}
@@ -82,6 +95,7 @@ function RequestExpansion({ project }) {
 
 export default function BuilderRequests() {
   const { projects, approveRequest, denyRequest } = useBuilderStore();
+  const { isBuilder } = useUserType();
   const [expandedId, setExpandedId] = useState(null);
 
   const pendingRequests = projects.filter((p) => p.status === "New Request");
@@ -102,6 +116,71 @@ export default function BuilderRequests() {
         position: "relative",
       }}
     >
+      {isBuilder && (
+        <GuidedTour
+          storageKey="builder-requests"
+          title="Inbound Requests"
+          steps={[
+            {
+              title: "Triage incoming work",
+              body: (
+                <>
+                  Every request a Vision client sends to you lands here. We&rsquo;ll show you the
+                  approve/deny flow and how to read the auto-generated feasibility &amp; financial preview
+                  before you commit.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="request-row"]',
+              placement: "bottom",
+              title: "One row per request",
+              body: (
+                <>
+                  Header shows project name, client, and address. Click anywhere on the row to expand
+                  the full preview. The chevron at the right also flips to indicate state.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="approve-btn"]',
+              placement: "left",
+              title: "Approve / Deny",
+              body: (
+                <>
+                  <b>Approve</b> moves the request into your <i>Active projects</i> list and notifies
+                  the client. <b>Deny</b> archives the request &mdash; no message is sent automatically, so
+                  follow up manually if needed.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="request-expansion"]',
+              placement: "top",
+              title: "What you get before approving",
+              body: (
+                <>
+                  The expanded panel shows the client&rsquo;s 3D model + floor plan, their proposed budget,
+                  and Vision&rsquo;s feasibility scan (zoning, market viability). Use it to scope before you
+                  say yes.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              title: "Need a deeper look?",
+              body: (
+                <>
+                  Approve the request to unlock the full <b>Client Project</b> hub &mdash; live schedule
+                  tracking, financial breakdown, structural QA, and a direct message thread.
+                </>
+              ),
+            },
+          ]}
+        />
+      )}
       <div
         aria-hidden
         style={{
@@ -139,9 +218,10 @@ export default function BuilderRequests() {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            {pendingRequests.map((req) => (
+            {pendingRequests.map((req, reqIdx) => (
               <div
                 key={req.id}
+                data-tour={reqIdx === 0 ? "request-row" : undefined}
                 style={{
                   ...card,
                   borderRadius: radii.md,
@@ -152,12 +232,12 @@ export default function BuilderRequests() {
                 }}
               >
                 {/* Header Row */}
-                <div 
+                <div
                   onClick={() => handleExpand(req.id)}
-                  style={{ 
-                    padding: "20px 24px", 
-                    display: "flex", 
-                    alignItems: "center", 
+                  style={{
+                    padding: "20px 24px",
+                    display: "flex",
+                    alignItems: "center",
                     justifyContent: "space-between",
                     cursor: "pointer",
                     background: expandedId === req.id ? "rgba(0, 212, 255, 0.03)" : "transparent"
@@ -177,6 +257,7 @@ export default function BuilderRequests() {
                     <div style={{ display: "flex", gap: "8px" }} onClick={(e) => e.stopPropagation()}>
                        <button
                          onClick={() => approveRequest(req.id)}
+                         data-tour={reqIdx === 0 ? "approve-btn" : undefined}
                          style={{ padding: "8px 16px", background: colors.successDim, border: `1px solid rgba(46, 213, 115, 0.35)`, borderRadius: radii.md, color: colors.success, fontWeight: "bold", cursor: "pointer", transition: "all 0.2s" }}
                        >
                          Approve
@@ -196,7 +277,7 @@ export default function BuilderRequests() {
 
                 {/* Expanded Area */}
                 {expandedId === req.id && (
-                  <RequestExpansion project={req} />
+                  <RequestExpansion project={req} tourFirst={reqIdx === 0} />
                 )}
               </div>
             ))}

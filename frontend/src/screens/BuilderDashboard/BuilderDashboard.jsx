@@ -4,6 +4,9 @@ import { useNavigate } from "react-router-dom";
 
 import { useBuilderStore } from "../../context/BuilderContext";
 import { projectsApi } from "../../services/api";
+import GuidedTour from "../../components/shared/GuidedTour";
+import HelpTip from "../../components/shared/HelpTip";
+import { useUserType } from "../../context/UserTypeContext";
 
 function derivePhaseAndProgress(schedule) {
   if (!schedule?.phases?.length) return { phase: "Planning", progress: 0 };
@@ -82,12 +85,13 @@ function ProgressCircle({ percentage, tone }) {
   );
 }
 
-function ProjectCard({ project, onFinish }) {
+function ProjectCard({ project, onFinish, tourFirst }) {
   const badgeStyle = statusStyles[project.statusTone] || statusStyles.accent;
   const navigate = useNavigate();
 
   return (
     <div
+      data-tour={tourFirst ? "builder-project-card" : undefined}
       style={{
         ...card,
         display: "flex",
@@ -182,6 +186,7 @@ function ProjectCard({ project, onFinish }) {
           <div style={{ display: "flex", gap: "8px" }}>
             <button
               onClick={() => navigate(`/client-project/${project.id}`)}
+              data-tour={tourFirst ? "builder-view-project" : undefined}
               style={{
                 color: colors.textBright,
                 background: "rgba(0, 212, 255, 0.16)",
@@ -232,6 +237,7 @@ function ProjectCard({ project, onFinish }) {
 
 export default function ProjectsPage() {
   const { projects, refreshProjects, finishProject } = useBuilderStore();
+  const { isBuilder } = useUserType();
   const [scheduleMap, setScheduleMap] = useState({});
   const [confirmFinish, setConfirmFinish] = useState(null);
   const [completedCount, setCompletedCount] = useState(0);
@@ -274,6 +280,69 @@ export default function ProjectsPage() {
         overflowX: "hidden",
       }}
     >
+      {isBuilder && (
+        <GuidedTour
+          storageKey="builder-dashboard"
+          title="Builder Hub"
+          steps={[
+            {
+              title: "Your project hub",
+              body: (
+                <>
+                  Everything a Vision client kicks over to you lives here. Active builds, inbound
+                  requests, completed jobs &mdash; one screen, no email threads. We&rsquo;ll show you the
+                  controls.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="builder-stats"]',
+              placement: "bottom",
+              title: "Your pipeline at a glance",
+              body: (
+                <>
+                  <b>Active</b> = builds in flight. <b>Pending</b> = inbound requests waiting on your
+                  approval. <b>Completed</b> = lifetime closed builds. The pending count is what you
+                  should act on first.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="builder-project-card"]',
+              placement: "right",
+              title: "Anatomy of a project card",
+              body: (
+                <>
+                  Status badge top-right, current phase + a live progress ring middle, client name on
+                  the bottom strip. Hover to lift; click <b>View project</b> to drop into the full
+                  hub.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="builder-view-project"]',
+              placement: "top",
+              title: "View project",
+              body: (
+                <>
+                  Opens the client project hub &mdash; 3D model, floor plan, schedule, financial
+                  breakdown, feasibility scan, and a direct line to message the client.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              title: "Pending requests live elsewhere",
+              body: (
+                <>
+                  Inbound requests don&rsquo;t show as cards here &mdash; they live in <b>Builder Requests</b> in the nav. Approve or deny from there; approved ones appear here as Active.
+                </>
+              ),
+            },
+          ]}
+        />
+      )}
       {/* Ambient glow */}
       <div
         aria-hidden
@@ -323,16 +392,28 @@ export default function ProjectsPage() {
         </div>
 
         {/* Stats Row */}
-        <div style={{
+        <div data-tour="builder-stats" style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
           gap: "20px",
           marginBottom: "40px"
         }}>
           {[
-            { label: "Active projects", value: activeProjects.length },
-            { label: "Pending requests", value: pendingRequests.length },
-            { label: "Completed builds", value: completedCount },
+            {
+              label: "Active projects",
+              value: activeProjects.length,
+              help: "Projects where you've already accepted the request and the build is in progress (Planning through Closeout). Click any card to open the full hub.",
+            },
+            {
+              label: "Pending requests",
+              value: pendingRequests.length,
+              help: "Inbound requests from clients waiting on your decision. Open the Builder Requests page to approve or deny — approved requests move to Active here.",
+            },
+            {
+              label: "Completed builds",
+              value: completedCount,
+              help: "Lifetime count of builds you've marked complete. Used as a public trust signal on your Browse Builders profile.",
+            },
           ].map((stat) => (
             <div
               key={stat.label}
@@ -348,8 +429,9 @@ export default function ProjectsPage() {
                 boxShadow: "0 14px 30px rgba(7, 10, 15, 0.06)",
               }}
             >
-              <span style={{ color: colors.textDim, fontSize: "0.875rem", fontWeight: 500 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: colors.textDim, fontSize: "0.875rem", fontWeight: 500 }}>
                 {stat.label}
+                <HelpTip size={12} title={stat.label} body={stat.help} />
               </span>
               <span style={{ color: colors.textBright, fontFamily: fonts.data, fontSize: "2.25rem", fontWeight: "bold" }}>
                 {stat.value}
@@ -365,7 +447,7 @@ export default function ProjectsPage() {
           gap: "28px",
           paddingBottom: "32px"
         }}>
-          {activeProjects.map((project) => {
+          {activeProjects.map((project, projectIdx) => {
             const sched = scheduleMap[project.id];
             const enriched = sched ? { ...project, phase: sched.phase, progress: sched.progress } : project;
             return (
@@ -373,6 +455,7 @@ export default function ProjectsPage() {
                 key={project.id}
                 project={enriched}
                 onFinish={(id, name) => setConfirmFinish({ id, name })}
+                tourFirst={projectIdx === 0}
               />
             );
           })}

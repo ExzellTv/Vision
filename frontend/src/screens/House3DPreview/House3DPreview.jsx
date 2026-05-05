@@ -293,6 +293,72 @@ export default function House3DPreview() {
         overflow: "hidden",
       }}
     >
+      {!isHomeowner && (
+        <GuidedTour
+          storageKey="preview3d-builder"
+          title="3D Preview"
+          steps={[
+            {
+              title: "Architectural review, in 3D",
+              body: (
+                <>
+                  This is the client&rsquo;s home rendered live from the floor plan. Use it to spot-check
+                  massing, roof geometry, and material choices before quoting.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="viewport"]',
+              placement: "right",
+              title: "Inspect the model",
+              body: (
+                <>
+                  Drag to orbit, scroll to zoom, right-click drag to pan. The model is dimensionally
+                  accurate to the floor plan &mdash; useful for spot-checking spans, eaves, and parapets.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="roof-style"]',
+              placement: "left",
+              title: "Roof Style",
+              body: (
+                <>
+                  Switch the parametric roof (gable / hip / flat / shed). Affects rafter spans and
+                  drainage detailing &mdash; not a finish swap. If the client locked a style on their side,
+                  changes here are advisory only.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="wall-material"]',
+              placement: "left",
+              title: "Exterior Material",
+              body: (
+                <>
+                  Cladding system &mdash; brick, lap siding, stucco, fiber cement. Drives sheathing/WRB
+                  detailing and per-SF cost in the layer breakdown. Use this to model alternates the
+                  client hasn&rsquo;t committed to.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="ai-render"]',
+              placement: "left",
+              title: "AI Photoreal Render",
+              body: (
+                <>
+                  Pipes a snapshot of the model to FLUX Kontext. Useful for client comms and
+                  marketing collateral &mdash; <b>not</b> a substitute for the actual model when bidding or
+                  permitting.
+                </>
+              ),
+            },
+          ]}
+        />
+      )}
       {isHomeowner && (
         <GuidedTour
           storageKey="preview3d"
@@ -892,7 +958,7 @@ export default function House3DPreview() {
         >
           {/* Roof Type - Builder only */}
           {isBuilder && (
-            <div style={{ marginBottom: 24 }}>
+            <div data-tour="roof-style" style={{ marginBottom: 24 }}>
               <div
                 style={{
                   fontSize: 11,
@@ -901,9 +967,24 @@ export default function House3DPreview() {
                   textTransform: "uppercase",
                   color: colors.textDim,
                   marginBottom: 10,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
                 }}
               >
                 Roof Style
+                <HelpTip
+                  size={11}
+                  title="Roof Style"
+                  body={
+                    <div style={{ lineHeight: 1.55 }}>
+                      <div style={{ marginBottom: 4 }}><b>Gable</b> &mdash; two-slope, simplest framing, attic potential</div>
+                      <div style={{ marginBottom: 4 }}><b>Hip</b> &mdash; four-slope, better wind resistance, more complex framing</div>
+                      <div style={{ marginBottom: 4 }}><b>Flat</b> &mdash; modern, requires positive drainage and parapet detailing</div>
+                      <div><b>Shed</b> &mdash; single slope, clean modern lines, good for additions</div>
+                    </div>
+                  }
+                />
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 {ROOF_TYPES.map((rt) => (
@@ -931,7 +1012,7 @@ export default function House3DPreview() {
 
           {/* Wall Material - Builder only */}
           {isBuilder && (
-            <div style={{ marginBottom: 24 }}>
+            <div data-tour="wall-material" style={{ marginBottom: 24 }}>
               <div
                 style={{
                   fontSize: 11,
@@ -940,9 +1021,24 @@ export default function House3DPreview() {
                   textTransform: "uppercase",
                   color: colors.textDim,
                   marginBottom: 10,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
                 }}
               >
                 Exterior Material
+                <HelpTip
+                  size={11}
+                  title="Exterior Cladding"
+                  body={
+                    <div style={{ lineHeight: 1.55 }}>
+                      <div style={{ marginBottom: 4 }}><b>Brick</b> &mdash; high-cost, 50+ yr, minimal upkeep</div>
+                      <div style={{ marginBottom: 4 }}><b>Lap siding</b> (wood / fiber cement) &mdash; mid cost, paint cycle every 7–15 yr</div>
+                      <div style={{ marginBottom: 4 }}><b>Stucco</b> &mdash; low-mid cost, hairline cracking common in expansive soils</div>
+                      <div><b>Composite panel</b> &mdash; modern, lower install cost, replaceable</div>
+                    </div>
+                  }
+                />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {WALL_MATERIALS.map((mat) => (

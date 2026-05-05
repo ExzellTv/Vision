@@ -207,6 +207,80 @@ export default function ExecutiveView() {
   return (
     <div style={{ display: "flex", width: "100%", height: "100%", background: colors.bg, fontFamily: fonts.label, color: colors.text, overflow: "hidden" }}>
 
+      {!isHomeowner && (
+        <GuidedTour
+          storageKey="executive-builder"
+          title="Executive / Engineering"
+          steps={[
+            {
+              title: "Executive vs. Engineering",
+              body: (
+                <>
+                  Two views, one screen. <b>Executive</b> = client-facing money summary. <b>Engineering</b> = your bid prep with line-item financials and underwriting ratios. Toggle freely &mdash; the data is the same.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="exec-mode-toggle"]',
+              placement: "bottom",
+              title: "Switch to Engineering",
+              body: (
+                <>
+                  Engineering mode unlocks the <b>Financial Breakdown</b> (line items by category) and <b>Key Ratios</b> (Cash-on-Cash, DCR). Use it before quoting.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="metric-cards"]',
+              placement: "left",
+              title: "Headline metrics",
+              body: (
+                <>
+                  IRR, capital cost, market value, profit margin. These are Vision&rsquo;s estimates &mdash;
+                  treat as a starting point, override with your own underwriting.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="financial-breakdown"]',
+              placement: "left",
+              title: "Financial Breakdown (engineer mode)",
+              body: (
+                <>
+                  Line-item split: <b>Land</b>, <b>Construction</b>, <b>Soft Costs</b>, <b>Contingency</b>. Bars are
+                  proportional. Compare against your actual line items to surface gaps.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="risk-card"]',
+              placement: "left",
+              title: "Risk Assessment",
+              body: (
+                <>
+                  Composite of permitting, environmental, and market risk. The note below identifies
+                  the dominant driver &mdash; usually permitting or zoning. Anything red, slow down on the
+                  bid.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="key-ratios"]',
+              placement: "left",
+              title: "Underwriting Ratios",
+              body: (
+                <>
+                  <b>Cash-on-Cash</b> &mdash; annual cash return ÷ equity in. <b>DCR</b> (Debt Coverage Ratio)
+                  &mdash; NOI ÷ debt service; lenders typically want ≥ 1.25×. Both update with your
+                  Engineering-mode line items.
+                </>
+              ),
+              optional: true,
+            },
+          ]}
+        />
+      )}
       {isHomeowner && (
         <GuidedTour
           storageKey="executive"
@@ -381,7 +455,7 @@ export default function ExecutiveView() {
         </div>
 
         {/* View toggle */}
-        <div style={{ display: "flex", justifyContent: "center" }}>
+        <div data-tour="exec-mode-toggle" style={{ display: "flex", justifyContent: "center" }}>
           <ModeToggle
             options={[
               { value: "executive", label: "Executive" },
@@ -447,7 +521,7 @@ export default function ExecutiveView() {
 
         {/* Financial Breakdown */}
         {viewMode === "engineer" && (
-          <div style={{ ...card, padding: "16px 20px" }}>
+          <div data-tour="financial-breakdown" style={{ ...card, padding: "16px 20px" }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 10 }}>
               Financial Breakdown
             </div>
@@ -486,7 +560,7 @@ export default function ExecutiveView() {
 
         {/* Key Ratios (engineer mode) */}
         {viewMode === "engineer" && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div data-tour="key-ratios" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <MetricCard
               label="Cash-on-Cash"
               value={`${DEMO.cashOnCash}%`}

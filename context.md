@@ -142,6 +142,12 @@ When `help` is provided, a small `?` appears next to the label and opens a `Help
 
 ### Where tips currently live
 
+Tours are gated by user type. A screen with both audiences mounts both `<GuidedTour>`s and lets
+`isHomeowner` / `!isHomeowner` decide which one fires. The two tours use **different `storageKey`**s
+(e.g. `edit` vs `edit-builder`) so completion state doesn't leak between roles when a user switches.
+
+#### Homeowner
+
 | Screen | File | GuidedTour anchors (data-tour) | HelpTip count |
 |---|---|---|---|
 | Dashboard | `screens/Dashboard/Dashboard.jsx` | `new-floor-plan`, `module-launchpad`, `floor-plan-module`, `recent-projects` | 2 (Score, Est. Acq. Cost) |
@@ -150,9 +156,22 @@ When `help` is provided, a small `?` appears next to the label and opens a `Help
 | 3D Preview | `screens/House3DPreview/House3DPreview.jsx` | `viewport`, `view-controls`, `wall-color`, `ai-render`, `continue-3d` | 1 |
 | Layer Editor | `screens/LayerEditor/LayerEditor.jsx` | `viewport-3d`, `viz-modes`, `total-cost`, `cost-breakdown` | 1 |
 | Feasibility | `screens/FeasibilityDashboard/FeasibilityDashboard.jsx` | `map`, `feas-gauge`, `score-breakdown` | 1 |
-| Executive View | `screens/ExecutiveView/ExecutiveView.jsx` | `map-area`, `metric-cards`, `risk-card`, `continue-schedule` | 7 (IRR, Capital, Market, Profit, Cash-on-Cash, DCR, Risk) |
+| Executive View | `screens/ExecutiveView/ExecutiveView.jsx` | `map-area`, `metric-cards`, `risk-card`, `continue-schedule` | 7 |
 | Schedule | `screens/ScheduleTimeline/ScheduleTimeline.jsx` | `schedule-header`, `gantt`, `time-slider`, `phase-list` | 1 |
 | Browse | `screens/Browse/Browse.jsx` | `search-bar`, `builder-card`, `verified-badge`, `view-profile-btn`, `send-request-btn` | 1 |
+
+#### Builder
+
+| Screen | File | storageKey | GuidedTour anchors | HelpTips |
+|---|---|---|---|---|
+| Builder Dashboard | `screens/BuilderDashboard/BuilderDashboard.jsx` | `builder-dashboard` | `builder-stats`, `builder-project-card`, `builder-view-project` | 3 (each stat) |
+| Builder Requests | `screens/BuilderRequests/BuilderRequests.jsx` | `builder-requests` | `request-row`, `approve-btn`, `request-expansion` | 3 (3D & Plan, Financial Setup, Feasibility Scan) |
+| Client Project | `screens/ClientProject/ClientProject.jsx` | `client-project` | `cp-message-client`, `cp-generate-report`, `cp-architecture`, `cp-schedule`, `cp-financial`, `cp-feasibility` | 2 (Total Budget, Spent to date) |
+| Builder Reviews | `screens/BuilderReviews/BuilderReviews.jsx` | `builder-reviews` | `reviews-summary`, `review-reply` | 0 |
+| Layer Editor (builder) | `screens/LayerEditor/LayerEditor.jsx` | `edit-builder` | `viz-modes`, `material-picker`, `ml-intelligence`, `cost-breakdown` | 2 (Material Picker layers, ML cluster tier) |
+| 3D Preview (builder) | `screens/House3DPreview/House3DPreview.jsx` | `preview3d-builder` | `viewport`, `roof-style`, `wall-material`, `ai-render` | 2 (Roof Style, Exterior Cladding) |
+| Executive View (builder) | `screens/ExecutiveView/ExecutiveView.jsx` | `executive-builder` | `exec-mode-toggle`, `metric-cards`, `financial-breakdown`, `risk-card`, `key-ratios` | 0 (existing HelpTips on metrics) |
+| Schedule (builder) | `screens/ScheduleTimeline/ScheduleTimeline.jsx` | `schedule-builder` | `start-date-edit`, `view-client-model`, `gantt`, `phase-list`, `time-slider` | 0 |
 
 ### Adding a new tip
 

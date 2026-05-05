@@ -1832,6 +1832,74 @@ export default function LayerEditor() {
       background: colors.bg, fontFamily: fonts.label, color: colors.text, overflow: "hidden",
     }}>
 
+      {!isHomeowner && (
+        <GuidedTour
+          storageKey="edit-builder"
+          title="Layer Editor"
+          steps={[
+            {
+              title: "The construction stack, layer by layer",
+              body: (
+                <>
+                  Seven structural layers, swappable materials, live cost reaction. This is where you
+                  pressure-test the client&rsquo;s design before quoting. We&rsquo;ll point at the controls you
+                  use most.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="viz-modes"]',
+              placement: "top",
+              title: "View modes",
+              body: (
+                <>
+                  <b>Standard</b> = finished envelope. <b>Section</b> = cut-away to inspect inside the
+                  walls (good for explaining material choices to a client). <b>Build-Up</b> = animated
+                  layer-stack for marketing or training videos.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="material-picker"]',
+              placement: "left",
+              title: "Material Picker",
+              body: (
+                <>
+                  Pick the active layer on the left, then choose a material on the right. Costs use a
+                  default Dallas market $/SF baseline &mdash; override with your own line items if you have
+                  a sharper number.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="ml-intelligence"]',
+              placement: "left",
+              title: "ML Market Intelligence",
+              body: (
+                <>
+                  Market tier (<b>Premium / Above-Average / Value</b>) is auto-derived from comparable
+                  sales clusters. Use it to sanity-check whether the spec sheet matches the surrounding
+                  neighborhood &mdash; over-spec&rsquo;d homes lose money on resale.
+                </>
+              ),
+              optional: true,
+            },
+            {
+              target: '[data-tour="cost-breakdown"]',
+              placement: "left",
+              title: "Cost Breakdown",
+              body: (
+                <>
+                  Per-layer cost split as horizontal bars. Frame and finishes usually dominate. When you
+                  swap a material above, the affected bar animates &mdash; useful for live walkthroughs
+                  with a client weighing trade-offs.
+                </>
+              ),
+            },
+          ]}
+        />
+      )}
       {isHomeowner && (
         <GuidedTour
           storageKey="edit"
@@ -2074,12 +2142,34 @@ export default function LayerEditor() {
 
             {/* Material Picker - Only visible for builders */}
             {isBuilder ? (
-            <div style={{ padding: "14px 20px", borderBottom: "1px solid #1a2236" }}>
+            <div data-tour="material-picker" style={{ padding: "14px 20px", borderBottom: "1px solid #1a2236" }}>
               <div style={{
                 fontSize: 10, fontFamily: fonts.data, fontWeight: 700,
                 letterSpacing: "0.12em", textTransform: "uppercase",
                 color: colors.textDim, marginBottom: 4,
-              }}>Material Picker</div>
+                display: "inline-flex", alignItems: "center", gap: 6,
+              }}>
+                Material Picker
+                <HelpTip
+                  size={11}
+                  title="Material Picker"
+                  body={
+                    <div>
+                      <div style={{ marginBottom: 6 }}>Each numbered layer (1–7) is one structural plane:</div>
+                      <div style={{ fontSize: 11, lineHeight: 1.6, color: colors.text }}>
+                        <div><b>1.</b> Foundation &mdash; slab, footings, drainage</div>
+                        <div><b>2.</b> Frame &mdash; load-bearing skeleton</div>
+                        <div><b>3.</b> Sheathing &mdash; structural skin</div>
+                        <div><b>4.</b> Insulation &mdash; thermal/acoustic envelope</div>
+                        <div><b>5.</b> Drywall &mdash; interior surface</div>
+                        <div><b>6.</b> Exterior &mdash; cladding, weather barrier</div>
+                        <div><b>7.</b> Finishes &mdash; paint, trim, fixtures</div>
+                      </div>
+                      <div style={{ marginTop: 8, color: colors.textDim, fontSize: 11 }}>Layer 8 = global wall/roof color.</div>
+                    </div>
+                  }
+                />
+              </div>
               <div style={{
                 fontSize: 13, fontFamily: fonts.data, fontWeight: 600,
                 color: colors.accent, marginBottom: 10,
@@ -2345,7 +2435,7 @@ export default function LayerEditor() {
 
           {/* ── ML Intelligence Panel ── */}
           {mlData && !mlLoading && (
-            <div style={{ padding: "14px 20px", borderTop: "1px solid #1a2236" }}>
+            <div data-tour="ml-intelligence" style={{ padding: "14px 20px", borderTop: "1px solid #1a2236" }}>
               <div style={{
                 display: "flex", alignItems: "center", gap: 8, marginBottom: 12,
               }}>
@@ -2353,7 +2443,26 @@ export default function LayerEditor() {
                   fontSize: 10, fontFamily: fonts.data, fontWeight: 700,
                   letterSpacing: "0.12em", textTransform: "uppercase",
                   color: colors.accent, flex: 1,
-                }}>ML Market Intelligence</div>
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                }}>
+                  ML Market Intelligence
+                  <HelpTip
+                    size={11}
+                    title="Market tier classification"
+                    body={
+                      <div>
+                        <div style={{ marginBottom: 6 }}>K-Means cluster of nearby comparable sales, partitioned into four tiers by $/SF and feature richness:</div>
+                        <div style={{ fontSize: 11, lineHeight: 1.6, color: colors.text }}>
+                          <div><b style={{ color: colors.success }}>Premium</b> &mdash; top 10–15% (luxury finishes, larger lots)</div>
+                          <div><b style={{ color: colors.accent }}>Above-Average</b> &mdash; upper 25%</div>
+                          <div><b style={{ color: colors.warn }}>Value</b> &mdash; lower 25%</div>
+                          <div><b style={{ color: colors.textDim }}>Standard</b> &mdash; the broad middle</div>
+                        </div>
+                        <div style={{ marginTop: 8, color: colors.textDim, fontSize: 11 }}>If your spec doesn&rsquo;t match the cluster the lot lives in, you&rsquo;re likely over- or under-building.</div>
+                      </div>
+                    }
+                  />
+                </div>
                 {mlData.cluster && (
                   <span style={{
                     fontSize: 9, fontFamily: fonts.data, fontWeight: 700,

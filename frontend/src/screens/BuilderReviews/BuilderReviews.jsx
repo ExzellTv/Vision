@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { colors, fonts, radii, card } from "../../theme/tokens";
+import GuidedTour from "../../components/shared/GuidedTour";
+import { useUserType } from "../../context/UserTypeContext";
 
 const MOCK_REVIEWS = [
   {
@@ -59,6 +61,7 @@ function StarRating({ rating }) {
 }
 
 export default function BuilderReviews() {
+  const { isBuilder } = useUserType();
   const [reviews, setReviews] = useState(MOCK_REVIEWS);
   const [replyScores, setReplyScores] = useState({});
 
@@ -99,8 +102,50 @@ export default function BuilderReviews() {
         }}
       />
 
+      {isBuilder && (
+        <GuidedTour
+          storageKey="builder-reviews"
+          title="Client Reviews"
+          steps={[
+            {
+              title: "Your reputation, in one place",
+              body: (
+                <>
+                  Every star a past client has left you, plus the public replies you&rsquo;ve written. Your
+                  rolling average drives ranking on the homeowner-facing <b>Browse Builders</b> page.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="reviews-summary"]',
+              placement: "bottom",
+              title: "Average rating",
+              body: (
+                <>
+                  Headline rating across all reviews, plus the count. Homeowners see this exact number
+                  on your public profile &mdash; respond to negative reviews quickly to keep it healthy.
+                </>
+              ),
+            },
+            {
+              target: '[data-tour="review-reply"]',
+              placement: "top",
+              title: "Reply once, publicly",
+              body: (
+                <>
+                  Replies are <b>public</b> &mdash; visible on your Browse Builders profile alongside the
+                  original review. Be professional; thank positive reviewers, address concerns directly
+                  on negative ones. You can&rsquo;t edit a reply once submitted, so draft carefully.
+                </>
+              ),
+              optional: true,
+            },
+          ]}
+        />
+      )}
+
       <main style={{ position: "relative", zIndex: 1, margin: "0 auto", width: "100%", maxWidth: "900px", padding: "40px 24px" }}>
-        
+
         {/* Header Component */}
         <div style={{
           background: `linear-gradient(160deg, ${colors.panel} 0%, ${colors.surface} 100%)`,
@@ -130,7 +175,7 @@ export default function BuilderReviews() {
               See what your past clients are saying about your builds.
             </p>
           </div>
-          <div style={{ textAlign: "right" }}>
+          <div data-tour="reviews-summary" style={{ textAlign: "right" }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: "8px", justifyContent: "flex-end" }}>
               <span style={{ fontSize: "3.5rem", fontWeight: "bold", color: colors.textBright, fontFamily: fonts.data, lineHeight: 1 }}>
                 {averageRating}
@@ -148,9 +193,10 @@ export default function BuilderReviews() {
 
         {/* Reviews List */}
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-          {reviews.map((review) => (
+          {reviews.map((review, reviewIdx) => (
             <div
               key={review.id}
+              data-tour={reviewIdx === 0 && !review.reply ? "review-reply" : undefined}
               style={{
                 ...card,
                 padding: "24px",
