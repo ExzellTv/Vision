@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { colors, fonts, card, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
+import useBreakpoint from "../../hooks/useBreakpoint";
 import House3D from "../../components/3d/House3D";
 import { complianceApi, imageApi } from "../../services/api";
 import HelpTip from "../../components/shared/HelpTip";
@@ -83,6 +84,7 @@ export default function House3DPreview() {
   const navigate = useNavigate();
   const project = useProject();
   const { isHomeowner, isBuilder } = useUserType();
+  const isMobile = useBreakpoint(768);
 
   // House configuration — initialised through the shared resolver so prefs
   // from a previous visit win, then project materials, then defaults. This is
@@ -112,6 +114,7 @@ export default function House3DPreview() {
   const [showFixBanner, setShowFixBanner] = useState(false); // green banner
   const [fixesOpen, setFixesOpen] = useState(false);         // collapsible log
   const [ragNotesOpen, setRagNotesOpen] = useState(false);   // code compliance toggle
+  const [warningNotesOpen, setWarningNotesOpen] = useState(false); // warning-only toggle
   // Environment + drag-to-edit were previously user-toggleable. Both now
   // default on/off so the right panel stays focused on style + color.
 
@@ -291,6 +294,8 @@ export default function House3DPreview() {
         background: colors.bg,
         fontFamily: fonts.label,
         overflow: "hidden",
+        overflowX: "hidden",
+        flexDirection: isMobile ? "column" : "row",
       }}
     >
       {!isHomeowner && (
@@ -433,7 +438,18 @@ export default function House3DPreview() {
         />
       )}
       {/* 3D Viewport */}
-      <div ref={viewportRef} data-tour="viewport" style={{ flex: 1, position: "relative" }}>
+      <div
+        ref={viewportRef}
+        data-tour="viewport"
+        style={{
+          flex: isMobile ? "none" : 1,
+          position: "relative",
+          minWidth: 0,
+          width: "100%",
+          height: isMobile ? "52vh" : "100%",
+          minHeight: isMobile ? "52vh" : 0,
+        }}
+      >
         <House3D
           width={width}
           depth={depth}
@@ -457,13 +473,14 @@ export default function House3DPreview() {
         <div
           style={{
             position: "absolute",
-            top: 16,
-            left: 16,
+            top: isMobile ? 12 : 16,
+            left: isMobile ? 12 : 16,
             background: "rgba(13, 17, 23, 0.85)",
             backdropFilter: "blur(10px)",
             border: "1px solid #2a3548",
             borderRadius: 10,
-            padding: "12px 16px",
+            padding: isMobile ? "10px 12px" : "12px 16px",
+            maxWidth: isMobile ? "calc(100% - 134px)" : "none",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -478,7 +495,7 @@ export default function House3DPreview() {
             />
             <span
               style={{
-                fontSize: 14,
+                fontSize: isMobile ? 13 : 14,
                 fontWeight: 600,
                 color: colors.textBright,
               }}
@@ -489,10 +506,11 @@ export default function House3DPreview() {
           <div
             style={{
               display: "flex",
-              gap: 12,
+              gap: isMobile ? 8 : 12,
               marginTop: 8,
-              fontSize: 12,
+              fontSize: isMobile ? 11 : 12,
               color: colors.textDim,
+              flexWrap: "wrap",
             }}
           >
             <span>{Math.round(width)}' × {Math.round(depth)}'</span>
@@ -508,41 +526,42 @@ export default function House3DPreview() {
           data-tour="view-controls"
           style={{
             position: "absolute",
-            top: 16,
-            right: 16,
+            top: isMobile ? 12 : 16,
+            right: isMobile ? 12 : 16,
             background: "rgba(13, 17, 23, 0.85)",
             backdropFilter: "blur(10px)",
             border: "1px solid #2a3548",
             borderRadius: 10,
-            padding: "10px 12px",
+            padding: isMobile ? "8px 10px" : "10px 12px",
             display: "flex",
             flexDirection: "column",
-            gap: 10,
-            minWidth: 180,
+            gap: isMobile ? 8 : 10,
+            minWidth: isMobile ? 110 : 180,
+            maxWidth: isMobile ? "112px" : "none",
           }}
         >
           <button
             onClick={() => setShowRoof((v) => !v)}
             style={{
-              padding: "7px 10px",
+              padding: isMobile ? "7px 8px" : "7px 10px",
               background: showRoof ? "transparent" : `${colors.accent}15`,
               border: `1px solid ${showRoof ? "#2a3548" : colors.accent}`,
               borderRadius: 6,
               color: showRoof ? colors.text : colors.accent,
-              fontSize: 12,
+              fontSize: isMobile ? 11 : 12,
               fontWeight: 600,
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              gap: 6,
+              gap: isMobile ? 4 : 6,
             }}
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M1 6L7 1l6 5v1H1V6z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
               <path d="M2 7v5h10V7" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
             </svg>
-            {showRoof ? "Remove Roof" : "Show Roof"}
+            {isMobile ? (showRoof ? "Hide roof" : "Show roof") : (showRoof ? "Remove Roof" : "Show Roof")}
           </button>
 
           {storyCount > 1 && (
@@ -551,18 +570,18 @@ export default function House3DPreview() {
                 fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
                 textTransform: "uppercase", color: colors.textDim, marginBottom: 6,
               }}>
-                View Floor
+                {isMobile ? "Floor" : "View Floor"}
               </div>
-              <div style={{ display: "flex", gap: 4 }}>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                 <button
                   onClick={() => setFocusedStory(null)}
                   style={{
-                    flex: 1, padding: "6px 4px",
+                    flex: 1, padding: isMobile ? "6px 3px" : "6px 4px",
                     background: focusedStory === null ? `${colors.accent}15` : "transparent",
                     border: `1px solid ${focusedStory === null ? colors.accent : "#2a3548"}`,
                     borderRadius: 5,
                     color: focusedStory === null ? colors.accent : colors.text,
-                    fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    fontSize: isMobile ? 10 : 11, fontWeight: 600, cursor: "pointer",
                   }}
                 >
                   All
@@ -572,12 +591,12 @@ export default function House3DPreview() {
                     key={i}
                     onClick={() => setFocusedStory(i)}
                     style={{
-                      flex: 1, padding: "6px 4px",
+                      flex: 1, padding: isMobile ? "6px 3px" : "6px 4px",
                       background: focusedStory === i ? `${colors.accent}15` : "transparent",
                       border: `1px solid ${focusedStory === i ? colors.accent : "#2a3548"}`,
                       borderRadius: 5,
                       color: focusedStory === i ? colors.accent : colors.text,
-                      fontSize: 11, fontWeight: 600, cursor: "pointer",
+                      fontSize: isMobile ? 10 : 11, fontWeight: 600, cursor: "pointer",
                     }}
                   >
                     {i + 1}
@@ -594,24 +613,26 @@ export default function House3DPreview() {
             onClick={() => setShowPillars((v) => !v)}
             style={{
               position: "absolute",
-              bottom: 20,
-              left: 20,
-              padding: "7px 11px",
+              bottom: isMobile ? "auto" : 20,
+              left: isMobile ? 12 : 20,
+              top: isMobile ? 82 : "auto",
+              padding: isMobile ? "6px 10px" : "7px 11px",
               background: showPillars ? `${colors.accent}15` : "rgba(13, 17, 23, 0.7)",
               border: `1px solid ${showPillars ? colors.accent : "#2a3548"}`,
               borderRadius: 6,
               color: showPillars ? colors.accent : colors.textDim,
-              fontSize: 11,
+              fontSize: isMobile ? 10 : 11,
               fontWeight: 600,
               cursor: "pointer",
               display: "flex", alignItems: "center", gap: 6,
+              maxWidth: isMobile ? "calc(100% - 134px)" : "none",
             }}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <rect x="2" y="1" width="2.5" height="10" stroke="currentColor" strokeWidth="1.1" />
               <rect x="7.5" y="1" width="2.5" height="10" stroke="currentColor" strokeWidth="1.1" />
             </svg>
-            {showPillars ? "Supports on" : "Supports off"}
+            {isMobile ? (showPillars ? "Supports on" : "Supports off") : (showPillars ? "Supports on" : "Supports off")}
           </button>
         )}
 
@@ -619,16 +640,17 @@ export default function House3DPreview() {
         <div
           style={{
             position: "absolute",
-            bottom: 20,
-            right: 20,
-            fontSize: 11,
+            bottom: isMobile ? 12 : 20,
+            right: isMobile ? 12 : 20,
+            fontSize: isMobile ? 10 : 11,
             color: colors.textDim,
             background: "rgba(13, 17, 23, 0.7)",
-            padding: "6px 12px",
+            padding: isMobile ? "6px 10px" : "6px 12px",
             borderRadius: 6,
+            maxWidth: isMobile ? "calc(100% - 24px)" : "none",
           }}
         >
-          Drag to rotate • Scroll to zoom
+          {isMobile ? "Drag to rotate" : "Drag to rotate • Scroll to zoom"}
         </div>
 
         {/* ── Structural Validation Panel ───────────────────────────────
@@ -639,11 +661,12 @@ export default function House3DPreview() {
           <div
             style={{
               position: "absolute",
-              right: 20,
-              bottom: 56,                 // above the nav hint
-              width: 380,
-              maxWidth: "calc(100% - 40px)",
-              maxHeight: "55%",
+              right: isMobile ? 16 : 20,
+              left: isMobile ? 16 : "auto",
+              bottom: isMobile ? 48 : 56,                 // above the nav hint
+              width: isMobile ? "auto" : 380,
+              maxWidth: isMobile ? "none" : "calc(100% - 40px)",
+              maxHeight: isMobile ? "44%" : "55%",
               overflowY: "auto",
               background: "rgba(13, 17, 23, 0.94)",
               backdropFilter: "blur(8px)",
@@ -658,7 +681,7 @@ export default function House3DPreview() {
                 "#f59e0b"
               }`,
               borderRadius: 10,
-              padding: "14px 18px",
+              padding: isMobile ? "12px 14px" : "14px 18px",
               boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
             }}
           >
@@ -777,15 +800,45 @@ export default function House3DPreview() {
             {/* Warning-only state (no blockers, just heads-ups) */}
             {blockingViolations.length === 0 && !showFixBanner && warningViolations.length > 0 && (
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                  <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
-                    <path d="M10 2L18 17H2L10 2Z" stroke="#f59e0b" strokeWidth="1.6" strokeLinejoin="round" />
+                <button
+                  onClick={() => setWarningNotesOpen((v) => !v)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    width: "100%",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 0,
+                    marginBottom: warningNotesOpen ? 6 : 0,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+                      <path d="M10 2L18 17H2L10 2Z" stroke="#f59e0b" strokeWidth="1.6" strokeLinejoin="round" />
+                    </svg>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#fbbf24" }}>Heads up</span>
+                  </div>
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    style={{
+                      transform: warningNotesOpen ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 0.2s",
+                      opacity: 0.5,
+                    }}
+                  >
+                    <path d="M2 4l4 4 4-4" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "#fbbf24" }}>Heads up</span>
-                </div>
-                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: colors.text, lineHeight: 1.5 }}>
-                  {warningViolations.map((v) => <li key={v.id}>{v.message}</li>)}
-                </ul>
+                </button>
+                {warningNotesOpen && (
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: colors.text, lineHeight: 1.5 }}>
+                    {warningViolations.map((v) => <li key={v.id}>{v.message}</li>)}
+                  </ul>
+                )}
               </div>
             )}
 
@@ -898,11 +951,12 @@ export default function House3DPreview() {
       {/* Right Sidebar - Controls */}
       <div
         style={{
-          width: 360,
-          minWidth: 360,
-          maxHeight: "100%",
+          width: isMobile ? "100%" : 360,
+          minWidth: isMobile ? 0 : 360,
+          maxHeight: isMobile ? "none" : "100%",
           background: "#111827",
-          borderLeft: "1px solid #2a3548",
+          borderLeft: isMobile ? "none" : "1px solid #2a3548",
+          borderTop: isMobile ? "1px solid #2a3548" : "none",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
@@ -911,7 +965,7 @@ export default function House3DPreview() {
         {/* Header */}
         <div
           style={{
-            padding: "16px 24px",
+            padding: isMobile ? "14px 16px" : "16px 24px",
             borderBottom: "1px solid #2a3548",
             display: "flex",
             alignItems: "center",
@@ -937,7 +991,7 @@ export default function House3DPreview() {
               border: "1px solid #2a3548",
               borderRadius: 6,
               color: colors.textDim,
-              fontSize: 12,
+              fontSize: isMobile ? 11 : 12,
               cursor: "pointer",
             }}
           >
@@ -951,7 +1005,7 @@ export default function House3DPreview() {
             flex: 1,
             minHeight: 0,
             overflowY: "auto",
-            padding: "16px 24px",
+            padding: isMobile ? "16px" : "16px 24px",
             scrollbarWidth: "thin",
             scrollbarColor: "#2a3548 transparent",
           }}
@@ -1339,10 +1393,10 @@ export default function House3DPreview() {
         {/* Footer Actions */}
         <div
           style={{
-            padding: "16px 24px",
+            padding: isMobile ? "16px" : "16px 24px",
             borderTop: "1px solid #2a3548",
             display: "flex",
-            flexDirection: isHomeowner ? "column" : "row",
+            flexDirection: isMobile || isHomeowner ? "column" : "row",
             gap: 10,
             flexShrink: 0,
             background: "#111827",

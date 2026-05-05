@@ -34,7 +34,7 @@ async def lifespan(application: FastAPI):
     # Confirm HasData key is loaded
     from app.routers.map_data import HASDATA_KEY
     if HASDATA_KEY:
-        logger.info(f"HasData API key loaded: {HASDATA_KEY[:8]}...")
+        logger.info("HasData API key loaded")
     else:
         logger.warning("HasData API key is EMPTY — city search will not work. Set HASDATA_API_KEY in backend/.env")
 

@@ -4,6 +4,7 @@ import { colors, fonts } from "../../theme/tokens";
 import { chatApi } from "../../services/api";
 import { findBuilder } from "../../data/builders";
 import BuilderProfileModal from "../../components/shared/BuilderProfileModal";
+import useBreakpoint from "../../hooks/useBreakpoint";
 
 const C = {
   bg: colors.bg,
@@ -32,7 +33,37 @@ function timeAgo(iso) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+function ArchiveIcon({ color = C.textDim }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect x="1" y="1" width="12" height="3" rx="1" stroke={color} strokeWidth="1.2" />
+      <path d="M2 4v7a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4" stroke={color} strokeWidth="1.2" />
+      <path d="M5 7h4M7 7v3" stroke={color} strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function TrashIcon({ color = "#ef4444" }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M2 3.5h10M5.5 3.5V2.5a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 .5.5v1M3.5 3.5l.7 7.5a1 1 0 0 0 1 .9h3.6a1 1 0 0 0 1-.9l.7-7.5" stroke={color} strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function UnarchiveIcon({ color = C.textDim }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect x="1" y="1" width="12" height="3" rx="1" stroke={color} strokeWidth="1.2" />
+      <path d="M2 4v7a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4" stroke={color} strokeWidth="1.2" />
+      <path d="M5 9h4M7 9V6" stroke={color} strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M5.5 7l1.5-1.5L8.5 7" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export default function Chat() {
+  const isMobile = useBreakpoint(768);
   const location = useLocation();
   const builderFromBrowse = location.state?.builder;
 
@@ -44,6 +75,9 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [profileBuilder, setProfileBuilder] = useState(null);
+  const [hoveredId, setHoveredId] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [showSidebar, setShowSidebar] = useState(true);
   const pollRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -58,7 +92,7 @@ export default function Chat() {
 
   // Load conversations on mount and mark as seen using server timestamps
   useEffect(() => {
-    chatApi.listConversations()
+    chatApi.listConversations("homeowner")
       .then(convs => { setConversations(convs); markSeen(convs); })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -67,7 +101,7 @@ export default function Chat() {
   // Load archived when tab switches
   useEffect(() => {
     if (activeTab === "archived") {
-      chatApi.listArchived().then(setArchivedConvs).catch(() => {});
+      chatApi.listArchived("homeowner").then(setArchivedConvs).catch(() => {});
     }
   }, [activeTab]);
 
@@ -114,14 +148,38 @@ export default function Chat() {
     try { await chatApi.sendMessage(selectedConv.id, text, "homeowner"); } catch (_) {}
   };
 
-  const selectConv = (conv) => { setSelectedConv(conv); setMessages([]); };
+  const handleArchive = async (conv) => {
+    setConversations(prev => prev.filter(c => c.id !== conv.id));
+    if (selectedConv?.id === conv.id) { setSelectedConv(null); setMessages([]); }
+    try { await chatApi.archiveConversation(conv.id, "homeowner"); } catch (_) {}
+  };
+
+  const handleDelete = async (convId) => {
+    setConversations(prev => prev.filter(c => c.id !== convId));
+    setArchivedConvs(prev => prev.filter(c => c.id !== convId));
+    if (selectedConv?.id === convId) { setSelectedConv(null); setMessages([]); }
+    setConfirmDelete(null);
+    try { await chatApi.deleteConversation(convId, "homeowner"); } catch (_) {}
+  };
+
+  const handleUnarchive = async (conv) => {
+    setArchivedConvs(prev => prev.filter(c => c.id !== conv.id));
+    if (selectedConv?.id === conv.id) { setSelectedConv(null); setMessages([]); }
+    try { await chatApi.unarchiveConversation(conv.id, "homeowner"); } catch (_) {}
+  };
+
+  const selectConv = (conv) => {
+    setSelectedConv(conv);
+    setMessages([]);
+    if (isMobile) setShowSidebar(false);
+  };
 
   const displayList = activeTab === "active" ? conversations : archivedConvs;
 
   return (
-    <div style={{ height: "100%", display: "flex", background: C.bg, fontFamily: fonts.label }}>
+    <div style={{ height: "100%", display: "flex", background: C.bg, fontFamily: fonts.label, overflowX: "hidden" }}>
       {/* Sidebar */}
-      <div style={{ width: 320, borderRight: `1px solid ${C.cardBorder}`, display: "flex", flexDirection: "column" }}>
+      <div style={{ width: isMobile ? "100%" : 320, borderRight: isMobile ? "none" : `1px solid ${C.cardBorder}`, display: isMobile && !showSidebar ? "none" : "flex", flexDirection: "column" }}>
         <div style={{ padding: "20px 20px 12px", borderBottom: `1px solid ${C.cardBorder}` }}>
           <h2 style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 600, color: C.textBright }}>Messages</h2>
 
@@ -168,19 +226,22 @@ export default function Chat() {
           {displayList.map((conv) => {
             const active = selectedConv?.id === conv.id;
             const ini = initials(conv.builder_name || "Builder");
+            const isHovered = hoveredId === conv.id;
+            const pendingDel = confirmDelete === conv.id;
             return (
               <div
                 key={conv.id}
                 onClick={() => selectConv(conv)}
+                onMouseEnter={() => setHoveredId(conv.id)}
+                onMouseLeave={() => { setHoveredId(null); setConfirmDelete(null); }}
                 style={{
                   display: "flex", gap: 12, padding: "16px 20px", cursor: "pointer",
-                  background: active ? "rgba(59,130,246,0.08)" : "transparent",
+                  background: active ? "rgba(59,130,246,0.08)" : isHovered ? "rgba(255,255,255,0.02)" : "transparent",
                   borderBottom: `1px solid ${C.cardBorder}`,
                   borderLeft: active ? "2px solid #3b82f6" : "2px solid transparent",
                   transition: "background 0.15s",
+                  position: "relative",
                 }}
-                onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
-                onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
               >
                 <div style={{
                   width: 44, height: 44, borderRadius: 10,
@@ -202,6 +263,57 @@ export default function Chat() {
                     {activeTab === "archived" && <span style={{ color: "#f59e0b", marginLeft: 6, fontSize: 10, fontWeight: 700 }}>ARCHIVED</span>}
                   </p>
                 </div>
+
+                {(isHovered || isMobile) && !pendingDel && (
+                  <div
+                    style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", display: "flex", gap: 4 }}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    {activeTab === "active" ? (
+                      <>
+                        <button
+                          title="Archive conversation"
+                          onClick={() => handleArchive(conv)}
+                          style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${C.cardBorder}`, background: "rgba(0,0,0,0.5)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                        >
+                          <ArchiveIcon />
+                        </button>
+                        <button
+                          title="Delete conversation"
+                          onClick={() => setConfirmDelete(conv.id)}
+                          style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid rgba(239,68,68,0.3)", background: "rgba(0,0,0,0.5)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                        >
+                          <TrashIcon />
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        title="Restore to active"
+                        onClick={() => handleUnarchive(conv)}
+                        style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${C.cardBorder}`, background: "rgba(0,0,0,0.5)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                      >
+                        <UnarchiveIcon />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {pendingDel && (
+                  <div
+                    style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", display: "flex", gap: 4, alignItems: "center" }}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 600 }}>Delete?</span>
+                    <button
+                      onClick={() => handleDelete(conv.id)}
+                      style={{ padding: "3px 8px", borderRadius: 4, border: "none", background: "#ef4444", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                    >Yes</button>
+                    <button
+                      onClick={() => setConfirmDelete(null)}
+                      style={{ padding: "3px 8px", borderRadius: 4, border: `1px solid ${C.cardBorder}`, background: "transparent", color: C.textDim, fontSize: 11, cursor: "pointer" }}
+                    >No</button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -209,22 +321,28 @@ export default function Chat() {
       </div>
 
       {/* Chat area */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, display: isMobile && showSidebar ? "none" : "flex", flexDirection: "column" }}>
         {selectedConv ? (
           <>
             {/* Header */}
-            <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ padding: isMobile ? "12px 16px" : "16px 24px", borderBottom: `1px solid ${C.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 12, minWidth: 0 }}>
+                {isMobile && (
+                  <button
+                    onClick={() => setShowSidebar(true)}
+                    style={{ background: "transparent", border: "none", color: C.text, fontSize: 20, cursor: "pointer", lineHeight: 1, padding: "0 4px 0 0", flexShrink: 0 }}
+                  >←</button>
+                )}
                 <div style={{
-                  width: 40, height: 40, borderRadius: 10,
+                  width: 40, height: 40, borderRadius: 10, flexShrink: 0,
                   background: activeTab === "archived" ? "rgba(75,85,99,0.5)" : "linear-gradient(135deg, #3b82f6, #1d4ed8)",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontSize: 14, fontWeight: 700, color: "#fff",
                 }}>
                   {initials(selectedConv.builder_name || "Builder")}
                 </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: C.textBright }}>
+                <div style={{ minWidth: 0 }}>
+                  <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: C.textBright, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {selectedConv.builder_name || "Builder"}
                   </h3>
                   <p style={{ margin: 0, fontSize: 11, color: activeTab === "archived" ? "#f59e0b" : C.textDim }}>
@@ -232,13 +350,13 @@ export default function Chat() {
                   </p>
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button style={{ padding: "8px 12px", background: "transparent", border: `1px solid ${C.cardBorder}`, borderRadius: 6, color: C.text, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                <button style={{ padding: isMobile ? "8px" : "8px 12px", background: "transparent", border: `1px solid ${C.cardBorder}`, borderRadius: 6, color: C.text, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                     <path d="M1 3.5A2.5 2.5 0 0 1 3.5 1h7A2.5 2.5 0 0 1 13 3.5v5a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 1 8.5v-5z" stroke={C.text} strokeWidth="1.2" />
                     <path d="M9 6l4-2v6l-4-2" stroke={C.text} strokeWidth="1.2" strokeLinejoin="round" />
                   </svg>
-                  Video Call
+                  {!isMobile && "Video Call"}
                 </button>
                 <button
                   onClick={() => {
@@ -252,19 +370,19 @@ export default function Chat() {
                   }}
                   style={{ padding: "8px 12px", background: "transparent", border: `1px solid ${C.cardBorder}`, borderRadius: 6, color: C.text, fontSize: 12, cursor: "pointer" }}
                 >
-                  View Profile
+                  {isMobile ? "Profile" : "View Profile"}
                 </button>
               </div>
             </div>
 
             {/* Messages */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "24px", display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "24px", display: "flex", flexDirection: "column", gap: 16 }}>
               {messages.map((msg) => {
                 const isMe = msg.sender_role === "homeowner";
                 return (
                   <div key={msg.id} style={{ display: "flex", justifyContent: isMe ? "flex-end" : "flex-start" }}>
                     <div style={{
-                      maxWidth: "65%", padding: "12px 16px",
+                      maxWidth: isMobile ? "85%" : "65%", padding: "12px 16px",
                       borderRadius: isMe ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
                       background: isMe ? "linear-gradient(135deg, #3b82f6, #1d4ed8)" : C.card,
                       border: isMe ? "none" : `1px solid ${C.cardBorder}`,
@@ -281,7 +399,7 @@ export default function Chat() {
 
             {/* Input — disabled on archived */}
             {activeTab === "active" ? (
-              <div style={{ padding: "16px 24px", borderTop: `1px solid ${C.cardBorder}`, background: C.card }}>
+              <div style={{ padding: isMobile ? "12px 16px" : "16px 24px", borderTop: `1px solid ${C.cardBorder}`, background: C.card }}>
                 <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                   <button style={{ width: 40, height: 40, borderRadius: 8, background: "transparent", border: `1px solid ${C.cardBorder}`, color: C.text, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">

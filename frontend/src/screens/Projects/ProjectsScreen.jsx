@@ -9,6 +9,7 @@ import HomeownerProjectModal from "../../components/shared/HomeownerProjectModal
 import HelpTip from "../../components/shared/HelpTip";
 import GuidedTour from "../../components/shared/GuidedTour";
 import { useUserType } from "../../context/UserTypeContext";
+import useBreakpoint from "../../hooks/useBreakpoint";
 
 // Accepted structural-model extensions for the import card
 const IMPORT_ACCEPT = ".dxf,.dwg,.rvt,.3dm,.ifc,.skp";
@@ -371,7 +372,7 @@ function CardGraphic({ project, index, onDelete }) {
 }
 
 /* ── Individual project card ── */
-function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRename, onOpenSchedule, onAssessLocation, isHomeowner }) {
+function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRename, onOpenSchedule, onAssessLocation, isHomeowner, isMobile }) {
   const [hovered, setHovered] = useState(false);
   const { projectId: activeProjectId, ragViolations } = useProject();
   const hasComplianceIssues = project.id === activeProjectId && ragViolations?.length > 0;
@@ -398,10 +399,10 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
         <CardGraphic project={project} index={index} onDelete={onDelete} />
 
         {/* Info area */}
-        <div style={{ padding: "18px 20px 0" }}>
+        <div style={{ padding: isMobile ? "14px 16px 0" : "18px 20px 0" }}>
           {/* Name + pen */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: colors.textBright, lineHeight: 1.2, flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: isMobile ? 18 : 22, fontWeight: 700, color: colors.textBright, lineHeight: 1.2, flex: 1, minWidth: 0 }}>
               {project.name}
             </div>
             <button
@@ -485,19 +486,19 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
         </div>
 
         {/* Action buttons */}
-        <div style={{ padding: "14px 20px 20px", marginTop: "auto", display: "flex", gap: 8 }}>
+        <div style={{ padding: isMobile ? "10px 16px 16px" : "14px 20px 20px", marginTop: "auto", display: "flex", flexDirection: isMobile ? "column" : "row", gap: 8 }}>
           <button
             onClick={() => onEditFloorPlan(project)}
             data-tour={tourFirst ? "edit-floor-plan-btn" : undefined}
             style={{
               flex: 1,
-              padding: "12px 0",
+              padding: isMobile ? "10px 0" : "12px 0",
               background: "transparent",
               border: `1px solid ${colors.cardBorder}`,
               borderRadius: radii.lg,
               color: colors.textBright,
               fontFamily: fonts.label,
-              fontSize: 13,
+              fontSize: isMobile ? 12 : 13,
               fontWeight: 600,
               cursor: "pointer",
               display: "flex",
@@ -526,13 +527,13 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
             data-tour={tourFirst ? "schedule-btn" : undefined}
             style={{
               flex: 1,
-              padding: "12px 0",
+              padding: isMobile ? "10px 0" : "12px 0",
               background: "transparent",
               border: `1px solid ${colors.cardBorder}`,
               borderRadius: radii.lg,
               color: colors.textBright,
               fontFamily: fonts.label,
-              fontSize: 13,
+              fontSize: isMobile ? 12 : 13,
               fontWeight: 600,
               cursor: "pointer",
               display: "flex",
@@ -559,7 +560,7 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
         </div>
 
         {/* Assess Location — full width */}
-        <div style={{ padding: "0 20px 20px", position: "relative" }}>
+        <div style={{ padding: isMobile ? "0 16px 16px" : "0 20px 20px", position: "relative" }}>
           {isHomeowner && (
             <div style={{ position: "absolute", top: -2, right: 24, zIndex: 2 }}>
               <HelpTip
@@ -575,13 +576,13 @@ function ProjectCard({ project, index, onSelect, onDelete, onEditFloorPlan, onRe
             data-tour={tourFirst ? "assess-land-btn" : undefined}
             style={{
               width: "100%",
-              padding: "12px 0",
+              padding: isMobile ? "10px 0" : "12px 0",
               background: "transparent",
               border: `1px solid ${colors.cardBorder}`,
               borderRadius: radii.lg,
               color: colors.textBright,
               fontFamily: fonts.label,
-              fontSize: 13,
+              fontSize: isMobile ? 12 : 13,
               fontWeight: 600,
               cursor: "pointer",
               display: "flex",
@@ -1008,6 +1009,8 @@ export default function ProjectsScreen() {
   const { setProjectName, setProjectId, setStoryPlans, setFloorPlan, setGenerateParams, setProjectLocation, resetProject, setBuildingContext, setMaterials, setSavedSchedule } = useProject();
   const { isHomeowner } = useUserType();
 
+  const isMobile = useBreakpoint(768);
+
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1135,6 +1138,7 @@ export default function ProjectsScreen() {
         background: colors.bg,
         height: "100%",
         overflowY: "auto",
+        overflowX: "hidden",
         fontFamily: fonts.label,
         display: "flex",
         flexDirection: "column",
@@ -1242,11 +1246,12 @@ export default function ProjectsScreen() {
       )}
 
       {/* Main content */}
-      <div style={{ flex: 1, padding: "36px 40px 0" }}>
+      <div style={{ flex: 1, padding: isMobile ? "16px 16px 0" : "36px 40px 0" }}>
         {/* Header */}
         <div
           style={{
             display: "flex",
+            flexDirection: isMobile ? "column" : "row",
             alignItems: "flex-start",
             justifyContent: "space-between",
             marginBottom: 32,
@@ -1256,7 +1261,7 @@ export default function ProjectsScreen() {
             <h1
               style={{
                 margin: 0,
-                fontSize: 32,
+                fontSize: isMobile ? 24 : 32,
                 fontWeight: 800,
                 color: colors.textBright,
                 letterSpacing: "-0.5px",
@@ -1292,6 +1297,7 @@ export default function ProjectsScreen() {
             style={{
               display: "flex",
               alignItems: "center",
+              justifyContent: "center",
               gap: 8,
               padding: "11px 20px",
               background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
@@ -1305,6 +1311,8 @@ export default function ProjectsScreen() {
               boxShadow: "0 2px 14px rgba(37,99,235,0.45)",
               flexShrink: 0,
               transition: "box-shadow 0.2s ease",
+              width: isMobile ? "100%" : "auto",
+              marginTop: isMobile ? 16 : 0,
             }}
             onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "0 4px 20px rgba(37,99,235,0.6)")}
             onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "0 2px 14px rgba(37,99,235,0.45)")}
@@ -1358,8 +1366,8 @@ export default function ProjectsScreen() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
-              gap: 24,
+              gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(360px, 1fr))",
+              gap: isMobile ? 16 : 24,
               paddingBottom: 40,
             }}
           >
@@ -1375,6 +1383,7 @@ export default function ProjectsScreen() {
                 onOpenSchedule={handleOpenSchedule}
                 onAssessLocation={handleAssessLocation}
                 isHomeowner={isHomeowner}
+                isMobile={isMobile}
               />
             ))}
           </div>

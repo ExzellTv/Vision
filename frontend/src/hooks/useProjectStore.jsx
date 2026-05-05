@@ -47,34 +47,46 @@ function clearPersistedProject() {
 /* ── Normalize API variant to canvas format ── */
 function normalizeVariant(v, params) {
   if (!v) return v;
-  // Already in local format (has .w on rooms)
-  if (v.rooms?.[0]?.w !== undefined) return v;
-
   const dims = v.dimensions || {};
+  const normalizeCanvasItem = (item) => ({
+    ...item,
+    x: item.x ?? 0,
+    y: item.y ?? 0,
+    w: item.width ?? item.w ?? 10,
+    h: item.depth ?? item.h ?? 10,
+  });
   const rooms = (v.rooms || []).map((r) => ({
+    ...normalizeCanvasItem(r),
     type: mapRoomType(r.type, r.label),
     label: r.label || r.type,
-    x: r.x ?? 0,
-    y: r.y ?? 0,
-    w: r.width ?? r.w ?? 10,
-    h: r.depth ?? r.h ?? 10,
     bearing: r.bearing || inferBearing(r, dims),
   }));
+  const restoredPlacedItems = Array.isArray(v.placed_items) ? v.placed_items.map(normalizeCanvasItem) : [];
+  const placedItems = restoredPlacedItems.length > 0 && !restoredPlacedItems.some((item) => item.isRoom)
+    ? [
+        ...rooms.map((room, i) => ({ id: room.id || `room-${v.id || "plan"}-${i}`, isRoom: true, ...room })),
+        ...restoredPlacedItems,
+      ]
+    : restoredPlacedItems;
+  const measuredWidth = rooms.length > 0 ? Math.max(...rooms.map((r) => (r.x ?? 0) + (r.w ?? 0))) : 40;
+  const measuredDepth = rooms.length > 0 ? Math.max(...rooms.map((r) => (r.y ?? 0) + (r.h ?? 0))) : 40;
 
   return {
+    ...v,
     id: v.id || `v-${Date.now()}`,
-    width: dims.footprint_width ?? Math.max(...rooms.map((r) => r.x + r.w), 40),
-    depth: dims.footprint_depth ?? Math.max(...rooms.map((r) => r.y + r.h), 40),
+    width: v.width ?? dims.footprint_width ?? measuredWidth,
+    depth: v.depth ?? dims.footprint_depth ?? measuredDepth,
     rooms,
     doors: v.doors || [],
     windows: v.windows || [],
     walls: v.walls || [],
-    totalSF: dims.total_sf ?? rooms.reduce((s, r) => s + r.w * r.h, 0),
+    placed_items: placedItems,
+    totalSF: v.totalSF ?? dims.total_sf ?? rooms.reduce((s, r) => s + r.w * r.h, 0),
     score: v.score ?? 0,
-    stories: params?.stories ?? 1,
-    style: params?.style ?? "Ranch",
+    stories: v.stories ?? params?.stories ?? 1,
+    style: v.style ?? params?.style ?? "Ranch",
     score_breakdown: v.score_breakdown,
-    perimeter: dims.perimeter,
+    perimeter: v.perimeter ?? dims.perimeter,
   };
 }
 
@@ -171,11 +183,14 @@ export function ProjectProvider({ children }) {
 
     const saved = readPersistedProject();
     const src = saved || DEMO_PROJECT;
+    const srcParams = src.generateParams || null;
+    const normalizedStoryPlans = (src.storyPlans || []).map((p) => normalizeVariant(p, srcParams));
+    const normalizedFloorPlan = normalizeVariant(src.floorPlan, srcParams) || normalizedStoryPlans[0] || null;
 
     setProjectName(src.projectName || "New Project");
-    setFloorPlanRaw(src.floorPlan || null);
-    setStoryPlansRaw(src.storyPlans || []);
-    setGenerateParams(src.generateParams || null);
+    setFloorPlanRaw(normalizedFloorPlan);
+    setStoryPlansRaw(normalizedStoryPlans);
+    setGenerateParams(srcParams);
     setMaterials(src.materials || []);
     setBuildingContextRaw({ ...DEFAULT_BUILDING_CONTEXT, ...(src.buildingContext || {}) });
     setMaxStep(src === DEMO_PROJECT ? 5 : (src.maxStep ?? 5));
@@ -269,10 +284,10 @@ export function ProjectProvider({ children }) {
 
   // storyPlans setter — saves one floor plan per story and syncs floorPlan to story 1
   const setStoryPlans = useCallback((plans) => {
-    const arr = plans || [];
+    const arr = (plans || []).map((p) => normalizeVariant(p, generateParams));
     setStoryPlansRaw(arr);
     if (arr.length > 0) setFloorPlanRaw(arr[0]);
-  }, []);
+  }, [generateParams]);
 
   /* Derived values used across screens */
   const totalSF = floorPlan?.totalSF || generateParams?.targetSF || 2200;

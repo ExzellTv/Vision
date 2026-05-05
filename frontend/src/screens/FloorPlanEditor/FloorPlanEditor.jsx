@@ -7,6 +7,7 @@ import { projectsApi, floorplanApi, complianceApi } from "../../services/api";
 import { STYLE_CONFIGS } from "../../lib/houseStyleConfigs";
 import HelpTip from "../../components/shared/HelpTip";
 import GuidedTour from "../../components/shared/GuidedTour";
+import useBreakpoint from "../../hooks/useBreakpoint";
 
 /* ───────────────────────── Constants ───────────────────────── */
 
@@ -1800,7 +1801,7 @@ function drawRoomFurniture(ctx, type, rx, ry, rw, rh, strokeColor) {
   ctx.restore();
 }
 
-function drawPlacedItem(ctx, item, toCanvas, ftToPx, isSelected = false) {
+function drawPlacedItem(ctx, item, toCanvas, ftToPx, isSelected = false, itemDash = [4, 3]) {
   const [ix, iy] = toCanvas(item.x, item.y);
   const iw = ftToPx(item.w);
   const ih = ftToPx(item.h);
@@ -1924,7 +1925,7 @@ function drawPlacedItem(ctx, item, toCanvas, ftToPx, isSelected = false) {
     ctx.fillStyle = isSelected ? `rgba(${rgbBase},0.16)` : `rgba(${rgbBase},0.07)`;
     ctx.strokeStyle = accentColor;
     ctx.lineWidth = isSelected ? 2 : 1.5;
-    if (!isSelected) ctx.setLineDash([4, 3]);
+    if (!isSelected) ctx.setLineDash(itemDash);
     ctx.fillRect(ix, iy, iw, ih);
     ctx.strokeRect(ix, iy, iw, ih);
     ctx.setLineDash([]);
@@ -2055,6 +2056,11 @@ function renderFloorPlan(canvas, plan, hoveredRoom, zoom = 1.0, placedItems = []
   const toCanvas = (ftX, ftY) => [offX + ftX * PX_PER_FT * scale, offY + ftY * PX_PER_FT * scale];
   const ftToPx = (ft) => ft * PX_PER_FT * scale;
 
+  const dashScale = Math.max(0.4, Math.min(1, scale / 8));
+  const wallDash = [6 * dashScale, 3 * dashScale];
+  const dimDash  = [4 * dashScale, 3 * dashScale];
+  const itemDash = [4 * dashScale, 3 * dashScale];
+
   // Clear
   ctx.fillStyle = "#0d1117";
   ctx.fillRect(0, 0, cw, ch);
@@ -2117,7 +2123,7 @@ function renderFloorPlan(canvas, plan, hoveredRoom, zoom = 1.0, placedItems = []
   });
 
   // Placed items (drag-dropped from library)
-  placedItems.forEach((item, idx) => drawPlacedItem(ctx, item, toCanvas, ftToPx, idx === selectedItemIdx));
+  placedItems.forEach((item, idx) => drawPlacedItem(ctx, item, toCanvas, ftToPx, idx === selectedItemIdx, itemDash));
 
   // User annotations (dimension lines, wall segments, labels, live preview)
   const allAnnotations = drawingPreview ? [...annotations, drawingPreview] : annotations;
@@ -2136,7 +2142,7 @@ function renderFloorPlan(canvas, plan, hoveredRoom, zoom = 1.0, placedItems = []
       ctx.strokeStyle = ann.preview ? "rgba(200,208,224,0.6)" : "#c8d0e0";
       ctx.lineWidth = ann.preview ? 2 : 4;
       ctx.lineCap = "round";
-      if (ann.preview) ctx.setLineDash([6, 3]);
+      if (ann.preview) ctx.setLineDash(wallDash);
       ctx.beginPath(); ctx.moveTo(ax1, ay1); ctx.lineTo(ax2, ay2); ctx.stroke();
       ctx.setLineDash([]);
       if (isSelected) {
@@ -2161,7 +2167,7 @@ function renderFloorPlan(canvas, plan, hoveredRoom, zoom = 1.0, placedItems = []
       }
       ctx.strokeStyle = ann.preview ? "rgba(0,212,255,0.5)" : "#00d4ff";
       ctx.lineWidth = 1;
-      if (ann.preview) ctx.setLineDash([4, 3]);
+      if (ann.preview) ctx.setLineDash(dimDash);
       ctx.beginPath(); ctx.moveTo(ax1, ay1); ctx.lineTo(ax2, ay2); ctx.stroke();
       ctx.setLineDash([]);
       if (!ann.preview) {
@@ -2607,6 +2613,14 @@ export default function FloorPlanEditor() {
   const dragStateRef = useRef(null);
   const [toastMsg, setToastMsg] = useState(null);
   const toastTimerRef = useRef(null);
+
+  // Mobile
+  const isMobile = useBreakpoint(768);
+  const [libDrawerOpen, setLibDrawerOpen] = useState(false);
+  const [statsDrawerOpen, setStatsDrawerOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const pinchRef = useRef(null);
+  const touchDragRef = useRef(null);
   const showToast = useCallback((msg) => {
     setToastMsg(msg);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -2623,6 +2637,43 @@ export default function FloorPlanEditor() {
   const activeVariant = activeVariantPerStory[activeStory] ?? 0;
   const activePlan = variants[activeVariant] || null;
   const numStories = Math.max(params.stories || 1, allStoryVariants.length);
+  const planSignature = (p) => [p?.id || "", p?.width || "", p?.depth || "", p?.rooms?.length || 0].join(",");
+  const savedProjectSignature = [
+    project.projectId || "__local__",
+    project.storyPlans.length,
+    project.floorPlan ? planSignature(project.floorPlan) : "",
+    project.storyPlans.map(planSignature).join("|"),
+  ].join(":");
+  const localVariantsSignature = [
+    allStoryVariants.length,
+    allStoryVariants.map((storyVariants, storyIdx) => {
+      const variantIdx = activeVariantPerStory[storyIdx] ?? 0;
+      return planSignature(storyVariants[variantIdx]);
+    }).join("|"),
+  ].join(":");
+
+  /* Hydrate saved projects that arrive just after /develop mounts.
+     This prevents the first Edit Floor Plan click from rendering an empty
+     local variant list before the shared project store has finished updating. */
+  useEffect(() => {
+    let nextVariants = null;
+    if (project.storyPlans.length > 0) {
+      nextVariants = project.storyPlans.map((p) => [p]);
+    } else if (project.floorPlan) {
+      nextVariants = [[project.floorPlan]];
+    }
+    if (!nextVariants) return;
+    const nextLocalSignature = [
+      nextVariants.length,
+      nextVariants.map((storyVariants) => planSignature(storyVariants[0])).join("|"),
+    ].join(":");
+    if (localVariantsSignature === nextLocalSignature) return;
+
+    setAllStoryVariants(nextVariants);
+    setActiveStory(0);
+    setActiveVariantPerStory(nextVariants.map(() => 0));
+    if (project.generateParams) setParams(project.generateParams);
+  }, [savedProjectSignature, localVariantsSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Unsaved changes: block navigation ── */
   const blocker = useBlocker(({ currentLocation, nextLocation }) => {
@@ -2704,14 +2755,20 @@ export default function FloorPlanEditor() {
   /* Build preset layout on mount from project params */
   const hasAutoGenerated = useRef(false);
   useEffect(() => {
-    if (!hasAutoGenerated.current && allStoryVariants[0]?.length === 0) {
+    const hasSavedPlan = project.projectId || project.floorPlan || project.storyPlans.length > 0;
+    if (hasAutoGenerated.current || hasSavedPlan || allStoryVariants[0]?.length !== 0) return;
+
+    const id = setTimeout(() => {
+      const hasLateSavedPlan = project.projectId || project.floorPlan || project.storyPlans.length > 0;
+      if (hasAutoGenerated.current || hasLateSavedPlan || allStoryVariants[0]?.length !== 0) return;
       hasAutoGenerated.current = true;
       handleGenerate(params);
       // Don't mark dirty for the initial auto-generation
       setIsDirty(false);
-    }
+    }, 50);
+    return () => clearTimeout(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [project.projectId, project.floorPlan, project.storyPlans.length, allStoryVariants, params]);
 
   /* When the active plan changes (new generation or variant switch), load its
      rooms as interactive placedItems so the user can drag/resize/delete them.
@@ -2738,7 +2795,11 @@ export default function FloorPlanEditor() {
       setPlacedItems(saved);
     } else if (activePlan.placed_items && activePlan.placed_items.length > 0) {
       // Restore all previously placed items (rooms + custom blocks/furniture)
-      setPlacedItems(activePlan.placed_items);
+      const hasRoomItems = activePlan.placed_items.some((item) => item.isRoom);
+      const roomItems = hasRoomItems
+        ? []
+        : activePlan.rooms.map((r, i) => ({ id: r.id || `room-${activePlan.id || "plan"}-${i}`, isRoom: true, ...r }));
+      setPlacedItems([...roomItems, ...activePlan.placed_items]);
     } else {
       const stamp = Date.now();
       const roomItems = activePlan.rooms.map((r, i) => ({ id: `room-${stamp}-${i}`, isRoom: true, ...r }));
@@ -2889,6 +2950,24 @@ export default function FloorPlanEditor() {
     return () => obs.disconnect();
   }, [render]);
 
+  // Saved projects can finish hydrating one tick after the route paints.
+  // Queue a few deferred paints so the canvas appears without requiring a click.
+  useEffect(() => {
+    if (!activePlan) return;
+    const paintWhenSized = () => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect?.width || !rect?.height) return;
+      render();
+    };
+
+    const raf = requestAnimationFrame(paintWhenSized);
+    const timers = [50, 150, 350, 700].map((ms) => setTimeout(paintWhenSized, ms));
+    return () => {
+      cancelAnimationFrame(raf);
+      timers.forEach(clearTimeout);
+    };
+  }, [activePlan, placedItems, render]);
+
   // Force redraw after mount so the canvas paints correctly after back-navigation
   // from Preview3D (layout must settle before dimensions are available).
   // We hold the latest `render` in a ref and call it via two animation frames
@@ -2897,20 +2976,24 @@ export default function FloorPlanEditor() {
   // ensure the canvas's bounding rect is settled.  Calling setTimeout(render)
   // directly would capture the initial render closure (placedItems = []) and
   // overwrite the canvas with empty rooms after the placedItems effect, which
-  // is exactly the "floor 1 blank on return from 3D" bug.
+  // is exactly the "floor 1 blank on return from 3D" bug. The 300ms timer
+  // also re-renders after the mobile drawer's slide transition completes.
   const renderLatestRef = useRef(render);
   useEffect(() => { renderLatestRef.current = render; }, [render]);
   useEffect(() => {
+    const callLatest = () => {
+      const fn = renderLatestRef.current;
+      if (typeof fn === "function") fn();
+    };
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        const fn = renderLatestRef.current;
-        if (typeof fn === "function") fn();
-      });
+      raf2 = requestAnimationFrame(callLatest);
     });
+    const drawerSlideTimer = setTimeout(callLatest, 300);
     return () => {
       cancelAnimationFrame(raf1);
       if (raf2) cancelAnimationFrame(raf2);
+      clearTimeout(drawerSlideTimer);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -3684,7 +3767,7 @@ export default function FloorPlanEditor() {
 
   /* ────────────────────────────── RENDER ────────────────────────────── */
   return (
-    <div style={{ display: "flex", height: "100%", background: "#0d1117", overflow: "hidden" }}>
+    <div style={{ display: "flex", height: "100%", background: "#0d1117", overflow: "hidden", overflowX: "hidden", position: isMobile ? "relative" : undefined }}>
 
       {isHomeowner && (
         <GuidedTour
@@ -3764,10 +3847,24 @@ export default function FloorPlanEditor() {
       )}
 
       {/* ═══════════════ LEFT: COMPONENT LIBRARY ═══════════════ */}
+      {/* Mobile overlay behind left drawer */}
+      {isMobile && libDrawerOpen && (
+        <div onClick={() => setLibDrawerOpen(false)} style={{
+          position: "fixed", inset: 0, zIndex: 199,
+          background: "rgba(0,0,0,0.5)",
+        }} />
+      )}
       <div data-tour="library" style={{
-        width: 210, flexShrink: 0, background: "#0b1018",
+        width: isMobile ? "85vw" : 210,
+        flexShrink: 0, background: "#0b1018",
         borderRight: "1px solid #1a2236",
         display: "flex", flexDirection: "column", overflow: "hidden",
+        position: isMobile ? "fixed" : "relative",
+        top: isMobile ? 0 : undefined,
+        left: isMobile ? (libDrawerOpen ? 0 : "-100%") : undefined,
+        height: isMobile ? "100%" : undefined,
+        zIndex: isMobile ? 200 : undefined,
+        transition: isMobile ? "left 0.25s ease" : undefined,
       }}>
         {/* Header */}
         <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid #1a2236", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -3778,6 +3875,12 @@ export default function FloorPlanEditor() {
               title="Drag-and-drop pieces"
               body="These are the building blocks of your home. Click and drag any tile onto the canvas. Rooms snap to the grid; doors and windows snap to the nearest wall."
             />
+          )}
+          {isMobile && (
+            <button onClick={() => setLibDrawerOpen(false)} style={{
+              background: "none", border: "none", color: "#5a6580",
+              cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4,
+            }}>✕</button>
           )}
         </div>
 
@@ -3830,6 +3933,7 @@ export default function FloorPlanEditor() {
                         style={{ ...tile, cursor: "grab", borderColor: `${sColor}30`, background: `${sColor}09` }}
                         draggable
                         onDragStart={(e) => { e.dataTransfer.setData("blockType", key); e.dataTransfer.effectAllowed = "copy"; }}
+                        onTouchStart={() => { touchDragRef.current = { blockType: key }; }}
                         onMouseEnter={e => e.currentTarget.style.borderColor = `${sColor}99`}
                         onMouseLeave={e => e.currentTarget.style.borderColor = `${sColor}30`}
                       >
@@ -3869,6 +3973,7 @@ export default function FloorPlanEditor() {
                       e.dataTransfer.setData("blockType", key);
                       e.dataTransfer.effectAllowed = "copy";
                     }}
+                    onTouchStart={() => { touchDragRef.current = { blockType: key }; }}
                     onMouseEnter={e => e.currentTarget.style.background = "#1a2236"}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                   >
@@ -3922,6 +4027,7 @@ export default function FloorPlanEditor() {
                         e.dataTransfer.setData("customBlockColor", block.customColor || "#00d4ff");
                         e.dataTransfer.effectAllowed = "copy";
                       }}
+                      onTouchStart={() => { touchDragRef.current = { blockType: "custom", customBlockW: String(block.w), customBlockH: String(block.h), customBlockName: block.name, customBlockId: block.blockId, customBlockCat: block.category, customBlockColor: block.customColor || "#00d4ff" }; }}
                       onMouseEnter={e => e.currentTarget.style.background = "#1a2236"}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                     >
@@ -4002,6 +4108,7 @@ export default function FloorPlanEditor() {
                             style={{ ...tile, cursor: "grab", borderColor: `${color}30`, background: `${color}09` }}
                             draggable
                             onDragStart={(e) => { e.dataTransfer.setData("blockType", key); e.dataTransfer.effectAllowed = "copy"; }}
+                            onTouchStart={() => { touchDragRef.current = { blockType: key }; }}
                             onMouseEnter={e => e.currentTarget.style.borderColor = `${color}99`}
                             onMouseLeave={e => e.currentTarget.style.borderColor = `${color}30`}
                           >
@@ -4079,8 +4186,11 @@ export default function FloorPlanEditor() {
             color: "#8a9bb0",
             letterSpacing: "0.1px",
             whiteSpace: "nowrap",
+            maxWidth: isMobile ? 120 : undefined,
+            overflow: isMobile ? "hidden" : undefined,
+            textOverflow: isMobile ? "ellipsis" : undefined,
           }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
               <rect x="3" y="3" width="18" height="18" rx="2" stroke="#8a9bb0" strokeWidth="1.8" />
               <line x1="7" y1="8" x2="17" y2="8" stroke="#8a9bb0" strokeWidth="1.4" strokeLinecap="round" />
               <line x1="7" y1="12" x2="17" y2="12" stroke="#8a9bb0" strokeWidth="1.4" strokeLinecap="round" />
@@ -4089,9 +4199,8 @@ export default function FloorPlanEditor() {
             {project.projectName || "New Project"}
           </div>
 
-          {/* Style selector — compact segmented control, swaps 3D exterior
-              without touching the 2D layout. */}
-          {activePlan && (
+          {/* Style selector — compact segmented control (desktop only) */}
+          {activePlan && !isMobile && (
             <div style={{
               display: "flex",
               alignItems: "center",
@@ -4151,8 +4260,8 @@ export default function FloorPlanEditor() {
           {/* Spacer */}
           <div style={{ flex: 1 }} />
 
-          {/* Export DXF */}
-          {activePlan && (
+          {/* Export DXF (desktop only) */}
+          {activePlan && !isMobile && (
             <button onClick={handleExportDxf} disabled={exportingDxf || !activePlan} style={{
               height: 36, padding: "0 12px", borderRadius: 6,
               border: "1px solid #2a3548", background: "transparent",
@@ -4172,8 +4281,8 @@ export default function FloorPlanEditor() {
             </button>
           )}
 
-          {/* Build My Home / Save to Project */}
-          {activePlan && (
+          {/* Build My Home / Save to Project (desktop only) */}
+          {activePlan && !isMobile && (
             <button onClick={handleSaveToEdit} disabled={saving} data-tour="continue-btn" style={{
               height: 36, padding: "0 18px", borderRadius: 6, border: "none",
               background: saving ? "rgba(0,212,255,0.3)" : "linear-gradient(135deg, #00d4ff, #0099cc)",
@@ -4184,6 +4293,84 @@ export default function FloorPlanEditor() {
             }}>
               {saving ? "Saving…" : isHomeowner ? "Build My Home →" : "Save to Project →"}
             </button>
+          )}
+
+          {/* ⋯ More menu (mobile only) */}
+          {isMobile && (
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setMoreMenuOpen(o => !o)}
+                style={{
+                  width: 36, height: 36, borderRadius: 6,
+                  border: "1px solid #2a3548", background: moreMenuOpen ? "rgba(0,212,255,0.08)" : "transparent",
+                  color: "#8a9bb0", cursor: "pointer", fontSize: 18, lineHeight: 1,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+              >⋯</button>
+
+              {moreMenuOpen && (
+                <>
+                  {/* overlay to close on outside tap */}
+                  <div onClick={() => setMoreMenuOpen(false)} style={{
+                    position: "fixed", inset: 0, zIndex: 299,
+                  }} />
+                  {/* dropdown */}
+                  <div style={{
+                    position: "absolute", right: 0, top: 44, zIndex: 300,
+                    background: "#0f1929", border: "1px solid #1a2d45",
+                    borderRadius: 10, padding: 12,
+                    minWidth: 220, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                    display: "flex", flexDirection: "column", gap: 10,
+                  }}>
+                    {/* Style selector */}
+                    {activePlan && (
+                      <div>
+                        <div style={{ fontSize: 10, color: "#5a6580", fontFamily: fonts.label,
+                          fontWeight: 700, letterSpacing: "0.1em", marginBottom: 6 }}>STYLE</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          {Object.keys(STYLE_CONFIGS).map((key) => {
+                            const config = STYLE_CONFIGS[key];
+                            const active = params.style === key;
+                            return (
+                              <button key={key} onClick={() => { handleChangeStyle(key); setMoreMenuOpen(false); }} style={{
+                                display: "flex", alignItems: "center", gap: 5,
+                                padding: "5px 8px", borderRadius: 5,
+                                background: active ? "rgba(0,212,255,0.12)" : "transparent",
+                                border: `1px solid ${active ? "#00d4ff" : "#1a2236"}`,
+                                color: active ? "#00d4ff" : "#8a9bb0",
+                                fontFamily: fonts.label, fontSize: 11, cursor: "pointer",
+                              }}>
+                                <span style={{ width: 8, height: 8, borderRadius: 2,
+                                  background: config.materials.wallColor,
+                                  border: "1px solid rgba(255,255,255,0.12)", flexShrink: 0 }} />
+                                {key}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {/* Export DXF */}
+                    {activePlan && (
+                      <button onClick={() => { handleExportDxf(); setMoreMenuOpen(false); }}
+                        disabled={exportingDxf} style={{
+                          width: "100%", padding: "10px 0", borderRadius: 6,
+                          border: "1px solid #2a3548", background: "transparent",
+                          color: exportingDxf ? "#4a8a99" : colors.text,
+                          fontFamily: fonts.label, fontSize: 13, fontWeight: 600,
+                          cursor: exportingDxf ? "default" : "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                        }}>
+                        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                          <path d="M2 9.5v1.5h9V9.5M6.5 1v7M4 6l2.5 2.5L9 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        {exportingDxf ? "Exporting…" : "Export DXF"}
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
         </div>
@@ -4197,12 +4384,79 @@ export default function FloorPlanEditor() {
         >
           <canvas
             ref={canvasRef}
-            style={{ width: "100%", height: "100%", display: "block", cursor: canvasCursor }}
+            style={{ width: "100%", height: "100%", display: "block", cursor: canvasCursor, touchAction: "none" }}
             onMouseDown={handleCanvasMouseDown}
             onMouseMove={handleCanvasMove}
             onMouseUp={handleCanvasMouseUp}
             onMouseLeave={() => { setHoveredRoom(null); setCanvasCursor("default"); }}
+            onTouchStart={(e) => {
+              if (e.touches.length === 2) return;
+              e.preventDefault();
+              const touch = e.touches[0];
+              handleCanvasMouseDown({ clientX: touch.clientX, clientY: touch.clientY, currentTarget: e.currentTarget, preventDefault: () => {}, button: 0 });
+            }}
+            onTouchMove={(e) => {
+              if (e.touches.length === 2) {
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (!pinchRef.current) { pinchRef.current = dist; return; }
+                const delta = dist - pinchRef.current;
+                pinchRef.current = dist;
+                setZoom(z => Math.min(2.5, Math.max(0.5, z + delta * 0.005)));
+                return;
+              }
+              e.preventDefault();
+              const touch = e.touches[0];
+              handleCanvasMove({ clientX: touch.clientX, clientY: touch.clientY, currentTarget: e.currentTarget });
+            }}
+            onTouchEnd={(e) => {
+              pinchRef.current = null;
+              const endTouch = e.changedTouches[0];
+              if (touchDragRef.current && endTouch) {
+                const dragData = touchDragRef.current;
+                const syntheticDrop = {
+                  clientX: endTouch.clientX, clientY: endTouch.clientY,
+                  preventDefault: () => {},
+                  dataTransfer: { getData: (key) => dragData[key] ?? "" },
+                };
+                handleCanvasDrop(syntheticDrop);
+                touchDragRef.current = null;
+              }
+              handleCanvasMouseUp({ button: 0 });
+            }}
           />
+          {/* Floating drawer trigger buttons (mobile only) */}
+          {isMobile && (
+            <button onClick={() => { setLibDrawerOpen(true); setStatsDrawerOpen(false); }} style={{
+              position: "absolute", left: 12, top: 12, zIndex: 100,
+              background: "rgba(11,16,24,0.85)", border: "1px solid #1a2236",
+              borderRadius: 8, padding: 10, color: "#8a9bb0",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer",
+            }}>
+              <svg width="18" height="14" viewBox="0 0 18 14" fill="none">
+                <line x1="0" y1="1" x2="18" y2="1" stroke="#8a9bb0" strokeWidth="1.8" strokeLinecap="round"/>
+                <line x1="0" y1="7" x2="18" y2="7" stroke="#8a9bb0" strokeWidth="1.8" strokeLinecap="round"/>
+                <line x1="0" y1="13" x2="18" y2="13" stroke="#8a9bb0" strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+            </button>
+          )}
+          {isMobile && (
+            <button onClick={() => { setStatsDrawerOpen(true); setLibDrawerOpen(false); }} style={{
+              position: "absolute", right: 12, top: 12, zIndex: 100,
+              background: "rgba(11,16,24,0.85)", border: "1px solid #1a2236",
+              borderRadius: 8, padding: 10, color: "#8a9bb0",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer",
+            }}>
+              <svg width="18" height="14" viewBox="0 0 18 14" fill="none">
+                <rect x="0" y="9" width="4" height="5" rx="1" fill="#8a9bb0"/>
+                <rect x="7" y="5" width="4" height="9" rx="1" fill="#8a9bb0"/>
+                <rect x="14" y="0" width="4" height="14" rx="1" fill="#8a9bb0"/>
+              </svg>
+            </button>
+          )}
           {editingLabel && (
             <div style={{
               position: "absolute",
@@ -4317,46 +4571,109 @@ export default function FloorPlanEditor() {
 
         {/* Bottom bar: total width + zoom */}
         <div style={{
-          height: 44, flexShrink: 0, background: "#0b1018",
+          height: isMobile ? 56 : 44, flexShrink: 0, background: "#0b1018",
           borderTop: "1px solid #1a2236",
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "0 16px",
+          padding: isMobile ? "0 12px" : "0 16px",
         }}>
-          {/* Width label */}
-          <div style={{ flex: 1 }}>
+          {/* Width label (hidden on mobile to save space) */}
+          <div style={{ flex: 1, display: isMobile ? "none" : "block" }}>
             {activePlan && (
               <span style={{ fontFamily: fonts.data, fontSize: 11, color: "#5a6580", letterSpacing: "0.08em" }}>
                 TOTAL WIDTH: {activePlan.width}' 0"
               </span>
             )}
           </div>
-          {/* Zoom controls */}
+          {isMobile ? (
+            <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <button
+                onClick={() => navigate(-1)}
+                style={{
+                  height: 36, minWidth: 56, padding: "0 10px", border: "1px solid #1a2236", borderRadius: 6,
+                  background: "#0f1420", color: "#8a9bb0", cursor: "pointer",
+                  fontSize: 11, fontWeight: 600, fontFamily: fonts.label, whiteSpace: "nowrap", flexShrink: 0,
+                }}
+              >
+                Back
+              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))} style={{
+                  width: 36, height: 36, border: "1px solid #1a2236", borderRadius: 6,
+                  background: "#0f1420", color: "#8a9bb0", cursor: "pointer", fontSize: 16, lineHeight: 1,
+                }}>−</button>
+                <span style={{ fontFamily: fonts.data, fontSize: 12, color: "#8a9bb0", minWidth: 36, textAlign: "center" }}>
+                  {scaleLabel}
+                </span>
+                <button onClick={() => setZoom((z) => Math.min(2.5, z + 0.25))} style={{
+                  width: 36, height: 36, border: "1px solid #1a2236", borderRadius: 6,
+                  background: "#0f1420", color: "#8a9bb0", cursor: "pointer", fontSize: 16, lineHeight: 1,
+                }}>+</button>
+                <button style={{
+                  width: 36, height: 36, border: "1px solid #1a2236", borderRadius: 6,
+                  background: "#0f1420", color: "#8a9bb0", cursor: "pointer", fontSize: 11, lineHeight: 1,
+                }} title="Fit to screen" onClick={() => setZoom(1.0)}>⛶</button>
+              </div>
+              {activePlan ? (
+                <button
+                  onClick={handleSaveToEdit}
+                  disabled={saving}
+                  style={{
+                    height: 36, minWidth: 56, padding: "0 10px", borderRadius: 6, border: "none",
+                    background: saving ? "rgba(0,212,255,0.3)" : "linear-gradient(135deg, #00d4ff, #0099cc)",
+                    color: saving ? "#4a8a99" : "#0d1117",
+                    fontFamily: fonts.label, fontSize: 11, fontWeight: 700,
+                    cursor: saving ? "default" : "pointer", whiteSpace: "nowrap", flexShrink: 0,
+                  }}
+                >
+                  {saving ? "Saving…" : isHomeowner ? "Build" : "Save"}
+                </button>
+              ) : (
+                <div style={{ width: 36, flexShrink: 0 }} />
+              )}
+            </div>
+          ) : (
+          /* Zoom controls */
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))} style={{
-              width: 28, height: 28, border: "1px solid #1a2236", borderRadius: 6,
+              width: isMobile ? 36 : 28, height: isMobile ? 36 : 28, border: "1px solid #1a2236", borderRadius: 6,
               background: "#0f1420", color: "#8a9bb0", cursor: "pointer", fontSize: 16, lineHeight: 1,
             }}>−</button>
             <span style={{ fontFamily: fonts.data, fontSize: 12, color: "#8a9bb0", minWidth: 36, textAlign: "center" }}>
               {scaleLabel}
             </span>
             <button onClick={() => setZoom((z) => Math.min(2.5, z + 0.25))} style={{
-              width: 28, height: 28, border: "1px solid #1a2236", borderRadius: 6,
+              width: isMobile ? 36 : 28, height: isMobile ? 36 : 28, border: "1px solid #1a2236", borderRadius: 6,
               background: "#0f1420", color: "#8a9bb0", cursor: "pointer", fontSize: 16, lineHeight: 1,
             }}>+</button>
             <button style={{
-              width: 28, height: 28, border: "1px solid #1a2236", borderRadius: 6,
+              width: isMobile ? 36 : 28, height: isMobile ? 36 : 28, border: "1px solid #1a2236", borderRadius: 6,
               background: "#0f1420", color: "#8a9bb0", cursor: "pointer", fontSize: 11, lineHeight: 1,
             }} title="Fit to screen" onClick={() => setZoom(1.0)}>⛶</button>
           </div>
-          <div style={{ flex: 1 }} />
+          )}
+          <div style={{ flex: 1, display: isMobile ? "none" : "block" }} />
         </div>
       </div>
 
       {/* ═══════════════ RIGHT: FLOOR NAVIGATION ═══════════════ */}
+      {/* Mobile overlay behind right drawer */}
+      {isMobile && statsDrawerOpen && (
+        <div onClick={() => setStatsDrawerOpen(false)} style={{
+          position: "fixed", inset: 0, zIndex: 199,
+          background: "rgba(0,0,0,0.5)",
+        }} />
+      )}
       <div style={{
-        width: 232, flexShrink: 0, background: "#0b1018",
+        width: isMobile ? "85vw" : 232,
+        flexShrink: 0, background: "#0b1018",
         borderLeft: "1px solid #1a2236",
         display: "flex", flexDirection: "column", overflow: "hidden",
+        position: isMobile ? "fixed" : "relative",
+        top: isMobile ? 0 : undefined,
+        right: isMobile ? (statsDrawerOpen ? 0 : "-100%") : undefined,
+        height: isMobile ? "100%" : undefined,
+        zIndex: isMobile ? 200 : undefined,
+        transition: isMobile ? "right 0.25s ease" : undefined,
       }}>
         {/* Header */}
         <div style={{
@@ -4364,18 +4681,28 @@ export default function FloorPlanEditor() {
           display: "flex", alignItems: "center", justifyContent: "space-between",
         }}>
           <span style={{ ...panelLabel, fontSize: 11 }}>Floor Navigation</span>
-          <button
-            onClick={() => navigate(-1)}
-            style={{
-              display: "flex", alignItems: "center", gap: 4,
-              background: "transparent", border: "1px solid #1a2236",
-              borderRadius: 6, color: "#6b7a96", fontSize: 12,
-              fontWeight: 600, padding: "5px 12px", cursor: "pointer",
-              fontFamily: fonts.label,
-            }}
-          >
-            ← Back
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {isMobile && (
+              <button onClick={() => setStatsDrawerOpen(false)} style={{
+                background: "none", border: "none", color: "#5a6580",
+                cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4,
+              }}>✕</button>
+            )}
+            {!isMobile && (
+              <button
+                onClick={() => navigate(-1)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  background: "transparent", border: "1px solid #1a2236",
+                  borderRadius: 6, color: "#6b7a96", fontSize: 12,
+                  fontWeight: 600, padding: "5px 12px", cursor: "pointer",
+                  fontFamily: fonts.label,
+                }}
+              >
+                ← Back
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Level tabs */}
@@ -4485,8 +4812,10 @@ export default function FloorPlanEditor() {
         }} onClick={(e) => { if (e.target === e.currentTarget) setShowCustomModal(false); }}>
           <div style={{
             background: "#0f1929", border: "1px solid #1a2d45", borderRadius: 14,
-            width: 820, maxWidth: "95vw", overflow: "hidden",
+            width: isMobile ? "calc(100vw - 32px)" : 820, maxWidth: "95vw", overflow: "hidden",
             display: "flex", flexDirection: "column",
+            maxHeight: isMobile ? "calc(100vh - 48px)" : undefined,
+            overflowY: isMobile ? "auto" : undefined,
             boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
           }}>
             {/* Header */}
@@ -4521,10 +4850,11 @@ export default function FloorPlanEditor() {
             </div>
 
             {/* Body */}
-            <div style={{ display: "flex", minHeight: 440 }}>
+            <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", minHeight: isMobile ? undefined : 440 }}>
               {/* ── Left: form ── */}
-              <div style={{ flex: "0 0 46%", padding: "24px 28px",
-                borderRight: "1px solid #1a2236",
+              <div style={{ flex: isMobile ? "none" : "0 0 46%", padding: isMobile ? "20px 20px" : "24px 28px",
+                borderRight: isMobile ? "none" : "1px solid #1a2236",
+                borderBottom: isMobile ? "1px solid #1a2236" : "none",
                 display: "flex", flexDirection: "column", gap: 22 }}>
 
                 {/* Block Name */}
@@ -4701,7 +5031,7 @@ export default function FloorPlanEditor() {
               </div>
 
               {/* ── Right: preview ── */}
-              <div style={{ flex: 1, padding: "24px 28px",
+              <div style={{ flex: isMobile ? "none" : 1, padding: isMobile ? "20px 20px" : "24px 28px",
                 display: "flex", flexDirection: "column", gap: 16 }}>
                 <label style={{ fontSize: 13, fontWeight: 700, color: "#e8ecf4" }}>Block Preview</label>
                 <div style={{ flex: 1, borderRadius: 8, border: "1px solid #1a2d45",
@@ -4773,7 +5103,8 @@ export default function FloorPlanEditor() {
         }} onClick={(e) => { if (e.target === e.currentTarget) setShowParamsModal(false); }}>
           <div style={{
             background: "#0f1929", border: "1px solid #1a2d45", borderRadius: 14,
-            width: 420, maxHeight: "80vh", overflow: "hidden",
+            width: isMobile ? "calc(100vw - 32px)" : 420,
+            maxHeight: isMobile ? "calc(100vh - 48px)" : "80vh", overflow: "hidden",
             display: "flex", flexDirection: "column",
           }}>
             <div style={{ padding: "20px 24px 14px", borderBottom: "1px solid #1a2236",
@@ -4921,8 +5252,10 @@ export default function FloorPlanEditor() {
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
           <div style={{
-            width: 420, background: "#141b2a", border: "1px solid #2a3548",
+            width: isMobile ? "calc(100vw - 32px)" : 420,
+            background: "#141b2a", border: "1px solid #2a3548",
             borderRadius: 12, overflow: "hidden",
+            padding: isMobile ? "0" : undefined,
           }}>
             {/* Header */}
             <div style={{ padding: "20px 24px 12px", display: "flex", alignItems: "center", gap: 10 }}>
@@ -4997,4 +5330,3 @@ export default function FloorPlanEditor() {
     </div>
   );
 }
-
