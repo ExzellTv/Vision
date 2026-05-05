@@ -85,6 +85,8 @@ export default function GuidedTour({
   }, [current]);
 
   /* ── On step change: scroll into view, then measure ── */
+  // If a step's target isn't in the DOM, the step still shows — just centered
+  // like the intro/outro modal. Tours never auto-advance: the user clicks Next.
   useEffect(() => {
     if (!open || !current) return;
     if (current.target) {
@@ -96,20 +98,11 @@ export default function GuidedTour({
       measure();
       const t1 = setTimeout(measure, 200);
       const t2 = setTimeout(measure, 500);
-      // Optional steps: if target still missing after 600ms, auto-skip
-      let t3;
-      if (current.optional) {
-        t3 = setTimeout(() => {
-          if (!document.querySelector(current.target)) {
-            setIdx((i) => Math.min(i + 1, steps.length - 1));
-          }
-        }, 600);
-      }
-      return () => { clearTimeout(t1); clearTimeout(t2); if (t3) clearTimeout(t3); };
+      return () => { clearTimeout(t1); clearTimeout(t2); };
     } else {
       setRect(null);
     }
-  }, [open, idx, current, measure, steps.length]);
+  }, [open, idx, current, measure]);
 
   /* ── Reposition on resize/scroll ── */
   useEffect(() => {

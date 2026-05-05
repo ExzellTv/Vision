@@ -466,12 +466,12 @@ export default function Dashboard() {
             {
               target: '[data-tour="module-launchpad"]',
               placement: "top",
-              title: "Three guided modules",
+              title: "Two guided modules",
               body: (
                 <>
-                  Each card opens one part of the journey: <b>Floor Plan Studio</b> for design,
-                  <b> Analysis Hub</b> for the building site, and <b>Browse Builders</b> when you&rsquo;re
-                  ready to talk to a contractor. Walk through them in order on your first project.
+                  Each card opens one part of the journey: <b>Floor Plan Studio</b> for design and
+                  <b> Browse Builders</b> when you&rsquo;re ready to talk to a contractor. Walk through
+                  them in order on your first project.
                 </>
               ),
             },

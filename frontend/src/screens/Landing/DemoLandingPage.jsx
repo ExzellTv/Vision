@@ -389,7 +389,7 @@ export default function DemoLandingPage() {
               transition: "opacity 1s ease 0.8s",
             }}
           >
-            Red Bull Basement 2025
+            Red Bull Basement 2026
           </div>
         </>
       ) : (
@@ -431,7 +431,7 @@ export default function DemoLandingPage() {
               transition: "opacity 1s ease 0.8s",
             }}
           >
-            Red Bull Basement 2025
+            Red Bull Basement 2026
           </div>
 
           {/* Divider line */}
