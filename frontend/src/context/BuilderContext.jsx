@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { builderRequestsApi, projectsApi } from "../services/api";
+import { resolveHouseColors } from "../lib/housePrefs";
 
 const BuilderContext = createContext(null);
 
@@ -44,19 +45,6 @@ export function BuilderProvider({ children }) {
   const fetchApiProjects = () => {
     Promise.all([builderRequestsApi.allPending(), builderRequestsApi.allApproved()])
       .then(([pending, approved]) => {
-        const pendingMapped = pending.map((req) => ({
-          id: req.project_id,
-          requestId: req.id,
-          name: req.project_name,
-          address: req.address || "",
-          client: "Homeowner",
-          status: "New Request",
-          cost: { budget: req.budget || 0 },
-          feasibility: { score: 0, zoning: "Pending" },
-          progress: 0,
-          progressTone: "secondary",
-        }));
-
         const approvedMapped = approved.map((req) => ({
           id: req.project_id,
           requestId: req.id,
@@ -72,15 +60,58 @@ export function BuilderProvider({ children }) {
           feasibility: { score: 0, zoning: "Pending" },
         }));
 
-        // Filter out any projects the builder has already finished
         const finishedIds = readFinishedIds();
         const filteredApproved = approvedMapped.filter((p) => !finishedIds.has(p.id));
-        const filteredPending  = pendingMapped.filter((p)  => !finishedIds.has(p.id));
-        const next = [...filteredApproved, ...filteredPending];
-        writeBuilderCache(filteredApproved);
-        setProjects(next);
+
+        // For each pending request, also fetch the full project to get _floorPlan etc.
+        const pendingPromises = pending
+          .filter((req) => !finishedIds.has(req.project_id))
+          .map((req) =>
+            projectsApi.getPublic(req.project_id)
+              .then((p) => {
+                const { wallMaterial, roofMaterial, wallColor, roofColor } =
+                  resolveHouseColors({ materials: p.materials || [] });
+                return {
+                  id: req.project_id,
+                  requestId: req.id,
+                  name: req.project_name,
+                  address: req.address || "",
+                  client: "Homeowner",
+                  status: "New Request",
+                  cost: { budget: req.budget || 0 },
+                  feasibility: p.feasibility || { score: 0, zoning: "Pending" },
+                  progress: 0,
+                  progressTone: "secondary",
+                  _floorPlan: p.floor_plan ?? null,
+                  _storyPlans: p.story_plans ?? [],
+                  _wallMaterial: wallMaterial,
+                  _roofMaterial: roofMaterial,
+                  _wallColor: wallColor,
+                  _roofColor: roofColor,
+                };
+              })
+              .catch(() => ({
+                // fallback if fetch fails — plain card with no 3D
+                id: req.project_id,
+                requestId: req.id,
+                name: req.project_name,
+                address: req.address || "",
+                client: "Homeowner",
+                status: "New Request",
+                cost: { budget: req.budget || 0 },
+                feasibility: { score: 0, zoning: "Pending" },
+                progress: 0,
+                progressTone: "secondary",
+              }))
+          );
+
+        Promise.all(pendingPromises).then((pendingMapped) => {
+          const next = [...filteredApproved, ...pendingMapped];
+          writeBuilderCache(filteredApproved);
+          setProjects(next);
+        });
       })
-      .catch(() => {});
+      .catch(() => { });
   };
 
   useEffect(() => { fetchApiProjects(); }, []);
@@ -89,7 +120,7 @@ export function BuilderProvider({ children }) {
     setProjects((prev) => {
       const next = prev.map((proj) => {
         if (proj.id !== id) return proj;
-        builderRequestsApi.updateStatus(proj.requestId || id, "approved").catch(() => {});
+        builderRequestsApi.updateStatus(proj.requestId || id, "approved").catch(() => { });
         return {
           ...proj,
           status: "On Track",
@@ -109,7 +140,7 @@ export function BuilderProvider({ children }) {
   const denyRequest = (id) => {
     setProjects((prev) => {
       const proj = prev.find((p) => p.id === id);
-      if (proj) builderRequestsApi.updateStatus(proj.requestId || id, "denied").catch(() => {});
+      if (proj) builderRequestsApi.updateStatus(proj.requestId || id, "denied").catch(() => { });
       const next = prev.filter((p) => p.id !== id);
       writeBuilderCache(next.filter((p) => p.status !== "New Request"));
       return next;
@@ -126,7 +157,7 @@ export function BuilderProvider({ children }) {
       return next;
     });
     // Persist completed status to MongoDB (fire-and-forget — local state already updated)
-    projectsApi.finish(projectId).catch(() => {});
+    projectsApi.finish(projectId).catch(() => { });
   };
 
   return (

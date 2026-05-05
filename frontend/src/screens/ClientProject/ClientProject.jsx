@@ -12,13 +12,13 @@ import HelpTip from "../../components/shared/HelpTip";
 import { useUserType } from "../../context/UserTypeContext";
 
 const CATEGORY_COLOR = {
-  SITEWORK:   "#a78bfa",
+  SITEWORK: "#a78bfa",
   FOUNDATION: "#f59e0b",
-  STRUCTURE:  "#3b82f6",
-  MEP:        "#ec4899",
-  ENCLOSURE:  "#14b8a6",
-  FINISHES:   "#2ed573",
-  CLOSEOUT:   "#00d4ff",
+  STRUCTURE: "#3b82f6",
+  MEP: "#ec4899",
+  ENCLOSURE: "#14b8a6",
+  FINISHES: "#2ed573",
+  CLOSEOUT: "#00d4ff",
 };
 
 const fmtCost = (v) => {
@@ -33,17 +33,17 @@ function openProjectReport(project) {
   const fmtC = (v) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v || 0);
 
   const schedule = project._schedule;
-  const phases   = schedule?.phases ?? [];
-  const totalSF  = project._floorPlan?.totalSF ?? 0;
-  const stories  = project._floorPlan?.stories ?? 1;
-  const plot     = project._plot;
+  const phases = schedule?.phases ?? [];
+  const totalSF = project._floorPlan?.totalSF ?? 0;
+  const stories = project._floorPlan?.stories ?? 1;
+  const plot = project._plot;
 
   const timelineRows = (project.timeline || []).map((t, i) => {
     const statusBg = t.status === "completed" ? "#dcfce7" : t.status === "active" ? "#dbeafe" : "#f1f5f9";
     const statusFg = t.status === "completed" ? "#15803d" : t.status === "active" ? "#1d4ed8" : "#64748b";
-    const label    = t.status === "completed" ? "Complete" : t.status === "active" ? "In Progress" : "Pending";
+    const label = t.status === "completed" ? "Complete" : t.status === "active" ? "In Progress" : "Pending";
     return `<tr style="background:${i % 2 === 0 ? "#fff" : "#f8fafc"}">
-      <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#94a3b8">P${String(i+1).padStart(2,"0")}</td>
+      <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#94a3b8">P${String(i + 1).padStart(2, "0")}</td>
       <td style="padding:6px 8px;font-size:9pt;color:#1e293b;font-weight:${t.status === "active" ? 600 : 400}">${t.phase}</td>
       <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#475569">${t.date}</td>
       <td style="padding:6px 8px;font-size:9pt;text-align:center"><span style="display:inline-block;padding:1px 7px;border-radius:10px;background:${statusBg};color:${statusFg};font-size:8pt;font-weight:600">${label}</span></td>
@@ -51,7 +51,7 @@ function openProjectReport(project) {
   }).join("");
 
   const phaseRows = phases.map((p, i) => `<tr style="background:${i % 2 === 0 ? "#fff" : "#f8fafc"}">
-    <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#94a3b8">A${String(p.id ?? (i+1)).padStart(2,"0")}</td>
+    <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#94a3b8">A${String(p.id ?? (i + 1)).padStart(2, "0")}</td>
     <td style="padding:6px 8px;font-size:9pt;color:#1e293b">${p.name}</td>
     <td style="padding:6px 8px;font-size:9pt;color:#475569">${p.category || ""}</td>
     <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#475569;text-align:center">${p.durationWeeks || 0}w</td>
@@ -64,8 +64,8 @@ function openProjectReport(project) {
     <td style="padding:6px 8px;font-family:monospace;font-size:9pt;color:#0f172a;text-align:right">${fmtC(b.value)}</td>
   </tr>`).join("");
 
-  const feas = project.feasibility || {};
-  const feasRows = [["Overall Score", `${feas.score ?? 0}/100`], ["Zoning", feas.zoning || "—"], ["Environmental", feas.environmental || "—"], ["Structural QA", feas.structural || "—"]]
+  const feasScore = plot?.feasibility_score || 0;
+  const feasRows = [["Overall Score", `${feasScore}/100`], ["Zoning", plot?.zoning || "—"], ["Environmental", plot?.environmental || "—"], ["Structural QA", plot?.structural || "—"]]
     .map(([k, v], i) => `<tr style="background:${i % 2 === 0 ? "#fff" : "#f8fafc"}">
       <td style="padding:6px 8px;font-size:9pt;color:#475569">${k}</td>
       <td style="padding:6px 8px;font-size:9pt;color:#0f172a;font-weight:600;text-align:right">${v}</td>
@@ -77,7 +77,7 @@ function openProjectReport(project) {
       <div class="metric"><div class="label">Address</div><div class="value" style="font-size:10pt">${plot.address || project.address}</div></div>
       ${plot.lot_sf ? `<div class="metric"><div class="label">Lot Size</div><div class="value">${plot.lot_sf.toLocaleString()}<span style="font-size:9pt;font-weight:400"> sf</span></div></div>` : ""}
       ${plot.zoning ? `<div class="metric"><div class="label">Zoning</div><div class="value" style="font-size:10pt">${plot.zoning}</div></div>` : ""}
-      ${plot.price  ? `<div class="metric"><div class="label">Land Price</div><div class="value">${fmtC(plot.price)}</div></div>` : ""}
+      ${plot.price ? `<div class="metric"><div class="label">Land Price</div><div class="value">${fmtC(plot.price)}</div></div>` : ""}
     </div>` : "";
 
   const html = `<!DOCTYPE html>
@@ -327,7 +327,7 @@ function MiniMap({ address, location }) {
         L.marker([lat, lon]).addTo(map);
         mapInstanceRef.current = map;
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => { mapInstanceRef.current?.remove(); mapInstanceRef.current = null; };
   }, [address, location]);
 
@@ -351,20 +351,20 @@ function SchedulePreviewCard({ schedule, timeline, onViewDetail }) {
 
   // If no saved schedule, build a default 14-phase skeleton (all planned, 0% done)
   const DEFAULT_PHASES = [
-    { name: "Permitting & Site Prep",        durationWeeks: 2, category: "SITEWORK"   },
-    { name: "Excavation & Grading",          durationWeeks: 2, category: "SITEWORK"   },
+    { name: "Permitting & Site Prep", durationWeeks: 2, category: "SITEWORK" },
+    { name: "Excavation & Grading", durationWeeks: 2, category: "SITEWORK" },
     { name: "Foundation (Form, Pour, Cure)", durationWeeks: 4, category: "FOUNDATION" },
-    { name: "Structural Framing",            durationWeeks: 5, category: "STRUCTURE"  },
-    { name: "Roofing & Sheathing",           durationWeeks: 3, category: "STRUCTURE"  },
-    { name: "Exterior Sheathing & Wrap",     durationWeeks: 2, category: "STRUCTURE"  },
-    { name: "Rough MEP (Plumbing, Elec, HVAC)", durationWeeks: 4, category: "MEP"    },
-    { name: "Insulation",                    durationWeeks: 2, category: "ENCLOSURE"  },
-    { name: "Drywall (Hang, Tape, Finish)",  durationWeeks: 3, category: "ENCLOSURE"  },
-    { name: "Exterior Cladding & Siding",    durationWeeks: 3, category: "FINISHES"   },
-    { name: "Interior Finish Carpentry",     durationWeeks: 3, category: "FINISHES"   },
-    { name: "Paint & Interior Finish",       durationWeeks: 2, category: "FINISHES"   },
-    { name: "Fixtures, Trim & Final MEP",    durationWeeks: 2, category: "CLOSEOUT"   },
-    { name: "Final Inspection & Punch List", durationWeeks: 1, category: "CLOSEOUT"   },
+    { name: "Structural Framing", durationWeeks: 5, category: "STRUCTURE" },
+    { name: "Roofing & Sheathing", durationWeeks: 3, category: "STRUCTURE" },
+    { name: "Exterior Sheathing & Wrap", durationWeeks: 2, category: "STRUCTURE" },
+    { name: "Rough MEP (Plumbing, Elec, HVAC)", durationWeeks: 4, category: "MEP" },
+    { name: "Insulation", durationWeeks: 2, category: "ENCLOSURE" },
+    { name: "Drywall (Hang, Tape, Finish)", durationWeeks: 3, category: "ENCLOSURE" },
+    { name: "Exterior Cladding & Siding", durationWeeks: 3, category: "FINISHES" },
+    { name: "Interior Finish Carpentry", durationWeeks: 3, category: "FINISHES" },
+    { name: "Paint & Interior Finish", durationWeeks: 2, category: "FINISHES" },
+    { name: "Fixtures, Trim & Final MEP", durationWeeks: 2, category: "CLOSEOUT" },
+    { name: "Final Inspection & Punch List", durationWeeks: 1, category: "CLOSEOUT" },
   ];
   const PREVIEW_CATEGORY_COLOR = {
     SITEWORK: "#a78bfa", FOUNDATION: "#f59e0b", STRUCTURE: "#3b82f6",
@@ -386,7 +386,7 @@ function SchedulePreviewCard({ schedule, timeline, onViewDetail }) {
     });
   })();
   const effectiveTotalWeeks = schedule?.totalWeeks ?? effectivePhases.reduce((s, p) => s + p.durationWeeks, 0);
-  const effectiveStartDate  = schedule?.startDate ?? new Date().toISOString();
+  const effectiveStartDate = schedule?.startDate ?? new Date().toISOString();
 
   // Rich Gantt preview — mirrors ScheduleTimeline visual style
   const completedCount = effectivePhases.filter(p => p.status === "complete").length;
@@ -434,8 +434,8 @@ function SchedulePreviewCard({ schedule, timeline, onViewDetail }) {
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
           <div style={{ position: "relative", width: gaugeSize, height: gaugeSize }}>
             <svg width={gaugeSize} height={gaugeSize} viewBox={`0 0 ${gaugeSize} ${gaugeSize}`} style={{ transform: "rotate(-90deg)" }}>
-              <circle cx={gaugeSize/2} cy={gaugeSize/2} r={r} fill="none" stroke={colors.cardBorder} strokeWidth={sw} />
-              <circle cx={gaugeSize/2} cy={gaugeSize/2} r={r} fill="none" stroke={gaugeColor} strokeWidth={sw}
+              <circle cx={gaugeSize / 2} cy={gaugeSize / 2} r={r} fill="none" stroke={colors.cardBorder} strokeWidth={sw} />
+              <circle cx={gaugeSize / 2} cy={gaugeSize / 2} r={r} fill="none" stroke={gaugeColor} strokeWidth={sw}
                 strokeDasharray={circ} strokeDashoffset={dashOff} strokeLinecap="round"
                 style={{ transition: "stroke-dashoffset 0.6s ease" }} />
             </svg>
@@ -474,10 +474,10 @@ function SchedulePreviewCard({ schedule, timeline, onViewDetail }) {
       {/* ── Gantt rows (scrollable) ── */}
       <div style={{ maxHeight: 280, overflowY: "auto", display: "flex", flexDirection: "column", gap: 1, marginBottom: 14 }}>
         {effectivePhases.map((ph, i) => {
-          const isDone   = ph.status === "complete";
+          const isDone = ph.status === "complete";
           const isActive = ph.status === "active";
           const barColor = PREVIEW_CATEGORY_COLOR[ph.category] ?? ph.layerColor ?? "#64748b";
-          const leftPct  = effectiveTotalWeeks > 0 ? (phaseOffsets[i] / effectiveTotalWeeks) * 100 : 0;
+          const leftPct = effectiveTotalWeeks > 0 ? (phaseOffsets[i] / effectiveTotalWeeks) * 100 : 0;
           const widthPct = effectiveTotalWeeks > 0 ? Math.max(0.8, (ph.durationWeeks / effectiveTotalWeeks) * 100) : 0;
           return (
             <div key={ph.id} style={{
@@ -496,7 +496,7 @@ function SchedulePreviewCard({ schedule, timeline, onViewDetail }) {
               }}>
                 {isDone && (
                   <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
-                    <path d="M1 3L3 5L7 1" stroke={colors.success} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M1 3L3 5L7 1" stroke={colors.success} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 )}
                 {isActive && (
@@ -602,24 +602,24 @@ export default function ClientProject() {
         const budget = p.generate_params?.budget?.max ?? p.generate_params?.budget?.min ?? 0;
         const totalSF = p.floor_plan?.totalSF || p.generate_params?.targetSF || 2200;
         const rawMaterials = p.materials || [];
-        const LAYER_COLORS = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316","#84cc16"];
+        const LAYER_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316", "#84cc16"];
         const scaledMaterials = rawMaterials
           .filter(m => m.cost > 0)
           .map(m => ({ ...m, scaledCost: Math.round(m.cost * (totalSF / 1000)) }));
         const matTotal = scaledMaterials.reduce((s, m) => s + m.scaledCost, 0);
         const breakdown = scaledMaterials.length > 0
           ? scaledMaterials.map((m, i) => ({
-              label: m.name,
-              value: m.scaledCost,
-              percentage: matTotal > 0 ? Math.round(m.scaledCost / matTotal * 100) : 0,
-              color: LAYER_COLORS[i % LAYER_COLORS.length],
-            }))
+            label: m.name,
+            value: m.scaledCost,
+            percentage: matTotal > 0 ? Math.round(m.scaledCost / matTotal * 100) : 0,
+            color: LAYER_COLORS[i % LAYER_COLORS.length],
+          }))
           : [
-              { label: "Foundation & Framing",   value: Math.round(budget * 0.35), percentage: 35, color: "#3b82f6" },
-              { label: "Materials & Finishes",   value: Math.round(budget * 0.30), percentage: 30, color: "#10b981" },
-              { label: "Labor & Subcontractors", value: Math.round(budget * 0.25), percentage: 25, color: "#f59e0b" },
-              { label: "Permits & Fees",         value: Math.round(budget * 0.10), percentage: 10, color: "#8b5cf6" },
-            ];
+            { label: "Foundation & Framing", value: Math.round(budget * 0.35), percentage: 35, color: "#3b82f6" },
+            { label: "Materials & Finishes", value: Math.round(budget * 0.30), percentage: 30, color: "#10b981" },
+            { label: "Labor & Subcontractors", value: Math.round(budget * 0.25), percentage: 25, color: "#f59e0b" },
+            { label: "Permits & Fees", value: Math.round(budget * 0.10), percentage: 10, color: "#8b5cf6" },
+          ];
         // Shared color resolver — matches /preview3d and the schedule 3D.
         const { wallMaterial, roofMaterial, wallColor, roofColor } =
           resolveHouseColors({ materials: rawMaterials });
@@ -636,13 +636,13 @@ export default function ClientProject() {
             spent: 0,
             breakdown,
           },
-          feasibility: { score: 0, zoning: "Pending", environmental: "Pending", structural: "Pending" },
+          feasibility: p.feasibility || { score: 0, zoning: "Pending", environmental: "Pending", structural: "Pending" },
           timeline: [
-            { phase: "Planning & Permits",      status: "active",  date: "TBD" },
-            { phase: "Site Prep & Foundation",  status: "pending", date: "TBD" },
-            { phase: "Framing & Roof",          status: "pending", date: "TBD" },
-            { phase: "Plumbing & Electrical",   status: "pending", date: "TBD" },
-            { phase: "Lockup & Finishes",       status: "pending", date: "TBD" },
+            { phase: "Planning & Permits", status: "active", date: "TBD" },
+            { phase: "Site Prep & Foundation", status: "pending", date: "TBD" },
+            { phase: "Framing & Roof", status: "pending", date: "TBD" },
+            { phase: "Plumbing & Electrical", status: "pending", date: "TBD" },
+            { phase: "Lockup & Finishes", status: "pending", date: "TBD" },
           ],
           _floorPlan: p.floor_plan ?? null,
           _storyPlans: p.story_plans ?? [],
@@ -651,7 +651,7 @@ export default function ClientProject() {
           _wallColor: wallColor,
           _roofColor: roofColor,
           _schedule: p.schedule ?? null,
-          _plot:     p.plot ?? null,
+          _plot: p.plot ?? null,
         });
       })
       .catch(() => setProject(null))
@@ -666,8 +666,17 @@ export default function ClientProject() {
       .then((p) => {
         setProject((prev) => prev ? { ...prev, _schedule: p.schedule ?? null, _plot: p.plot ?? null } : prev);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [location.key, id]);
+
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [activeTab, setActiveTab] = useState(0);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   if (loading) return (
     <div style={{ background: colors.bgGradient, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: colors.textBright }}>
@@ -799,10 +808,10 @@ export default function ClientProject() {
         }}
       />
 
-      <main style={{ position: "relative", zIndex: 1, margin: "0 auto", width: "100%", maxWidth: "1280px", padding: "32px 24px 64px" }}>
-        
+      <main style={{ position: "relative", zIndex: 1, margin: "0 auto", width: "100%", maxWidth: "1280px", padding: isMobile ? "24px 16px 40px" : "32px 24px 64px" }}>
+
         {/* Header Section */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "32px" }}>
+        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "flex-end", gap: isMobile ? "20px" : "0", marginBottom: "32px" }}>
           <div>
             <button
               onClick={() => navigate('/builderdashboard')}
@@ -822,195 +831,221 @@ export default function ClientProject() {
             >
               ← Back to Dashboard
             </button>
-            <h1 style={{ margin: "0 0 8px 0", fontSize: "2.5rem", color: colors.textBright, fontFamily: "'Newsreader', serif", fontWeight: 500, letterSpacing: "-0.02em" }}>
+            <h1 style={{ margin: "0 0 8px 0", fontSize: isMobile ? "2rem" : "2.5rem", color: colors.textBright, fontFamily: "'Newsreader', serif", fontWeight: 500, letterSpacing: "-0.02em" }}>
               {project.name}
             </h1>
-            <p style={{ margin: 0, fontSize: "1.125rem" }}>
+            <p style={{ margin: 0, fontSize: isMobile ? "1rem" : "1.125rem" }}>
               Client: <span style={{ color: colors.textBright }}>{project.client}</span> • {project.address}
             </p>
           </div>
-          <div style={{ display: "flex", gap: "12px" }}>
-             <button
-               onClick={() => navigate(-1)}
-               style={{ padding: "10px 20px", background: "transparent", border: `1px solid rgba(255,255,255,0.1)`, borderRadius: radii.md, color: colors.textDim, fontWeight: "bold", cursor: "pointer", transition: "all 0.15s" }}
-               onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#00d4ff"; e.currentTarget.style.color = "#00d4ff"; }}
-               onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = colors.textDim; }}
-             >
-               ← Back
-             </button>
-             <button
-               onClick={() => openProjectReport(project)}
-               data-tour="cp-generate-report"
-               style={{ padding: "10px 20px", background: "rgba(255,255,255,0.05)", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, color: colors.textBright, fontWeight: "bold", cursor: "pointer" }}
-             >
-               Generate Report
-             </button>
-             <button
-               onClick={() => navigate('/builderchat', { state: { client: { name: project.client, initials: project.client.split(' ').map(n=>n[0]).join('') } } })}
-               data-tour="cp-message-client"
-               style={{ padding: "10px 20px", background: "linear-gradient(135deg, #2563eb, #1d4ed8)", border: "none", borderRadius: radii.md, color: "#fff", fontWeight: "bold", cursor: "pointer", boxShadow: "0 4px 14px rgba(37,99,235,0.4)" }}
-             >
-               Message Client
-             </button>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", width: isMobile ? "100%" : "auto" }}>
+            <button
+              onClick={() => openProjectReport(project)}
+              data-tour="cp-generate-report"
+              style={{ flex: 1, padding: isMobile ? "10px 8px" : "10px 20px", fontSize: isMobile ? "0.85rem" : "1rem", background: "rgba(255,255,255,0.05)", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, color: colors.textBright, fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap" }}
+            >
+              Generate Report
+            </button>
+            <button
+              onClick={() => navigate('/builderchat', { state: { client: { name: project.client, initials: project.client.split(' ').map(n => n[0]).join('') } } })}
+              data-tour="cp-message-client"
+              style={{ flex: 1, padding: isMobile ? "10px 8px" : "10px 20px", fontSize: isMobile ? "0.85rem" : "1rem", background: "linear-gradient(135deg, #2563eb, #1d4ed8)", border: "none", borderRadius: radii.md, color: "#fff", fontWeight: "bold", cursor: "pointer", boxShadow: "0 4px 14px rgba(37,99,235,0.4)", whiteSpace: "nowrap" }}
+            >
+              Message Client
+            </button>
           </div>
         </div>
 
-        {/* Overview Grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "24px", marginBottom: "24px" }}>
-          
-          {/* 3D Home & Floorplan Overview */}
-          <div data-tour="cp-architecture" style={{ gridColumn: "1 / -1" }}>
-            <WidgetCard title="Architecture & Model Overview" style={{ padding: "32px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", gap: "24px" }}>
-                 {/* 3D Model — real data if available, placeholder for hardcoded */}
-                 {project._floorPlan ? (
-                   <div style={{ borderRadius: radii.md, height: "300px", overflow: "hidden", border: `1px solid ${colors.cardBorder}`, position: "relative" }}>
-                     <div style={{ position: "absolute", top: 16, left: 16, zIndex: 1, background: "rgba(0,0,0,0.6)", padding: "4px 12px", borderRadius: 20, fontSize: "0.75rem", fontWeight: "bold", color: colors.textBright }}>Interactive 3D Model</div>
-                     <House3D
-                       width={project._floorPlan.width}
-                       depth={project._floorPlan.depth}
-                       stories={project._floorPlan.stories || 1}
-                       floorPlan={project._floorPlan}
-                       storyPlans={project._storyPlans}
-                       wallMaterial={project._wallMaterial}
-                       roofMaterial={project._roofMaterial}
-                       wallColor={project._wallColor}
-                       roofColor={project._roofColor}
-                       interactive={false}
-                       showGround={true}
-                       showSky={true}
-                       style={{ width: "100%", height: "100%" }}
-                     />
-                   </div>
-                 ) : (
-                   <div style={{ background: "rgba(10, 15, 26, 0.6)", borderRadius: radii.md, height: "300px", border: `1px solid ${colors.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
-                     <div style={{ position: "absolute", top: 16, left: 16, background: "rgba(0,0,0,0.6)", padding: "4px 12px", borderRadius: 20, fontSize: "0.75rem", fontWeight: "bold", color: colors.textBright }}>Interactive 3D Model</div>
-                     <div style={{ opacity: 0.4, textAlign: "center" }}>
-                       <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={colors.secondary} strokeWidth="1.5" style={{ marginBottom: "12px" }}>
-                         <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                         <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-                         <line x1="12" y1="22.08" x2="12" y2="12" />
-                       </svg>
-                       <br/>[WebGL Canvas Rendered Here]
-                     </div>
-                   </div>
-                 )}
-                 {/* Floor Plan — real SVG if available, placeholder for hardcoded */}
-                 {project._floorPlan ? (
-                   <div style={{ background: "rgba(10, 15, 26, 0.6)", borderRadius: radii.md, height: "300px", border: `1px solid ${colors.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
-                     <div style={{ position: "absolute", top: 16, left: 16, zIndex: 1, background: "rgba(0,0,0,0.6)", padding: "4px 12px", borderRadius: 20, fontSize: "0.75rem", fontWeight: "bold", color: colors.textBright }}>Floorplan Top-Down</div>
-                     <FloorPlanMini floorPlan={project._floorPlan} />
-                   </div>
-                 ) : (
-                   <div style={{ background: "rgba(10, 15, 26, 0.6)", borderRadius: radii.md, height: "300px", border: `1px solid ${colors.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
-                     <div style={{ position: "absolute", top: 16, left: 16, background: "rgba(0,0,0,0.6)", padding: "4px 12px", borderRadius: 20, fontSize: "0.75rem", fontWeight: "bold", color: colors.textBright }}>Floorplan Top-Down</div>
-                     <div style={{ opacity: 0.15, width: "80%", height: "80%", backgroundImage: "linear-gradient(#3b82f6 1px, transparent 1px), linear-gradient(90deg, #3b82f6 1px, transparent 1px)", backgroundSize: "20px 20px" }}></div>
-                     <div style={{ position: "absolute", opacity: 0.4, textAlign: "center" }}>
-                       <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={colors.textBright} strokeWidth="1.5" style={{ marginBottom: "12px" }}>
-                         <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                         <line x1="3" y1="9" x2="21" y2="9" />
-                         <line x1="9" y1="21" x2="9" y2="9" />
-                       </svg>
-                       <br/>[Blueprint Layer]
-                     </div>
-                   </div>
-                 )}
-              </div>
-            </WidgetCard>
+        {isMobile && (
+          <div style={{ display: "flex", gap: "4px", marginBottom: "16px", width: "100%", justifyContent: "space-between", overflowX: "auto", paddingBottom: "4px" }}>
+            {["Architecture", "Schedule", "Financials", "Site Details"].map((tab, idx) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(idx)}
+                style={{
+                  flex: 1,
+                  padding: "8px 2px",
+                  background: activeTab === idx ? "rgba(0, 212, 255, 0.15)" : "rgba(255, 255, 255, 0.03)",
+                  border: `1px solid ${activeTab === idx ? colors.accent : colors.cardBorder}`,
+                  borderRadius: radii.md,
+                  color: activeTab === idx ? colors.textBright : colors.textDim,
+                  fontWeight: activeTab === idx ? "bold" : "normal",
+                  fontSize: "0.75rem",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  textAlign: "center",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {tab}
+              </button>
+            ))}
           </div>
+        )}
+
+        {/* Overview Grid */}
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(340px, 1fr))", gap: "24px", marginBottom: "24px" }}>
+
+          {/* 3D Home & Floorplan Overview */}
+          {(!isMobile || activeTab === 0) && (
+            <div data-tour="cp-architecture" style={{ gridColumn: "1 / -1" }}>
+              <WidgetCard title="Architecture & Model Overview" style={{ padding: isMobile ? "16px" : "32px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(400px, 1fr))", gap: "24px" }}>
+                  {/* 3D Model — real data if available, placeholder for hardcoded */}
+                  {project._floorPlan ? (
+                    <div style={{ borderRadius: radii.md, height: "300px", overflow: "hidden", border: `1px solid ${colors.cardBorder}`, position: "relative" }}>
+                      <div style={{ position: "absolute", top: 16, left: 16, zIndex: 1, background: "rgba(0,0,0,0.6)", padding: "4px 12px", borderRadius: 20, fontSize: "0.75rem", fontWeight: "bold", color: colors.textBright }}>Interactive 3D Model</div>
+                      <House3D
+                        width={project._floorPlan.width}
+                        depth={project._floorPlan.depth}
+                        stories={project._floorPlan.stories || 1}
+                        floorPlan={project._floorPlan}
+                        storyPlans={project._storyPlans}
+                        wallMaterial={project._wallMaterial}
+                        roofMaterial={project._roofMaterial}
+                        wallColor={project._wallColor}
+                        roofColor={project._roofColor}
+                        interactive={false}
+                        showGround={true}
+                        showSky={true}
+                        style={{ width: "100%", height: "100%" }}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ background: "rgba(10, 15, 26, 0.6)", borderRadius: radii.md, height: "300px", border: `1px solid ${colors.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
+                      <div style={{ position: "absolute", top: 16, left: 16, background: "rgba(0,0,0,0.6)", padding: "4px 12px", borderRadius: 20, fontSize: "0.75rem", fontWeight: "bold", color: colors.textBright }}>Interactive 3D Model</div>
+                      <div style={{ opacity: 0.4, textAlign: "center" }}>
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={colors.secondary} strokeWidth="1.5" style={{ marginBottom: "12px" }}>
+                          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                          <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                          <line x1="12" y1="22.08" x2="12" y2="12" />
+                        </svg>
+                        <br />[WebGL Canvas Rendered Here]
+                      </div>
+                    </div>
+                  )}
+                  {/* Floor Plan — real SVG if available, placeholder for hardcoded */}
+                  {project._floorPlan ? (
+                    <div style={{ background: "rgba(10, 15, 26, 0.6)", borderRadius: radii.md, height: "300px", border: `1px solid ${colors.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
+                      <div style={{ position: "absolute", top: 16, left: 16, zIndex: 1, background: "rgba(0,0,0,0.6)", padding: "4px 12px", borderRadius: 20, fontSize: "0.75rem", fontWeight: "bold", color: colors.textBright }}>Floorplan Top-Down</div>
+                      <FloorPlanMini floorPlan={project._floorPlan} />
+                    </div>
+                  ) : (
+                    <div style={{ background: "rgba(10, 15, 26, 0.6)", borderRadius: radii.md, height: "300px", border: `1px solid ${colors.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
+                      <div style={{ position: "absolute", top: 16, left: 16, background: "rgba(0,0,0,0.6)", padding: "4px 12px", borderRadius: 20, fontSize: "0.75rem", fontWeight: "bold", color: colors.textBright }}>Floorplan Top-Down</div>
+                      <div style={{ opacity: 0.15, width: "80%", height: "80%", backgroundImage: "linear-gradient(#3b82f6 1px, transparent 1px), linear-gradient(90deg, #3b82f6 1px, transparent 1px)", backgroundSize: "20px 20px" }}></div>
+                      <div style={{ position: "absolute", opacity: 0.4, textAlign: "center" }}>
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={colors.textBright} strokeWidth="1.5" style={{ marginBottom: "12px" }}>
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                          <line x1="3" y1="9" x2="21" y2="9" />
+                          <line x1="9" y1="21" x2="9" y2="9" />
+                        </svg>
+                        <br />[Blueprint Layer]
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </WidgetCard>
+            </div>
+          )}
 
           {/* Schedule */}
-          <div data-tour="cp-schedule">
-            <SchedulePreviewCard
-              schedule={project._schedule ?? null}
-              timeline={project.timeline}
-              onViewDetail={() => {
-                if (!mockProjectsDatabase[id]) setProjectId(id);
-                navigate("/schedule");
-              }}
-            />
-          </div>
+          {(!isMobile || activeTab === 1) && (
+            <div data-tour="cp-schedule">
+              <SchedulePreviewCard
+                schedule={project._schedule ?? null}
+                timeline={project.timeline}
+                onViewDetail={() => {
+                  if (!mockProjectsDatabase[id]) setProjectId(id);
+                  navigate("/schedule");
+                }}
+              />
+            </div>
+          )}
 
           {/* Cost Breakdown */}
-          <div data-tour="cp-financial">
-          <WidgetCard title="Financial Breakdown">
-            <div style={{ marginBottom: "24px" }}>
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.875rem", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
-                Total Budget
-                <HelpTip
-                  size={11}
-                  title="Total Budget"
-                  body="Sum of all material layer costs scaled to the home's square footage. Sourced directly from the client's Vision build — does not include your labor markup, permit fees, or contingency."
-                />
-              </div>
-              <div style={{ fontSize: "2rem", color: colors.textBright, fontWeight: "bold", fontFamily: fonts.data }}>{formatCurrency(project.cost.budget)}</div>
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, color: colors.success, fontSize: "0.875rem", fontWeight: 600, marginTop: 4 }}>
-                {formatCurrency(project.cost.spent)} spent to date
-                <HelpTip
-                  size={11}
-                  title="Spent to date"
-                  body="Cumulative cost charged across completed and active phases. Updates automatically when you mark a phase complete in the Schedule view."
-                />
-              </div>
-            </div>
-
-            {/* Bars */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {project.cost.breakdown.map((item, i) => (
-                <div key={i}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px", fontSize: "0.875rem" }}>
-                    <span style={{ color: colors.textBright }}>{item.label}</span>
-                    <span style={{ fontWeight: "bold", fontFamily: fonts.data }}>{formatCurrency(item.value)}</span>
+          {(!isMobile || activeTab === 2) && (
+            <div data-tour="cp-financial">
+              <WidgetCard title="Financial Breakdown">
+                <div style={{ marginBottom: "24px" }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.875rem", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
+                    Total Budget
+                    <HelpTip
+                      size={11}
+                      title="Total Budget"
+                      body="Sum of all material layer costs scaled to the home's square footage. Sourced directly from the client's Vision build — does not include your labor markup, permit fees, or contingency."
+                    />
                   </div>
-                  <div style={{ height: "6px", width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: "3px", overflow: "hidden" }}>
-                    <div style={{ width: `${item.percentage}%`, height: "100%", background: item.color, borderRadius: "3px" }} />
+                  <div style={{ fontSize: "2rem", color: colors.textBright, fontWeight: "bold", fontFamily: fonts.data }}>{formatCurrency(project.cost.budget)}</div>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, color: colors.success, fontSize: "0.875rem", fontWeight: 600, marginTop: 4 }}>
+                    {formatCurrency(project.cost.spent)} spent to date
+                    <HelpTip
+                      size={11}
+                      title="Spent to date"
+                      body="Cumulative cost charged across completed and active phases. Updates automatically when you mark a phase complete in the Schedule view."
+                    />
                   </div>
                 </div>
-              ))}
+
+                {/* Bars */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  {project.cost.breakdown.map((item, i) => (
+                    <div key={i}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px", fontSize: "0.875rem" }}>
+                        <span style={{ color: colors.textBright }}>{item.label}</span>
+                        <span style={{ fontWeight: "bold", fontFamily: fonts.data }}>{formatCurrency(item.value)}</span>
+                      </div>
+                      <div style={{ height: "6px", width: "100%", background: "rgba(255,255,255,0.05)", borderRadius: "3px", overflow: "hidden" }}>
+                        <div style={{ width: `${item.percentage}%`, height: "100%", background: item.color, borderRadius: "3px" }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </WidgetCard>
             </div>
-          </WidgetCard>
-          </div>
+          )}
 
           {/* Feasibility & Location */}
-          <div data-tour="cp-feasibility" style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-            <WidgetCard title="Feasibility Scan">
-              {(() => {
-                const plot = project._plot;
-                const hasPlot = plot?.lat != null && plot?.lng != null;
-                const score = hasPlot ? 82 : 0;
-                const viabilityLabel = hasPlot ? "High Viability" : "Not Yet Assessed";
-                const viabilityNote  = hasPlot ? "Based on selected lot & structural checks" : "No lot selected yet";
-                const ringColor = hasPlot ? colors.success : colors.textDim;
-                const zoning      = plot?.zoning    ?? "Pending";
-                const environmental = hasPlot ? "Clear"    : "Pending";
-                const structuralQA  = hasPlot ? "Verified" : "Pending";
-                const rowColor = (val) => val === "Pending" ? colors.warn : colors.success;
-                return (
-                  <>
-                    <div style={{ display: "flex", alignItems: "center", gap: "20px", marginBottom: "24px" }}>
-                      <div style={{ width: "80px", height: "80px", borderRadius: "50%", border: `6px solid ${ringColor}`, display: "flex", alignItems: "center", justifyContent: "center", color: ringColor, fontSize: "1.75rem", fontWeight: "bold", fontFamily: fonts.data }}>
-                        {score}
-                      </div>
-                      <div>
-                        <div style={{ color: colors.textBright, fontWeight: "bold", fontSize: "1.125rem", marginBottom: 4 }}>{viabilityLabel}</div>
-                        <div style={{ fontSize: "0.875rem" }}>{viabilityNote}</div>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                      {[["Zoning", zoning], ["Environmental", environmental], ["Structural QA", structuralQA]].map(([lbl, val], i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "rgba(0,0,0,0.2)", borderRadius: radii.md }}>
-                          <span style={{ color: colors.textDim, fontSize: "0.875rem" }}>{lbl}</span>
-                          <span style={{ color: rowColor(val), fontWeight: "bold", fontSize: "0.875rem" }}>{val}</span>
+          {(!isMobile || activeTab === 3) && (
+            <div data-tour="cp-feasibility" style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+              <WidgetCard title="Feasibility Scan">
+                {(() => {
+                  const plot = project._plot;
+                  const hasPlot = plot?.lat != null && plot?.lng != null;
+                  const score = plot?.feasibility_score || (hasPlot ? 82 : 0);
+                  const viabilityLabel = score >= 80 ? "High Viability" : (score > 0 ? "Moderate Viability" : "Not Yet Assessed");
+                  const viabilityNote = plot?.feasibility_score ? "Based on project feasibility scan" : (hasPlot ? "Based on selected lot & structural checks" : "No lot selected yet");
+                  const ringColor = score >= 80 ? colors.success : (score > 40 ? colors.warn : colors.textDim);
+                  const zoning = plot?.zoning || "Pending";
+                  const environmental = plot?.environmental || (hasPlot ? "Clear" : "Pending");
+                  const structuralQA = plot?.structural || (hasPlot ? "Verified" : "Pending");
+                  const rowColor = (val) => val === "Pending" ? colors.warn : colors.success;
+                  return (
+                    <>
+                      <div style={{ display: "flex", alignItems: "center", gap: "20px", marginBottom: "24px" }}>
+                        <div style={{ width: "80px", height: "80px", borderRadius: "50%", border: `6px solid ${ringColor}`, display: "flex", alignItems: "center", justifyContent: "center", color: ringColor, fontSize: "1.75rem", fontWeight: "bold", fontFamily: fonts.data }}>
+                          {score}
                         </div>
-                      ))}
-                    </div>
-                  </>
-                );
-              })()}
-            </WidgetCard>
-            
-            <WidgetCard style={{ justifySelf: "stretch" }}>
-               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                        <div>
+                          <div style={{ color: colors.textBright, fontWeight: "bold", fontSize: "1.125rem", marginBottom: 4 }}>{viabilityLabel}</div>
+                          <div style={{ fontSize: "0.875rem" }}>{viabilityNote}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                        {[["Zoning", zoning], ["Environmental", environmental], ["Structural QA", structuralQA]].map(([lbl, val], i) => (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "rgba(0,0,0,0.2)", borderRadius: radii.md }}>
+                            <span style={{ color: colors.textDim, fontSize: "0.875rem" }}>{lbl}</span>
+                            <span style={{ color: rowColor(val), fontWeight: "bold", fontSize: "0.875rem" }}>{val}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  );
+                })()}
+              </WidgetCard>
+
+              <WidgetCard style={{ justifySelf: "stretch" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   <div style={{ color: colors.textBright, fontWeight: "bold", fontSize: "1.125rem" }}>Site Location</div>
                   <MiniMap
                     address={project._plot?.address ?? project.address}
@@ -1037,7 +1072,7 @@ export default function ClientProject() {
                       </div>
                       {project._plot.url && (
                         <a href={project._plot.url} target="_blank" rel="noopener noreferrer"
-                           style={{ fontFamily: fonts.label, fontSize: 10, color: colors.accent, textDecoration: "none", display: "block", marginTop: 6 }}>
+                          style={{ fontFamily: fonts.label, fontSize: 10, color: colors.accent, textDecoration: "none", display: "block", marginTop: 6 }}>
                           View Listing ↗
                         </a>
                       )}
@@ -1049,9 +1084,10 @@ export default function ClientProject() {
                   >
                     View Full Analysis →
                   </button>
-               </div>
-            </WidgetCard>
-          </div>
+                </div>
+              </WidgetCard>
+            </div>
+          )}
 
         </div>
       </main>

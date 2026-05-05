@@ -32,8 +32,19 @@ export default function NavBar() {
   const pendingCount = builderProjects.filter(p => p.status === "New Request").length;
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [chatUnread, setChatUnread] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const dropdownRef = useRef(null);
   const chatPollRef = useRef(null);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+      if (window.innerWidth > 768) setMobileMenuOpen(false);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const isActive = (link) => link.match.includes(location.pathname);
 
@@ -58,7 +69,7 @@ export default function NavBar() {
           return t > max ? t : max;
         }, 0);
         setChatUnread(latestMsgMs > 0 && latestMsgMs > lastSeenMs);
-      } catch (_) {}
+      } catch (_) { }
     };
     check();
     chatPollRef.current = setInterval(check, 10000);
@@ -121,113 +132,148 @@ export default function NavBar() {
       </div>
 
       {/* Nav links */}
-      <div style={{ display: "flex", alignItems: "stretch", height: "100%", gap: 2 }}>
-        {(isBuilder ? BUILDER_LINKS : HOMEOWNER_LINKS).map((link) => {
-          const active = isActive(link);
-          return (
-            <button
-              key={link.path}
-              onClick={() => navigate(link.path)}
-              style={{
-                background: "none",
-                border: "none",
-                borderBottom: active ? `2px solid ${colors.accent}` : "2px solid transparent",
-                padding: "0 16px",
-                color: active ? colors.textBright : colors.textDim,
-                fontFamily: fonts.label,
-                fontSize: 13,
-                fontWeight: active ? 600 : 400,
-                cursor: "pointer",
-                letterSpacing: "0.2px",
-                transition: "color 0.2s ease, border-color 0.2s ease",
-                marginBottom: -1,
-              }}
-              onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.color = colors.text;
-              }}
-              onMouseLeave={(e) => {
-                if (!active) e.currentTarget.style.color = colors.textDim;
-              }}
-            >
-              <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-                {link.label}
-                {link.label === "Requests" && pendingCount > 0 && (
-                  <span style={{
-                    position: "absolute", top: -6, right: -10,
-                    width: 7, height: 7, borderRadius: "50%",
-                    background: "#ef4444",
-                    boxShadow: "0 0 6px rgba(239,68,68,0.7)",
-                  }} />
-                )}
-                {link.label === "Chat" && chatUnread && (
-                  <span style={{
-                    position: "absolute", top: -6, right: -10,
-                    width: 7, height: 7, borderRadius: "50%",
-                    background: "#ef4444",
-                    boxShadow: "0 0 6px rgba(239,68,68,0.7)",
-                  }} />
-                )}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {!isMobile && (
+        <div style={{ display: "flex", alignItems: "stretch", height: "100%", gap: 2 }}>
+          {(isBuilder ? BUILDER_LINKS : HOMEOWNER_LINKS).map((link) => {
+            const active = isActive(link);
+            return (
+              <button
+                key={link.path}
+                onClick={() => navigate(link.path)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  borderBottom: active ? `2px solid ${colors.accent}` : "2px solid transparent",
+                  padding: "0 16px",
+                  color: active ? colors.textBright : colors.textDim,
+                  fontFamily: fonts.label,
+                  fontSize: 13,
+                  fontWeight: active ? 600 : 400,
+                  cursor: "pointer",
+                  letterSpacing: "0.2px",
+                  transition: "color 0.2s ease, border-color 0.2s ease",
+                  marginBottom: -1,
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.color = colors.text;
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) e.currentTarget.style.color = colors.textDim;
+                }}
+              >
+                <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                  {link.label}
+                  {link.label === "Requests" && pendingCount > 0 && (
+                    <span style={{
+                      position: "absolute", top: -6, right: -10,
+                      width: 7, height: 7, borderRadius: "50%",
+                      background: "#ef4444",
+                      boxShadow: "0 0 6px rgba(239,68,68,0.7)",
+                    }} />
+                  )}
+                  {link.label === "Chat" && chatUnread && (
+                    <span style={{
+                      position: "absolute", top: -6, right: -10,
+                      width: 7, height: 7, borderRadius: "50%",
+                      background: "#ef4444",
+                      boxShadow: "0 0 6px rgba(239,68,68,0.7)",
+                    }} />
+                  )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-      {/* User profile */}
-      <div
-        ref={dropdownRef}
-        style={{ position: "relative", minWidth: 110, display: "flex", justifyContent: "flex-end" }}
-      >
-        <button
-          onClick={() => setDropdownOpen((v) => !v)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: "4px 6px",
-            borderRadius: 8,
-            transition: "background 0.15s",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-        >
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: colors.textBright, lineHeight: 1.3 }}>
-              {displayName}
-            </div>
-            <div style={{
-              fontSize: 10,
-              color: colors.textDim,
-              letterSpacing: "0.3px",
-              lineHeight: 1.3,
-              maxWidth: 150,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}>
-              {displayEmail}
-            </div>
-          </div>
-          <div
+      {/* Right side controls */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {isMobile && (
+          <button
+            onClick={() => setMobileMenuOpen(v => !v)}
             style={{
-              width: 32,
-              height: 32,
-              borderRadius: "50%",
-              background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
+              background: "none",
+              border: "none",
+              color: colors.textBright,
+              cursor: "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 11,
-              fontWeight: 700,
-              color: "#fff",
-              border: `2px solid ${colors.cardBorder}`,
-              flexShrink: 0,
-              fontFamily: fonts.label,
+              padding: 4,
             }}
           >
+            {mobileMenuOpen ? (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            ) : (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            )}
+          </button>
+        )}
+
+        {/* User profile */}
+        <div
+          ref={dropdownRef}
+          style={{ position: "relative", minWidth: isMobile ? "auto" : 110, display: "flex", justifyContent: "flex-end" }}
+        >
+          <button
+            onClick={() => setDropdownOpen((v) => !v)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "4px 6px",
+              borderRadius: 8,
+              transition: "background 0.15s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+          >
+            {!isMobile && (
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: colors.textBright, lineHeight: 1.3 }}>
+                  {displayName}
+                </div>
+                <div style={{
+                  fontSize: 10,
+                  color: colors.textDim,
+                  letterSpacing: "0.3px",
+                  lineHeight: 1.3,
+                  maxWidth: 150,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}>
+                  {displayEmail}
+                </div>
+              </div>
+            )}
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 11,
+                fontWeight: 700,
+                color: "#fff",
+                border: `2px solid ${colors.cardBorder}`,
+                flexShrink: 0,
+                fontFamily: fonts.label,
+              }}
+            >
             {initials}
           </div>
           <svg
@@ -325,6 +371,61 @@ export default function NavBar() {
           </div>
         )}
       </div>
+      </div> {/* Closes Right side controls */}
+
+      {/* Mobile Menu Overlay/Dropdown */}
+      {isMobile && mobileMenuOpen && (
+        <div
+          style={{
+            position: "absolute",
+            top: 52,
+            left: 0,
+            right: 0,
+            background: colors.cardSurface,
+            borderBottom: `1px solid ${colors.cardBorder}`,
+            display: "flex",
+            flexDirection: "column",
+            padding: "8px 0",
+            zIndex: 99,
+            boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+            animation: "fadeIn 0.15s ease",
+          }}
+        >
+          {(isBuilder ? BUILDER_LINKS : HOMEOWNER_LINKS).map((link) => {
+            const active = isActive(link);
+            return (
+              <button
+                key={link.path}
+                onClick={() => { navigate(link.path); setMobileMenuOpen(false); }}
+                style={{
+                  background: active ? "rgba(255,255,255,0.05)" : "none",
+                  border: "none",
+                  padding: "16px 28px",
+                  color: active ? colors.textBright : colors.textDim,
+                  fontFamily: fonts.label,
+                  fontSize: 15,
+                  fontWeight: active ? 600 : 400,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                {link.label}
+                {/* Unread indicators */}
+                {(link.label === "Requests" && pendingCount > 0) || (link.label === "Chat" && chatUnread) ? (
+                  <span style={{
+                    width: 8, height: 8, borderRadius: "50%",
+                    background: "#ef4444",
+                    boxShadow: "0 0 6px rgba(239,68,68,0.7)",
+                  }} />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </nav>
   );
 }

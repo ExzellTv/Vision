@@ -183,7 +183,7 @@ export default function BuilderReviews() {
               <span style={{ fontSize: "1.25rem", color: colors.textDim }}>/ 5.0</span>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "8px", marginBottom: "4px" }}>
-               <StarRating rating={Math.round(averageRating)} />
+              <StarRating rating={Math.round(averageRating)} />
             </div>
             <div style={{ fontSize: "0.875rem", color: colors.textDim }}>
               Based on {reviews.length} reviews

@@ -450,6 +450,12 @@ function writeScheduleCache(data) {
 function ScheduleTimelineInner() {
   const project        = useProject();
   const { isHomeowner } = useUserType();
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   // Restore from saved schedule (MongoDB) or fall back to localStorage cache (project-scoped)
   const saved = project.savedSchedule ?? readScheduleCache(project.projectId);
@@ -969,7 +975,7 @@ function ScheduleTimelineInner() {
             </p>
           </div>
 
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap", width: isMobile ? "100%" : "auto", justifyContent: isMobile ? "flex-start" : "flex-end", marginTop: isMobile ? 8 : 0 }}>
             {/* Back button — builder only */}
             {!isHomeowner && (
               <button
@@ -1071,14 +1077,14 @@ function ScheduleTimelineInner() {
       </div>
 
       {/* ── Resizable area — single connected panel container ── */}
-      <div ref={resizableRef} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", margin: "0 16px 10px", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.lg }}>
+      <div ref={resizableRef} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: isMobile ? "auto" : "hidden", overflowX: "hidden", margin: isMobile ? "0 8px 10px" : "0 16px 10px", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.lg }}>
 
       {/* ── Main content row ── */}
-      <div ref={mainRowRef} style={{ display: "flex", flex: `${topPct} 1 0`, minHeight: 0, overflow: "hidden" }}>
+      <div ref={mainRowRef} style={{ display: "flex", flexDirection: isMobile ? "column" : "row", flex: isMobile ? "none" : `${topPct} 1 0`, minHeight: isMobile ? "auto" : 0, overflow: isMobile ? "visible" : "hidden" }}>
 
         {/* Left — 3D Viewport: same plan-driven model as /preview3d, with
             construction phases progressively revealing layers via `visibleLayers`. */}
-        <div style={{ flex: `${leftPct} 1 0`, minWidth: 280, position: "relative", overflow: "hidden", background: colors.panel }}>
+        <div style={{ flex: isMobile ? "none" : `${leftPct} 1 0`, height: isMobile ? 300 : "auto", minWidth: 280, position: "relative", overflow: "hidden", background: colors.panel }}>
           <House3D
             width={project.footprintWidth}
             depth={project.footprintDepth}
@@ -1101,15 +1107,17 @@ function ScheduleTimelineInner() {
         </div>
 
         {/* ── Horizontal drag handle — flush divider ── */}
-        <div
-          onMouseDown={startHResize}
-          style={{ width: 5, flexShrink: 0, cursor: "col-resize", background: colors.cardBorder, transition: "background 0.15s", zIndex: 10 }}
-          onMouseEnter={e => { e.currentTarget.style.background = colors.accent; }}
-          onMouseLeave={e => { e.currentTarget.style.background = colors.cardBorder; }}
-        />
+        {!isMobile && (
+          <div
+            onMouseDown={startHResize}
+            style={{ width: 5, flexShrink: 0, cursor: "col-resize", background: colors.cardBorder, transition: "background 0.15s", zIndex: 10 }}
+            onMouseEnter={e => { e.currentTarget.style.background = colors.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.background = colors.cardBorder; }}
+          />
+        )}
 
         {/* Right — Intelligence Panel: flush, no outer card */}
-        <div style={{ flex: `${100 - leftPct} 1 0`, minWidth: 240, display: "flex", flexDirection: "column", overflow: "hidden", background: colors.cardSurface }}>
+        <div style={{ flex: isMobile ? "none" : `${100 - leftPct} 1 0`, minWidth: 240, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden", background: colors.cardSurface, borderTop: isMobile ? `1px solid ${colors.cardBorder}` : "none" }}>
           {/* Cost summary */}
           <div style={{ padding: "12px 14px", borderBottom: `1px solid ${colors.cardBorder}`, flexShrink: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -1159,8 +1167,8 @@ function ScheduleTimelineInner() {
             <span style={{ fontFamily: fonts.label, fontSize: 10, fontWeight: 600, color: colors.textDim, textTransform: "uppercase", letterSpacing: "0.8px", display: "block", marginBottom: 10 }}>
               Structural Context
             </span>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {[
+            {(() => {
+              const contextItems = [
                 { label: "Span", value: `${bc.span_ft || 24} ft` },
                 { label: "Section", value: bc.section || "W14x22" },
                 { label: "Dead Load", value: `${bc.dead_load_psf || 85} psf` },
@@ -1169,27 +1177,48 @@ function ScheduleTimelineInner() {
                 { label: "SCI Score", value: `${bc.sci_score || 6.2}` },
                 { label: "Foundation", value: (bc.foundation_type || "slab_on_grade").replace(/_/g, " ") },
                 { label: "Framing", value: bc.framing_material || "Wood SPF" },
-              ].map((m) => (
-                <div key={m.label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
-                  <span style={{ fontFamily: fonts.label, fontSize: 10, color: colors.textDim }}>{m.label}</span>
-                  <span style={{ fontFamily: fonts.data, fontSize: 11, fontWeight: 600, color: colors.textBright }}>{m.value}</span>
+              ];
+
+              if (isMobile) {
+                return (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 8px" }}>
+                    {contextItems.map((m) => (
+                      <div key={m.label} style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                        <span style={{ fontFamily: fonts.label, fontSize: 10, color: colors.textDim }}>{m.label}:</span>
+                        <span style={{ fontFamily: fonts.data, fontSize: 11, fontWeight: 600, color: colors.textBright }}>{m.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {contextItems.map((m) => (
+                    <div key={m.label} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
+                      <span style={{ fontFamily: fonts.label, fontSize: 10, color: colors.textDim }}>{m.label}</span>
+                      <span style={{ fontFamily: fonts.data, fontSize: 11, fontWeight: 600, color: colors.textBright }}>{m.value}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              );
+            })()}
           </div>
         </div>
       </div>
 
       {/* ── Vertical drag handle — flush divider ── */}
-      <div
-        onMouseDown={startVResize}
-        style={{ height: 5, flexShrink: 0, cursor: "row-resize", background: colors.cardBorder, transition: "background 0.15s" }}
-        onMouseEnter={e => { e.currentTarget.style.background = colors.accent; }}
-        onMouseLeave={e => { e.currentTarget.style.background = colors.cardBorder; }}
-      />
+      {!isMobile && (
+        <div
+          onMouseDown={startVResize}
+          style={{ height: 5, flexShrink: 0, cursor: "row-resize", background: colors.cardBorder, transition: "background 0.15s" }}
+          onMouseEnter={e => { e.currentTarget.style.background = colors.accent; }}
+          onMouseLeave={e => { e.currentTarget.style.background = colors.cardBorder; }}
+        />
+      )}
 
       {/* ── Bottom — Gantt Timeline: flush, no outer card ── */}
-      <div style={{ flex: `${100 - topPct} 1 0`, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ flex: isMobile ? "none" : `${100 - topPct} 1 0`, minHeight: isMobile ? "auto" : 0, display: "flex", flexDirection: "column", overflow: isMobile ? "visible" : "hidden", borderTop: isMobile ? `1px solid ${colors.cardBorder}` : "none" }}>
 
         {/* Card header — fixed, never scrolls */}
         <div style={{ padding: "10px 12px 0", flexShrink: 0 }}>
@@ -1228,8 +1257,8 @@ function ScheduleTimelineInner() {
         </div>
 
         {/* Scrollable rows area */}
-        <div data-tour="gantt" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "0 12px" }}>
-          <div data-tour="phase-list" style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+        <div data-tour="gantt" style={{ flex: 1, minHeight: isMobile ? "auto" : 0, overflowY: isMobile ? "visible" : "auto", overflowX: isMobile ? "auto" : "hidden", padding: "0 12px" }}>
+          <div data-tour="phase-list" style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: isMobile ? 600 : "auto" }}>
             {schedule.map((ph) => {
               const sw       = weeksBetween(projectStart, ph.startDate);
               const leftPct  = totalWeeks > 0 ? (sw / totalWeeks) * 100 : 0;

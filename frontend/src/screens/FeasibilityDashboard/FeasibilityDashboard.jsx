@@ -247,6 +247,9 @@ export default function FeasibilityDashboard() {
         lot_sf:  selLand.lot_sf,
         zoning:  selLand.zoning,
         url:     selLand.url ?? null,
+        feasibility_score: displayScore,
+        environmental: "Clear",
+        structural: "Verified",
       };
       await projectsApi.update(project.projectId, { plot: savedPlot });
       setPlotSaved(true);
