@@ -1,7 +1,63 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { colors, fonts, radii, card } from "../../theme/tokens";
 import { useBuilderStore } from "../../context/BuilderContext";
+import House3D from "../../components/3d/House3D";
+import { resolveHouseColors } from "../../lib/housePrefs";
 
+// ─── Room color map (mirrors ClientProject.jsx) ───────────────────────────────
+const ROOM_COLORS = {
+  bedroom: "rgba(59,130,246,0.35)",
+  bathroom: "rgba(16,185,129,0.35)",
+  kitchen: "rgba(245,158,11,0.35)",
+  living: "rgba(139,92,246,0.35)",
+  dining: "rgba(236,72,153,0.35)",
+  garage: "rgba(107,114,128,0.35)",
+};
+
+// ─── FloorPlanMini (copied from ClientProject.jsx) ────────────────────────────
+function FloorPlanMini({ floorPlan }) {
+  if (!floorPlan?.rooms?.length) return (
+    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.4, fontSize: "0.75rem" }}>
+      [Blueprint Layer]
+    </div>
+  );
+  const PAD = 12;
+  const SIZE = 270;
+  const scaleX = (SIZE - PAD * 2) / floorPlan.width;
+  const scaleY = (SIZE - PAD * 2) / floorPlan.depth;
+  const scale = Math.min(scaleX, scaleY);
+  return (
+    <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: "100%", height: "100%" }}>
+      {floorPlan.rooms.map((r, i) => {
+        const x = PAD + r.x * scale;
+        const y = PAD + r.y * scale;
+        const w = r.w * scale;
+        const h = r.h * scale;
+        const fill = ROOM_COLORS[r.type] ?? "rgba(255,255,255,0.1)";
+        return (
+          <g key={i}>
+            <rect x={x} y={y} width={w} height={h} fill={fill} stroke="rgba(255,255,255,0.3)" strokeWidth="1" rx="2" />
+            {w > 28 && h > 14 && (
+              <text
+                x={x + w / 2}
+                y={y + h / 2 + 4}
+                textAnchor="middle"
+                fill="rgba(255,255,255,0.75)"
+                fontSize="8"
+                fontFamily="'Manrope', sans-serif"
+                fontWeight="600"
+              >
+                {r.label || r.type}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ─── WidgetCard ───────────────────────────────────────────────────────────────
 function WidgetCard({ title, children, style = {} }) {
   return (
     <div
@@ -15,76 +71,342 @@ function WidgetCard({ title, children, style = {} }) {
         boxShadow: "0 14px 30px rgba(7, 10, 15, 0.06)",
         padding: "20px",
         height: "100%",
+        width: "100%",
+        boxSizing: "border-box",
+        overflow: "hidden",
         ...style
       }}
     >
-      <h3 style={{ margin: "0 0 16px 0", fontSize: "1rem", color: colors.textBright, fontWeight: "bold", letterSpacing: "-0.01em" }}>
+      <h3 style={{ margin: "0 0 16px 0", fontSize: "1rem", color: colors.textBright, fontWeight: "bold", letterSpacing: "-0.01em", whiteSpace: "normal", wordWrap: "break-word" }}>
         {title}
       </h3>
-      <div style={{ flex: 1 }}>{children}</div>
+      <div style={{ flex: 1, width: "100%", boxSizing: "border-box" }}>{children}</div>
     </div>
   );
 }
 
-function RequestExpansion({ project }) {
+// ─── RequestExpansion ─────────────────────────────────────────────────────────
+function RequestExpansion({ project, isMobile }) {
   const formatCurrency = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
+  const [activeTab, setActiveTab] = useState(0);
 
+  // Resolve house colors the same way ClientProject.jsx does
+  const { wallMaterial, roofMaterial, wallColor, roofColor } = project._floorPlan
+    ? resolveHouseColors({ materials: [] })
+    : { wallMaterial: null, roofMaterial: null, wallColor: null, roofColor: null };
+
+  // ── Architecture View ──────────────────────────────────────────────────────
+  const ArchitectureView = (
+    <WidgetCard title="3D & Plan Overview">
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "12px" }}>
+
+        {/* 3D Model */}
+        {project._floorPlan ? (
+          <div style={{
+            borderRadius: radii.md,
+            height: isMobile ? "180px" : "200px",
+            overflow: "hidden",
+            border: `1px solid ${colors.cardBorder}`,
+            position: "relative",
+          }}>
+            <div style={{
+              position: "absolute", top: 8, left: 8, zIndex: 1,
+              background: "rgba(0,0,0,0.6)", padding: "2px 10px",
+              borderRadius: 20, fontSize: "0.7rem", fontWeight: "bold", color: colors.textBright,
+            }}>
+              Interactive 3D Model
+            </div>
+            <House3D
+              width={project._floorPlan.width}
+              depth={project._floorPlan.depth}
+              stories={project._floorPlan.stories || 1}
+              floorPlan={project._floorPlan}
+              storyPlans={project._storyPlans || []}
+              wallMaterial={wallMaterial}
+              roofMaterial={roofMaterial}
+              wallColor={wallColor}
+              roofColor={roofColor}
+              interactive={false}
+              showGround={true}
+              showSky={true}
+              style={{ width: "100%", height: "100%" }}
+            />
+          </div>
+        ) : (
+          <div style={{
+            background: "rgba(10, 15, 26, 0.6)",
+            borderRadius: radii.md,
+            height: isMobile ? "180px" : "200px",
+            border: `1px solid ${colors.cardBorder}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "0.75rem", color: colors.textDim,
+          }}>
+            [Interactive Model]
+          </div>
+        )}
+
+        {/* Floor Plan */}
+        {project._floorPlan ? (
+          <div style={{
+            background: "rgba(10, 15, 26, 0.6)",
+            borderRadius: radii.md,
+            height: isMobile ? "180px" : "200px",
+            border: `1px solid ${colors.cardBorder}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            position: "relative", overflow: "hidden",
+          }}>
+            <div style={{
+              position: "absolute", top: 8, left: 8, zIndex: 1,
+              background: "rgba(0,0,0,0.6)", padding: "2px 10px",
+              borderRadius: 20, fontSize: "0.7rem", fontWeight: "bold", color: colors.textBright,
+            }}>
+              Floorplan Top-Down
+            </div>
+            <FloorPlanMini floorPlan={project._floorPlan} />
+          </div>
+        ) : (
+          <div style={{
+            background: "rgba(10, 15, 26, 0.6)",
+            borderRadius: radii.md,
+            height: isMobile ? "180px" : "200px",
+            border: `1px solid ${colors.cardBorder}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "0.75rem", color: colors.textDim,
+            backgroundImage: "linear-gradient(#3b82f6 1px, transparent 1px), linear-gradient(90deg, #3b82f6 1px, transparent 1px)",
+            backgroundSize: "10px 10px",
+          }}>
+            <span style={{ background: "rgba(0,0,0,0.7)", padding: "4px 8px", borderRadius: "10px" }}>[Floorplan]</span>
+          </div>
+        )}
+      </div>
+    </WidgetCard>
+  );
+
+  // ── Financials View ────────────────────────────────────────────────────────
+  const FinancialsView = (
+    <WidgetCard title="Estimated Financial Setup">
+      <div style={{ marginBottom: "16px" }}>
+        <div style={{ fontSize: "0.875rem", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Proposed Budget</div>
+        <div style={{ fontSize: "1.75rem", color: colors.textBright, fontWeight: "bold", fontFamily: fonts.data }}>{formatCurrency(project.cost?.budget || 800000)}</div>
+      </div>
+      <div style={{ fontSize: "0.875rem", color: colors.textDim, lineHeight: 1.5 }}>
+        Client has requested preliminary approval. Cost breakdown will become available in the dashboard tracking once the project schedule begins.
+      </div>
+    </WidgetCard>
+  );
+
+  // ── Feasibility View ───────────────────────────────────────────────────────
+  const FeasibilityView = (
+    <WidgetCard title="Feasibility Scan">
+      <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px" }}>
+        <div style={{ width: "60px", height: "60px", borderRadius: "50%", border: `4px solid ${colors.success}`, display: "flex", alignItems: "center", justifyContent: "center", color: colors.success, fontSize: "1.25rem", fontWeight: "bold", fontFamily: fonts.data }}>
+          {project.feasibility?.score || 85}
+        </div>
+        <div>
+          <div style={{ color: colors.textBright, fontWeight: "bold", fontSize: "1rem" }}>System Reviewed</div>
+          <div style={{ fontSize: "0.875rem" }}>Auto-analysis complete</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "rgba(0,0,0,0.2)", borderRadius: radii.md }}>
+        <span style={{ color: colors.textDim, fontSize: "0.875rem" }}>Zoning Status</span>
+        <span style={{ color: project.feasibility?.zoning === 'Approved' ? colors.success : colors.warn, fontWeight: "bold", fontSize: "0.875rem" }}>
+          {project.feasibility?.zoning || 'Pending'}
+        </span>
+      </div>
+    </WidgetCard>
+  );
+
+  // ── Mobile: tabbed layout ──────────────────────────────────────────────────
+  if (isMobile) {
+    const tabs = ["3D & Plan", "Financials", "Feasibility"];
+    return (
+      <div style={{ padding: "16px", background: "rgba(0,0,0,0.2)", borderTop: `1px solid ${colors.cardBorder}`, width: "100%", boxSizing: "border-box", overflow: "hidden" }}>
+        <div style={{ display: "flex", gap: "4px", marginBottom: "16px", width: "100%", justifyContent: "space-between", boxSizing: "border-box" }}>
+          {tabs.map((tab, idx) => (
+            <button
+              key={tab}
+              onClick={(e) => { e.stopPropagation(); setActiveTab(idx); }}
+              style={{
+                flex: 1,
+                padding: "8px 2px",
+                background: activeTab === idx ? "rgba(0, 212, 255, 0.15)" : "rgba(255, 255, 255, 0.03)",
+                border: `1px solid ${activeTab === idx ? colors.accent : colors.cardBorder}`,
+                borderRadius: radii.md,
+                color: activeTab === idx ? colors.textBright : colors.textDim,
+                fontWeight: activeTab === idx ? "bold" : "normal",
+                fontSize: "0.75rem",
+                cursor: "pointer",
+                transition: "all 0.2s",
+                textAlign: "center",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+        <div>
+          {activeTab === 0 && ArchitectureView}
+          {activeTab === 1 && FinancialsView}
+          {activeTab === 2 && FeasibilityView}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Desktop: side-by-side grid ─────────────────────────────────────────────
   return (
     <div style={{ padding: "24px", background: "rgba(0,0,0,0.2)", borderTop: `1px solid ${colors.cardBorder}` }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px" }}>
-        
-        {/* Architecture Placeholder */}
-        <WidgetCard title="3D & Plan Overview">
-           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-             <div style={{ background: "rgba(10, 15, 26, 0.6)", borderRadius: radii.md, height: "140px", border: `1px solid ${colors.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", color: colors.textDim }}>
-               [Interactive Model]
-             </div>
-             <div style={{ background: "rgba(10, 15, 26, 0.6)", borderRadius: radii.md, height: "140px", border: `1px solid ${colors.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", color: colors.textDim, backgroundImage: "linear-gradient(#3b82f6 1px, transparent 1px), linear-gradient(90deg, #3b82f6 1px, transparent 1px)", backgroundSize: "10px 10px" }}>
-               <span style={{ background: "rgba(0,0,0,0.7)", padding: "4px 8px", borderRadius: "10px" }}>[Floorplan]</span>
-             </div>
-           </div>
-        </WidgetCard>
-
-        {/* Financial Setup */}
-        <WidgetCard title="Estimated Financial Setup">
-          <div style={{ marginBottom: "16px" }}>
-            <div style={{ fontSize: "0.875rem", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Proposed Budget</div>
-            <div style={{ fontSize: "1.75rem", color: colors.textBright, fontWeight: "bold", fontFamily: fonts.data }}>{formatCurrency(project.cost?.budget || 800000)}</div>
-          </div>
-          <div style={{ fontSize: "0.875rem", color: colors.textDim, lineHeight: 1.5 }}>
-            Client has requested preliminary approval. Cost breakdown will become available in the dashboard tracking once the project schedule begins.
-          </div>
-        </WidgetCard>
-
-        {/* Feasibility Scan */}
-        <WidgetCard title="Feasibility Scan">
-          <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px" }}>
-            <div style={{ width: "60px", height: "60px", borderRadius: "50%", border: `4px solid ${colors.success}`, display: "flex", alignItems: "center", justifyContent: "center", color: colors.success, fontSize: "1.25rem", fontWeight: "bold", fontFamily: fonts.data }}>
-              {project.feasibility?.score || 85}
-            </div>
-            <div>
-              <div style={{ color: colors.textBright, fontWeight: "bold", fontSize: "1rem" }}>System Reviewed</div>
-              <div style={{ fontSize: "0.875rem" }}>Auto-analysis complete</div>
-            </div>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "rgba(0,0,0,0.2)", borderRadius: radii.md }}>
-            <span style={{ color: colors.textDim, fontSize: "0.875rem" }}>Zoning Status</span>
-            <span style={{ color: project.feasibility?.zoning === 'Approved' ? colors.success : colors.warn, fontWeight: "bold", fontSize: "0.875rem" }}>
-              {project.feasibility?.zoning || 'Pending'}
-            </span>
-          </div>
-        </WidgetCard>
-        
+        {ArchitectureView}
+        {FinancialsView}
+        {FeasibilityView}
       </div>
     </div>
   );
 }
 
+// ─── DesktopRequestCard ───────────────────────────────────────────────────────
+function DesktopRequestCard({ req, expandedId, handleExpand, approveRequest, denyRequest }) {
+  return (
+    <div
+      style={{
+        ...card,
+        borderRadius: radii.md,
+        background: "rgba(13, 17, 23, 0.4)",
+        border: expandedId === req.id ? `1px solid ${colors.accent}` : `1px solid ${colors.cardBorder}`,
+        overflow: "visible",
+        transition: "border-color 0.2s ease",
+      }}
+    >
+      <div
+        onClick={() => handleExpand(req.id)}
+        style={{
+          padding: "20px 24px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          cursor: "pointer",
+          background: expandedId === req.id ? "rgba(0, 212, 255, 0.03)" : "transparent"
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+          <div style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem", flexShrink: 0 }}>
+            📥
+          </div>
+          <div>
+            <div style={{ fontSize: "1.125rem", fontWeight: "bold", color: colors.textBright, marginBottom: 2 }}>{req.name}</div>
+            <div style={{ fontSize: "0.875rem", color: colors.textDim }}>Client: {req.client} • {req.address}</div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <div style={{ display: "flex", gap: "8px" }} onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => approveRequest(req.id)}
+              style={{ padding: "8px 16px", background: colors.successDim, border: `1px solid rgba(46, 213, 115, 0.35)`, borderRadius: radii.md, color: colors.success, fontWeight: "bold", cursor: "pointer", transition: "all 0.2s" }}
+            >
+              Approve
+            </button>
+            <button
+              onClick={() => denyRequest(req.id)}
+              style={{ padding: "8px 16px", background: "transparent", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, color: colors.textDim, fontWeight: "bold", cursor: "pointer", transition: "all 0.2s" }}
+            >
+              Deny
+            </button>
+          </div>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.textDim} strokeWidth="2" style={{ transform: expandedId === req.id ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", flexShrink: 0 }}>
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </div>
+      </div>
+
+      {expandedId === req.id && (
+        <RequestExpansion project={req} isMobile={false} />
+      )}
+    </div>
+  );
+}
+
+// ─── MobileRequestCard ────────────────────────────────────────────────────────
+function MobileRequestCard({ req, expandedId, handleExpand, approveRequest, denyRequest }) {
+  return (
+    <div
+      style={{
+        ...card,
+        borderRadius: radii.md,
+        background: "rgba(13, 17, 23, 0.4)",
+        border: expandedId === req.id ? `1px solid ${colors.accent}` : `1px solid ${colors.cardBorder}`,
+        overflow: "hidden",
+        transition: "border-color 0.2s ease",
+        width: "100%",
+        boxSizing: "border-box"
+      }}
+    >
+      <div
+        onClick={() => handleExpand(req.id)}
+        style={{
+          padding: "16px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "16px",
+          cursor: "pointer",
+          background: expandedId === req.id ? "rgba(0, 212, 255, 0.03)" : "transparent"
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
+            <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1rem", flexShrink: 0 }}>
+              📥
+            </div>
+            <div>
+              <div style={{ fontSize: "1rem", fontWeight: "bold", color: colors.textBright, marginBottom: 2, lineHeight: 1.2 }}>{req.name}</div>
+              <div style={{ fontSize: "0.8rem", color: colors.textDim, lineHeight: 1.4 }}>Client: {req.client}<br />{req.address}</div>
+            </div>
+          </div>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.textDim} strokeWidth="2" style={{ transform: expandedId === req.id ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", flexShrink: 0, marginTop: 4 }}>
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </div>
+
+        <div style={{ display: "flex", gap: "8px", width: "100%" }} onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => approveRequest(req.id)}
+            style={{ flex: 1, padding: "8px 0", background: colors.successDim, border: `1px solid rgba(46, 213, 115, 0.35)`, borderRadius: radii.md, color: colors.success, fontWeight: "bold", cursor: "pointer", transition: "all 0.2s", fontSize: "0.875rem" }}
+          >
+            Approve
+          </button>
+          <button
+            onClick={() => denyRequest(req.id)}
+            style={{ flex: 1, padding: "8px 0", background: "transparent", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, color: colors.textDim, fontWeight: "bold", cursor: "pointer", transition: "all 0.2s", fontSize: "0.875rem" }}
+          >
+            Deny
+          </button>
+        </div>
+      </div>
+
+      {expandedId === req.id && (
+        <RequestExpansion project={req} isMobile={true} />
+      )}
+    </div>
+  );
+}
+
+// ─── BuilderRequests (main export) ───────────────────────────────────────────
 export default function BuilderRequests() {
   const { projects, approveRequest, denyRequest } = useBuilderStore();
   const [expandedId, setExpandedId] = useState(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const pendingRequests = projects.filter((p) => p.status === "New Request");
+
 
   const handleExpand = (id) => {
     setExpandedId(expandedId === id ? null : id);
@@ -113,7 +435,7 @@ export default function BuilderRequests() {
       />
 
       <main style={{ position: "relative", zIndex: 1, margin: "0 auto", width: "100%", maxWidth: "1100px", padding: "40px 24px" }}>
-        
+
         <div style={{ marginBottom: "40px" }}>
           <h1
             style={{
@@ -134,72 +456,32 @@ export default function BuilderRequests() {
 
         {pendingRequests.length === 0 ? (
           <div style={{ padding: "60px", textAlign: "center", background: "rgba(13,17,23,0.4)", borderRadius: radii.lg, border: `1px dashed ${colors.cardBorder}` }}>
-             <h3 style={{ color: colors.textBright, margin: "0 0 8px 0" }}>No new requests</h3>
-             <p style={{ color: colors.textDim, margin: 0 }}>You're all caught up! All pending requests have been processed.</p>
+            <h3 style={{ color: colors.textBright, margin: "0 0 8px 0" }}>No new requests</h3>
+            <p style={{ color: colors.textDim, margin: 0 }}>You're all caught up! All pending requests have been processed.</p>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            {pendingRequests.map((req) => (
-              <div
-                key={req.id}
-                style={{
-                  ...card,
-                  borderRadius: radii.md,
-                  background: "rgba(13, 17, 23, 0.4)",
-                  border: expandedId === req.id ? `1px solid ${colors.accent}` : `1px solid ${colors.cardBorder}`,
-                  overflow: "visible",
-                  transition: "border-color 0.2s ease",
-                }}
-              >
-                {/* Header Row */}
-                <div 
-                  onClick={() => handleExpand(req.id)}
-                  style={{ 
-                    padding: "20px 24px", 
-                    display: "flex", 
-                    alignItems: "center", 
-                    justifyContent: "space-between",
-                    cursor: "pointer",
-                    background: expandedId === req.id ? "rgba(0, 212, 255, 0.03)" : "transparent"
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-                    <div style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem" }}>
-                      📥
-                    </div>
-                    <div>
-                      <div style={{ fontSize: "1.125rem", fontWeight: "bold", color: colors.textBright, marginBottom: 2 }}>{req.name}</div>
-                      <div style={{ fontSize: "0.875rem", color: colors.textDim }}>Client: {req.client} • {req.address}</div>
-                    </div>
-                  </div>
-                  
-                  <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                    <div style={{ display: "flex", gap: "8px" }} onClick={(e) => e.stopPropagation()}>
-                       <button
-                         onClick={() => approveRequest(req.id)}
-                         style={{ padding: "8px 16px", background: colors.successDim, border: `1px solid rgba(46, 213, 115, 0.35)`, borderRadius: radii.md, color: colors.success, fontWeight: "bold", cursor: "pointer", transition: "all 0.2s" }}
-                       >
-                         Approve
-                       </button>
-                       <button
-                         onClick={() => denyRequest(req.id)}
-                         style={{ padding: "8px 16px", background: "transparent", border: `1px solid ${colors.cardBorder}`, borderRadius: radii.md, color: colors.textDim, fontWeight: "bold", cursor: "pointer", transition: "all 0.2s" }}
-                       >
-                         Deny
-                       </button>
-                    </div>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.textDim} strokeWidth="2" style={{ transform: expandedId === req.id ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
-                      <path d="M6 9l6 6 6-6" />
-                    </svg>
-                  </div>
-                </div>
-
-                {/* Expanded Area */}
-                {expandedId === req.id && (
-                  <RequestExpansion project={req} />
-                )}
-              </div>
-            ))}
+            {pendingRequests.map((req) =>
+              isMobile ? (
+                <MobileRequestCard
+                  key={req.id}
+                  req={req}
+                  expandedId={expandedId}
+                  handleExpand={handleExpand}
+                  approveRequest={approveRequest}
+                  denyRequest={denyRequest}
+                />
+              ) : (
+                <DesktopRequestCard
+                  key={req.id}
+                  req={req}
+                  expandedId={expandedId}
+                  handleExpand={handleExpand}
+                  approveRequest={approveRequest}
+                  denyRequest={denyRequest}
+                />
+              )
+            )}
           </div>
         )}
       </main>

@@ -82,9 +82,10 @@ function ProgressCircle({ percentage, tone }) {
   );
 }
 
-function ProjectCard({ project, onFinish }) {
+function ProjectCard({ project, onFinish, isMobile }) {
   const badgeStyle = statusStyles[project.statusTone] || statusStyles.accent;
   const navigate = useNavigate();
+  const [expanded, setExpanded] = useState(!isMobile);
 
   return (
     <div
@@ -93,28 +94,33 @@ function ProjectCard({ project, onFinish }) {
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
-        gap: "24px",
-        aspectRatio: "1 / 1",
+        gap: expanded ? "24px" : "12px",
+        aspectRatio: (expanded && !isMobile) ? "1 / 1" : "auto",
         position: "relative",
         transition: "transform 0.3s ease, box-shadow 0.3s ease",
-        padding: 28,
+        padding: isMobile ? 20 : 28,
         borderRadius: radii.lg,
         background: `linear-gradient(160deg, ${colors.panel} 0%, ${colors.cardSurface} 100%)`,
         borderColor: colors.cardBorder,
         boxShadow: "0 14px 30px rgba(7, 10, 15, 0.06)",
-        cursor: "pointer",
+        cursor: isMobile ? "pointer" : "default",
       }}
+      onClick={() => { if (isMobile) setExpanded(!expanded); }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-4px)";
-        e.currentTarget.style.boxShadow = "0 20px 40px rgba(0, 212, 255, 0.1)";
+        if (!isMobile) {
+          e.currentTarget.style.transform = "translateY(-4px)";
+          e.currentTarget.style.boxShadow = "0 20px 40px rgba(0, 212, 255, 0.1)";
+        }
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "none";
-        e.currentTarget.style.boxShadow = "0 14px 30px rgba(7, 10, 15, 0.06)";
+        if (!isMobile) {
+          e.currentTarget.style.transform = "none";
+          e.currentTarget.style.boxShadow = "0 14px 30px rgba(7, 10, 15, 0.06)";
+        }
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
           <h3 style={{ color: colors.textBright, letterSpacing: "-0.01em", fontSize: "1.25rem", margin: 0, fontWeight: "bold" }}>
             {project.name}
           </h3>
@@ -122,110 +128,226 @@ function ProjectCard({ project, onFinish }) {
             {project.address}
           </p>
         </div>
-        <span
-          style={{
-            ...badgeStyle,
-            border: `1px solid ${badgeStyle.borderColor}`,
-            borderRadius: radii.md,
-            fontSize: "10px",
-            fontWeight: "bold",
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-            padding: "4px 8px",
-          }}
-        >
-          {project.status}
-        </span>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "24px", margin: "auto 0" }}>
-        <ProgressCircle percentage={project.progress} tone={project.progressTone} />
-        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-          <span style={{ color: colors.textDim, fontSize: "0.75rem", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.1em" }}>
-            Current phase
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px" }}>
+          <span
+            style={{
+              ...badgeStyle,
+              border: `1px solid ${badgeStyle.borderColor}`,
+              borderRadius: radii.md,
+              fontSize: "10px",
+              fontWeight: "bold",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              padding: "4px 8px",
+              whiteSpace: "nowrap"
+            }}
+          >
+            {project.status}
           </span>
-          <span style={{ color: colors.textBright, fontSize: "1.125rem", fontWeight: "bold" }}>
-            {project.phase}
-          </span>
+          {isMobile && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+              style={{
+                background: "rgba(255,255,255,0.05)",
+                border: "none",
+                borderRadius: "50%",
+                cursor: "pointer",
+                padding: "6px",
+                color: colors.textDim,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+                transition: "transform 0.3s ease, background 0.3s ease",
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          background: "rgba(20, 27, 45, 0.55)",
-          borderRadius: radii.md,
-          padding: "12px 14px",
-        }}
-      >
-        <span style={{ color: colors.textDim, fontSize: "0.875rem" }}>
-          Client: <span style={{ color: colors.textBright }}>{project.client}</span>
-        </span>
-        {project.status === "New Request" ? (
-          <button
+      {expanded && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: "24px", margin: "auto 0" }}>
+            <ProgressCircle percentage={project.progress} tone={project.progressTone} />
+            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              <span style={{ color: colors.textDim, fontSize: "0.75rem", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                Current phase
+              </span>
+              <span style={{ color: colors.textBright, fontSize: "1.125rem", fontWeight: "bold" }}>
+                {project.phase}
+              </span>
+            </div>
+          </div>
+
+          <div
             style={{
-              color: colors.textDim,
-              background: "rgba(255, 255, 255, 0.05)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              background: "rgba(20, 27, 45, 0.55)",
               borderRadius: radii.md,
-              border: "none",
-              padding: "8px 16px",
-              fontSize: "0.875rem",
-              fontWeight: "bold",
-              cursor: "not-allowed",
+              padding: "12px 14px",
+              marginTop: isMobile ? "8px" : "0"
             }}
           >
-            Review Request
-          </button>
-        ) : (
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button
-              onClick={() => navigate(`/client-project/${project.id}`)}
-              style={{
-                color: colors.textBright,
-                background: "rgba(0, 212, 255, 0.16)",
-                borderRadius: radii.md,
-                border: "none",
-                padding: "8px 16px",
-                fontSize: "0.875rem",
-                fontWeight: "bold",
-                cursor: "pointer",
-                transition: "background 0.3s ease",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0, 212, 255, 0.24)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(0, 212, 255, 0.16)"; }}
-            >
-              View project
-            </button>
-            {project.progress >= 10 && (() => {
-              const done = project.progress >= 100;
-              return (
+            <span style={{ color: colors.textDim, fontSize: "0.875rem" }}>
+              Client: <span style={{ color: colors.textBright }}>{project.client}</span>
+            </span>
+            {project.status === "New Request" ? (
+              <button
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  color: colors.textDim,
+                  background: "rgba(255, 255, 255, 0.05)",
+                  borderRadius: radii.md,
+                  border: "none",
+                  padding: "8px 16px",
+                  fontSize: "0.875rem",
+                  fontWeight: "bold",
+                  cursor: "not-allowed",
+                }}
+              >
+                Review Request
+              </button>
+            ) : (
+              <div style={{ display: "flex", gap: "8px" }}>
                 <button
-                  onClick={(e) => { if (!done) return; e.stopPropagation(); onFinish(project.id, project.name); }}
-                  disabled={!done}
-                  title={done ? "Mark project as complete" : `Project must be 100% complete (currently ${project.progress}%)`}
+                  onClick={(e) => { e.stopPropagation(); navigate(`/client-project/${project.id}`); }}
                   style={{
-                    color: done ? "#4ade80" : "#4b5563",
-                    background: done ? "rgba(74, 222, 128, 0.12)" : "rgba(255,255,255,0.03)",
+                    color: colors.textBright,
+                    background: "rgba(0, 212, 255, 0.16)",
                     borderRadius: radii.md,
-                    border: `1px solid ${done ? "rgba(74, 222, 128, 0.3)" : "rgba(255,255,255,0.08)"}`,
-                    padding: "8px 14px",
+                    border: "none",
+                    padding: "8px 16px",
                     fontSize: "0.875rem",
                     fontWeight: "bold",
-                    cursor: done ? "pointer" : "not-allowed",
+                    cursor: "pointer",
                     transition: "background 0.3s ease",
                   }}
-                  onMouseEnter={(e) => { if (done) e.currentTarget.style.background = "rgba(74, 222, 128, 0.22)"; }}
-                  onMouseLeave={(e) => { if (done) e.currentTarget.style.background = "rgba(74, 222, 128, 0.12)"; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0, 212, 255, 0.24)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(0, 212, 255, 0.16)"; }}
                 >
-                  Finish
+                  View project
                 </button>
-              );
-            })()}
+                {project.progress >= 10 && (() => {
+                  const done = project.progress >= 100;
+                  return (
+                    <button
+                      onClick={(e) => { if (!done) return; e.stopPropagation(); onFinish(project.id, project.name); }}
+                      disabled={!done}
+                      title={done ? "Mark project as complete" : `Project must be 100% complete (currently ${project.progress}%)`}
+                      style={{
+                        color: done ? "#4ade80" : "#4b5563",
+                        background: done ? "rgba(74, 222, 128, 0.12)" : "rgba(255,255,255,0.03)",
+                        borderRadius: radii.md,
+                        border: `1px solid ${done ? "rgba(74, 222, 128, 0.3)" : "rgba(255,255,255,0.08)"}`,
+                        padding: "8px 14px",
+                        fontSize: "0.875rem",
+                        fontWeight: "bold",
+                        cursor: done ? "pointer" : "not-allowed",
+                        transition: "background 0.3s ease",
+                      }}
+                      onMouseEnter={(e) => { if (done) e.currentTarget.style.background = "rgba(74, 222, 128, 0.22)"; }}
+                      onMouseLeave={(e) => { if (done) e.currentTarget.style.background = "rgba(74, 222, 128, 0.12)"; }}
+                    >
+                      Finish
+                    </button>
+                  );
+                })()}
+              </div>
+            )}
           </div>
-        )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function StatsRow({ activeProjects, pendingRequests, completedCount, isMobile }) {
+  const stats = [
+    { label: "Active projects", shortLabel: "Active", value: activeProjects },
+    { label: "Pending requests", shortLabel: "Pending", value: pendingRequests },
+    { label: "Completed builds", shortLabel: "Completed", value: completedCount },
+  ];
+
+  if (!isMobile) {
+    return (
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+        gap: "20px",
+        marginBottom: "40px"
+      }}>
+        {stats.map((stat) => (
+          <div
+            key={stat.label}
+            style={{
+              ...card,
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+              padding: 24,
+              borderRadius: radii.lg,
+              background: `linear-gradient(160deg, ${colors.panel} 0%, ${colors.surface} 100%)`,
+              borderColor: colors.cardBorder,
+              boxShadow: "0 14px 30px rgba(7, 10, 15, 0.06)",
+            }}
+          >
+            <span style={{ color: colors.textDim, fontSize: "0.875rem", fontWeight: 500 }}>
+              {stat.label}
+            </span>
+            <span style={{ color: colors.textBright, fontFamily: fonts.data, fontSize: "2.25rem", fontWeight: "bold" }}>
+              {stat.value}
+            </span>
+          </div>
+        ))}
       </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        ...card,
+        display: "flex",
+        flexDirection: "row",
+        justifyContent: "space-evenly",
+        alignItems: "center",
+        padding: "20px 12px",
+        marginBottom: "40px",
+        borderRadius: radii.lg,
+        background: `linear-gradient(160deg, ${colors.panel} 0%, ${colors.surface} 100%)`,
+        borderColor: colors.cardBorder,
+        boxShadow: "0 14px 30px rgba(7, 10, 15, 0.06)",
+      }}
+    >
+      {stats.map((stat, idx) => (
+        <div
+          key={stat.label}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "4px",
+            flex: 1,
+            borderRight: idx !== stats.length - 1 ? `1px solid ${colors.panelBorder}` : "none",
+          }}
+        >
+          <span style={{ color: colors.textBright, fontFamily: fonts.data, fontSize: "2rem", fontWeight: "bold", lineHeight: 1 }}>
+            {stat.value}
+          </span>
+          <span style={{ color: colors.textDim, fontSize: "0.75rem", fontWeight: 500, textAlign: "center", marginTop: "4px" }}>
+            {stat.shortLabel}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -235,9 +357,16 @@ export default function ProjectsPage() {
   const [scheduleMap, setScheduleMap] = useState({});
   const [confirmFinish, setConfirmFinish] = useState(null);
   const [completedCount, setCompletedCount] = useState(0);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
   useEffect(() => {
-    projectsApi.completedCount().then((d) => setCompletedCount(d.count ?? 0)).catch(() => {});
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    projectsApi.completedCount().then((d) => setCompletedCount(d.count ?? 0)).catch(() => { });
   }, []);
 
   const activeProjects = projects.filter((p) => p.status !== "New Request");
@@ -323,40 +452,12 @@ export default function ProjectsPage() {
         </div>
 
         {/* Stats Row */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-          gap: "20px",
-          marginBottom: "40px"
-        }}>
-          {[
-            { label: "Active projects", value: activeProjects.length },
-            { label: "Pending requests", value: pendingRequests.length },
-            { label: "Completed builds", value: completedCount },
-          ].map((stat) => (
-            <div
-              key={stat.label}
-              style={{
-                ...card,
-                display: "flex",
-                flexDirection: "column",
-                gap: "8px",
-                padding: 24,
-                borderRadius: radii.lg,
-                background: `linear-gradient(160deg, ${colors.panel} 0%, ${colors.surface} 100%)`,
-                borderColor: colors.cardBorder,
-                boxShadow: "0 14px 30px rgba(7, 10, 15, 0.06)",
-              }}
-            >
-              <span style={{ color: colors.textDim, fontSize: "0.875rem", fontWeight: 500 }}>
-                {stat.label}
-              </span>
-              <span style={{ color: colors.textBright, fontFamily: fonts.data, fontSize: "2.25rem", fontWeight: "bold" }}>
-                {stat.value}
-              </span>
-            </div>
-          ))}
-        </div>
+        <StatsRow 
+          activeProjects={activeProjects.length}
+          pendingRequests={pendingRequests.length}
+          completedCount={completedCount}
+          isMobile={isMobile}
+        />
 
         {/* Project Grid */}
         <div style={{
@@ -373,6 +474,7 @@ export default function ProjectsPage() {
                 key={project.id}
                 project={enriched}
                 onFinish={(id, name) => setConfirmFinish({ id, name })}
+                isMobile={isMobile}
               />
             );
           })}
