@@ -172,20 +172,21 @@ export const projectsApi = {
 };
 
 export const chatApi = {
-  listConversations: () => request("/chat/conversations"),
-  listArchived: () => request("/chat/conversations/archived"),
+  role: (role) => role || localStorage.getItem("vision_user_type") || "homeowner",
+  listConversations: (role) => request(`/chat/conversations?role=${encodeURIComponent(chatApi.role(role))}`),
+  listArchived: (role) => request(`/chat/conversations/archived?role=${encodeURIComponent(chatApi.role(role))}`),
   getMessages: (convId) => request(`/chat/conversations/${convId}/messages`),
   sendMessage: (convId, text, senderRole) =>
     request(`/chat/conversations/${convId}/messages`, {
       method: "POST",
       body: JSON.stringify({ text, sender_role: senderRole }),
     }),
-  archiveConversation: (convId) =>
-    request(`/chat/conversations/${convId}/archive`, { method: "PATCH" }),
-  unarchiveConversation: (convId) =>
-    request(`/chat/conversations/${convId}/unarchive`, { method: "PATCH" }),
-  deleteConversation: (convId) =>
-    request(`/chat/conversations/${convId}`, { method: "DELETE" }),
+  archiveConversation: (convId, role) =>
+    request(`/chat/conversations/${convId}/archive?role=${encodeURIComponent(chatApi.role(role))}`, { method: "PATCH" }),
+  unarchiveConversation: (convId, role) =>
+    request(`/chat/conversations/${convId}/unarchive?role=${encodeURIComponent(chatApi.role(role))}`, { method: "PATCH" }),
+  deleteConversation: (convId, role) =>
+    request(`/chat/conversations/${convId}?role=${encodeURIComponent(chatApi.role(role))}`, { method: "DELETE" }),
 };
 
 export const imageApi = {

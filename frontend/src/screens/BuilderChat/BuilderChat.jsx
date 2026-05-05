@@ -91,7 +91,7 @@ export default function BuilderChat() {
 
   // Load conversations on mount and mark as seen using server timestamps
   useEffect(() => {
-    chatApi.listConversations()
+    chatApi.listConversations("builder")
       .then(convs => { setConversations(convs); markSeen(convs); })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -100,7 +100,7 @@ export default function BuilderChat() {
   // Load archived when tab switches
   useEffect(() => {
     if (activeTab === "archived") {
-      chatApi.listArchived().then(setArchivedConvs).catch(() => {});
+      chatApi.listArchived("builder").then(setArchivedConvs).catch(() => {});
     }
   }, [activeTab]);
 
@@ -145,20 +145,20 @@ export default function BuilderChat() {
   const handleArchive = async (conv) => {
     setConversations(prev => prev.filter(c => c.id !== conv.id));
     if (selectedConv?.id === conv.id) { setSelectedConv(null); setMessages([]); }
-    try { await chatApi.archiveConversation(conv.id); } catch (_) {}
+    try { await chatApi.archiveConversation(conv.id, "builder"); } catch (_) {}
   };
 
   const handleDelete = async (convId) => {
     setConversations(prev => prev.filter(c => c.id !== convId));
     if (selectedConv?.id === convId) { setSelectedConv(null); setMessages([]); }
     setConfirmDelete(null);
-    try { await chatApi.deleteConversation(convId); } catch (_) {}
+    try { await chatApi.deleteConversation(convId, "builder"); } catch (_) {}
   };
 
   const handleUnarchive = async (conv) => {
     setArchivedConvs(prev => prev.filter(c => c.id !== conv.id));
     if (selectedConv?.id === conv.id) { setSelectedConv(null); setMessages([]); }
-    try { await chatApi.unarchiveConversation(conv.id); } catch (_) {}
+    try { await chatApi.unarchiveConversation(conv.id, "builder"); } catch (_) {}
   };
 
   const selectConv = (conv) => {
