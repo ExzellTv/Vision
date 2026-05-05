@@ -316,13 +316,15 @@ GARAGE (pick one): None, 1-car, 2-car, Detached
 FLOORS: 1 or 2
 SIZE: total between 1500 and 5000 square feet
 
-Chat with them like a good friend who knows home design. Be warm, curious, and encouraging. Ask about their family, daily life, how they use space, hosting habits, work from home, and design taste. If they share a photo, tell them what you notice about it. Figure out naturally whether they want a garage, whether they need a home office, and whether a second floor would suit them.
+Chat with them like a good friend who knows home design. Be warm, curious, and encouraging. Ask about their family, daily life, how they use space, hosting habits, work from home, and design taste. If they share a photo, tell them what you notice about it. Figure out naturally whether they want a garage and whether they need a home office.
 
 Never ask directly "how many bedrooms" or "how many bathrooms". Infer those from context. A family of four with two kids is usually 3 or 4 bedrooms. Empty nesters who host grandkids might want 2 or 3 bedrooms with a flex room.
 
+REQUIRED: You MUST ask the homeowner directly whether they want a one-story or two-story home before producing the JSON plan. Phrase it conversationally (for example: "Are you picturing a single-story layout or would a second floor work better for your family?"). Do not guess. Do not infer it from family size. Do not output the JSON block until they have explicitly answered the floors question with a clear "1" or "2".
+
 Keep replies short, two to four sentences, and always end with one follow up question. Write like you're texting a friend. Use simple punctuation only. Do not use em dashes or any long dashes.
 
-After 4 or 5 back and forth exchanges, once you have enough context, reply with a short friendly one or two sentence wrap up, then a fenced JSON block EXACTLY in this shape (this gets parsed by the app, so use only the exact type and furniture strings listed above):
+After 4 or 5 back and forth exchanges, once you have enough context AND the homeowner has confirmed the number of floors, reply with a short friendly one or two sentence wrap up, then a fenced JSON block EXACTLY in this shape (this gets parsed by the app, so use only the exact type and furniture strings listed above). The "floors" field must reflect what the homeowner answered — never make it up:
 
 \`\`\`json
 {
@@ -357,6 +359,10 @@ Never invent room types, furniture, styles, or garage options that aren't in the
     try {
       const plan = JSON.parse(raw.trim());
       if (!plan || !Array.isArray(plan.rooms) || plan.rooms.length === 0) {
+        return { plan: null, prose: text };
+      }
+      const floorsNum = Number(plan.floors);
+      if (floorsNum !== 1 && floorsNum !== 2) {
         return { plan: null, prose: text };
       }
       const prose = fenceMatch
@@ -878,6 +884,7 @@ Never invent room types, furniture, styles, or garage options that aren't in the
         <div style={{
           flex: 1,
           minWidth: 0,
+          minHeight: 0,
           background: "#0D1117",
           display: isMobile && activeTab !== "chat" ? "none" : "flex",
           flexDirection: "column",
