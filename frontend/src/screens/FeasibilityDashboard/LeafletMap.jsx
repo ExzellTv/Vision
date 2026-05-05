@@ -176,6 +176,7 @@ export default function LeafletMap({
   onCitySearch,        // (city, state) → triggers live HasData fetch
   mapLoading,          // boolean — true while city search is in-flight
   searchCentroid,      // { lat, lng } | null — re-center map after search
+  isMobile = false,
 }) {
   const mapRef = useRef(null);
 
@@ -286,6 +287,11 @@ export default function LeafletMap({
     localStorage.setItem("vmap_theme", key);
   };
 
+  useEffect(() => {
+    if (!isMobile) return;
+    setDropdownOpen(false);
+  }, [isMobile]);
+
   // ── Leaflet hook ──────────────────────────────────────────────────────
   const { mapI } = useLeafletMap({
     mapRef,
@@ -341,6 +347,8 @@ export default function LeafletMap({
     marginBottom:  3,
     display:       "block",
   };
+  const overlayTop = isMobile ? 10 : 12;
+  const overlaySide = isMobile ? 10 : 12;
 
   return (
     <div style={{ position: "absolute", inset: 0 }}>
@@ -404,7 +412,7 @@ export default function LeafletMap({
 
       {/* ── Tile-type toggles — top-right (fixed, no drag needed) ── */}
       <div style={{
-        position: "absolute", top: 12, right: 12, zIndex: 400,
+        position: "absolute", top: overlayTop, right: overlaySide, zIndex: 400,
         display: "flex", flexDirection: "column", gap: 4,
       }}>
         {[
@@ -415,7 +423,11 @@ export default function LeafletMap({
           <button
             key={key}
             onClick={() => handleLayerChange(key)}
-            style={overlayPill(activeLayer === key)}
+            style={{
+              ...overlayPill(activeLayer === key),
+              padding: isMobile ? "5px 8px" : "5px 10px",
+              fontSize: isMobile ? 8 : 9,
+            }}
           >
             {label}
           </button>
@@ -423,21 +435,22 @@ export default function LeafletMap({
       </div>
 
       {/* ── Map Legend — always visible, top-left ── */}
-      <div style={{ position: "absolute", top: 12, left: 12, zIndex: 400 }}>
+      <div style={{ position: "absolute", top: overlayTop, left: overlaySide, zIndex: 400 }}>
         <div style={{
           background:     "rgba(26,34,51,0.92)",
           backdropFilter: "blur(12px)",
           WebkitBackdropFilter: "blur(12px)",
           border:         `1px solid ${colors.cardBorder}`,
           borderRadius:   radii.lg,
-          padding:        "12px 14px",
-          minWidth:       185,
+          padding:        isMobile ? "10px 10px" : "12px 14px",
+          minWidth:       isMobile ? 154 : 185,
+          maxWidth:       isMobile ? 168 : "none",
         }}>
           {/* Comparables legend */}
           <div style={{
-            fontFamily: fonts.label, fontSize: 11, fontWeight: 700,
+            fontFamily: fonts.label, fontSize: isMobile ? 10 : 11, fontWeight: 700,
             letterSpacing: "0.7px", color: colors.textDim,
-            textTransform: "uppercase", marginBottom: 8,
+            textTransform: "uppercase", marginBottom: isMobile ? 6 : 8,
           }}>
             Comp $/SF
           </div>
@@ -446,56 +459,103 @@ export default function LeafletMap({
             [colors.warn,    "$207–$212",  "At Market"],
             [colors.danger,  "≥ $212",     "Above Market"],
           ].map(([col, range, label]) => (
-            <div key={range} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-              <span style={{ width: 12, height: 12, borderRadius: "50%", background: col, flexShrink: 0 }} />
-              <span style={{ fontFamily: fonts.data, fontSize: 12, color: col, fontWeight: 700, minWidth: 60 }}>
+            <div key={range} style={{ display: "flex", alignItems: "center", gap: isMobile ? 6 : 8, marginBottom: isMobile ? 4 : 5 }}>
+              <span style={{ width: isMobile ? 10 : 12, height: isMobile ? 10 : 12, borderRadius: "50%", background: col, flexShrink: 0 }} />
+              <span style={{ fontFamily: fonts.data, fontSize: isMobile ? 11 : 12, color: col, fontWeight: 700, minWidth: isMobile ? 50 : 60 }}>
                 {range}
               </span>
-              <span style={{ fontFamily: fonts.label, fontSize: 11, color: colors.textDim }}>
+              <span style={{ fontFamily: fonts.label, fontSize: isMobile ? 10 : 11, color: colors.textDim, lineHeight: 1.25 }}>
                 {label}
               </span>
             </div>
           ))}
 
           {/* Divider */}
-          <div style={{ height: 1, background: colors.cardBorder, margin: "10px 0" }} />
+          <div style={{ height: 1, background: colors.cardBorder, margin: isMobile ? "8px 0" : "10px 0" }} />
 
           {/* Land legend */}
           <div style={{
-            fontFamily: fonts.label, fontSize: 11, fontWeight: 700,
+            fontFamily: fonts.label, fontSize: isMobile ? 10 : 11, fontWeight: 700,
             letterSpacing: "0.7px", color: colors.textDim,
-            textTransform: "uppercase", marginBottom: 8,
+            textTransform: "uppercase", marginBottom: isMobile ? 6 : 8,
           }}>
             Land Listings
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 6 : 8 }}>
             <span style={{
-              width: 12, height: 12, borderRadius: "2px",
+              width: isMobile ? 10 : 12, height: isMobile ? 10 : 12, borderRadius: "2px",
               background: "#8b5cf6", flexShrink: 0,
               transform: "rotate(45deg)",
             }} />
-            <span style={{ fontFamily: fonts.label, fontSize: 11, color: colors.textDim }}>
+            <span style={{ fontFamily: fonts.label, fontSize: isMobile ? 10 : 11, color: colors.textDim, lineHeight: 1.25 }}>
               Vacant / Available Parcel
             </span>
           </div>
         </div>
       </div>
 
+      {isMobile && (
+        <div style={{
+          position: "absolute",
+          left: overlaySide,
+          bottom: 16,
+          zIndex: 420,
+          display: "flex",
+          gap: 6,
+        }}>
+          <button
+            onClick={() => setFilterOpen("comp")}
+            style={{
+              ...overlayPill(filterOpen === "comp", colors.accent),
+              padding: "6px 10px",
+              fontSize: 8,
+            }}
+          >
+            Comps {compFilterCount > 0 ? `(${compFilterCount})` : ""}
+          </button>
+          <button
+            onClick={() => setFilterOpen("land")}
+            style={{
+              ...overlayPill(filterOpen === "land", colors.warn),
+              padding: "6px 10px",
+              fontSize: 8,
+            }}
+          >
+            Land {landFilterCount > 0 ? `(${landFilterCount})` : ""}
+          </button>
+        </div>
+      )}
+
       {/* ── Filter Panel — draggable ── */}
       {filterOpen && (
+        <>
+        {isMobile && (
+          <div
+            onClick={() => setFilterOpen(null)}
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 409,
+              background: "rgba(10,14,23,0.45)",
+            }}
+          />
+        )}
         <div
           ref={filterPanelRef}
           style={{
             position:         "absolute",
-            top:              filterPos.top,
-            left:             filterPos.left,
+            top:              isMobile ? "auto" : filterPos.top,
+            left:             isMobile ? 12 : filterPos.left,
+            right:            isMobile ? 12 : "auto",
+            bottom:           isMobile ? 68 : "auto",
             zIndex:           410,
-            width:            240,
+            width:            isMobile ? "auto" : 240,
+            maxWidth:         isMobile ? "none" : 240,
             background:       "rgba(26,34,51,0.97)",
             backdropFilter:   "blur(16px)",
             WebkitBackdropFilter: "blur(16px)",
             border:           `1px solid ${colors.cardBorder}`,
-            borderRadius:     radii.lg,
+            borderRadius:     isMobile ? radii.xl : radii.lg,
             boxShadow:        "0 8px 32px rgba(0,0,0,0.55)",
             animation:        "vDropFadeIn 0.14s ease",
             userSelect:       "none",
@@ -504,24 +564,24 @@ export default function LeafletMap({
         >
           {/* Drag handle header */}
           <div
-            onMouseDown={(e) => startFilterDrag(e, filterPos)}
+            onMouseDown={isMobile ? undefined : (e) => startFilterDrag(e, filterPos)}
             style={{
               display:        "flex",
               alignItems:     "center",
               justifyContent: "space-between",
-              padding:        "9px 12px 8px",
-              cursor:         "grab",
+              padding:        isMobile ? "12px 14px 10px" : "9px 12px 8px",
+              cursor:         isMobile ? "default" : "grab",
               borderBottom:   `1px solid ${colors.cardBorder}`,
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
               {/* Grip dots in header */}
-              <span style={{ color: colors.textDim, lineHeight: 0, opacity: 0.6 }}>
+              <span style={{ color: colors.textDim, lineHeight: 0, opacity: isMobile ? 0.35 : 0.6 }}>
                 <GripIcon />
               </span>
               <span style={{
                 fontFamily:    fonts.label,
-                fontSize:      10,
+                fontSize:      isMobile ? 11 : 10,
                 fontWeight:    700,
                 color:         filterOpen === "land" ? colors.warn : colors.accent,
                 letterSpacing: "0.8px",
@@ -547,12 +607,12 @@ export default function LeafletMap({
 
           {/* Filter fields */}
           <div style={{
-            padding:       "10px 12px",
+            padding:       isMobile ? "12px 14px" : "10px 12px",
             display:       "flex",
             flexDirection: "column",
             gap:           10,
             // Allow the panel to scroll if it grows tall
-            maxHeight:     420,
+            maxHeight:     isMobile ? "min(54vh, 420px)" : 420,
             overflowY:     "auto",
           }}>
 
@@ -695,10 +755,11 @@ export default function LeafletMap({
           {/* Footer — count + clear */}
           <div style={{
             borderTop:      `1px solid ${colors.cardBorder}`,
-            padding:        "8px 12px",
+            padding:        isMobile ? "10px 14px" : "8px 12px",
             display:        "flex",
             justifyContent: "space-between",
             alignItems:     "center",
+            gap:            8,
           }}>
             <span style={{ fontFamily: fonts.data, fontSize: 9, color: colors.textDim }}>
               {filterOpen === "comp"
@@ -729,22 +790,24 @@ export default function LeafletMap({
             </button>
           </div>
         </div>
+        </>
       )}
 
       {/* ── Zoom controls — right side, vertically centred ── */}
       <div style={{
-        position: "absolute", right: 12, top: "50%",
-        transform: "translateY(-50%)",
+        position: "absolute", right: overlaySide, top: isMobile ? "auto" : "50%",
+        bottom: isMobile ? 92 : "auto",
+        transform: isMobile ? "none" : "translateY(-50%)",
         zIndex: 400, display: "flex", flexDirection: "column", gap: 4,
       }}>
-        <button onClick={() => mapI.current?.zoomIn()}  style={zoomBtn} title="Zoom in">+</button>
-        <button onClick={() => mapI.current?.zoomOut()} style={zoomBtn} title="Zoom out">−</button>
+        <button onClick={() => mapI.current?.zoomIn()}  style={{ ...zoomBtn, width: isMobile ? 30 : 32, height: isMobile ? 30 : 32, fontSize: isMobile ? 15 : 17 }} title="Zoom in">+</button>
+        <button onClick={() => mapI.current?.zoomOut()} style={{ ...zoomBtn, width: isMobile ? 30 : 32, height: isMobile ? 30 : 32, fontSize: isMobile ? 15 : 17 }} title="Zoom out">−</button>
         <button
           onClick={() => {
             const target = loc ?? searchCentroid ?? { lat: 32.7767, lng: -96.797 };
             mapI.current?.setView([target.lat, target.lng], 13);
           }}
-          style={{ ...zoomBtn, marginTop: 4, fontSize: 13 }}
+          style={{ ...zoomBtn, width: isMobile ? 30 : 32, height: isMobile ? 30 : 32, marginTop: 4, fontSize: 13 }}
           title="Reset view"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -757,23 +820,23 @@ export default function LeafletMap({
       {/* ── Radius slider + toggle — bottom-right ── */}
       <div style={{
         position:       "absolute",
-        bottom:         20,
-        right:          12,
+        bottom:         16,
+        right:          overlaySide,
         zIndex:         400,
         background:     "rgba(26,34,51,0.88)",
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
         border:         `1px solid ${colors.cardBorder}`,
         borderRadius:   radii.md,
-        padding:        "8px 12px",
-        width:          168,
+        padding:        isMobile ? "7px 10px" : "8px 12px",
+        width:          isMobile ? 144 : 168,
       }}>
         <div style={{
           display: "flex", justifyContent: "space-between", alignItems: "center",
           marginBottom: 6,
         }}>
           <span style={{
-            fontSize: 9, color: colors.textDim, fontWeight: 700,
+            fontSize: isMobile ? 8 : 9, color: colors.textDim, fontWeight: 700,
             letterSpacing: "0.8px", fontFamily: fonts.label, textTransform: "uppercase",
           }}>
             Radius
@@ -784,12 +847,12 @@ export default function LeafletMap({
               display:      "flex",
               alignItems:   "center",
               gap:          4,
-              padding:      "2px 7px",
+              padding:      isMobile ? "2px 6px" : "2px 7px",
               borderRadius: radii.sm,
               border:       `1px solid ${radiusEnabled ? colors.accent : colors.cardBorder}`,
               background:   radiusEnabled ? `${colors.accent}18` : "transparent",
               color:        radiusEnabled ? colors.accent : colors.textDim,
-              fontSize:     8,
+              fontSize:     isMobile ? 7 : 8,
               fontWeight:   700,
               fontFamily:   fonts.label,
               cursor:       "pointer",
@@ -804,7 +867,7 @@ export default function LeafletMap({
 
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
           <span style={{
-            fontSize: 10, color: radiusEnabled ? colors.accent : colors.textDim,
+            fontSize: isMobile ? 9 : 10, color: radiusEnabled ? colors.accent : colors.textDim,
             fontWeight: 700, fontFamily: fonts.data,
             transition: "color 0.15s ease",
           }}>
@@ -833,7 +896,7 @@ export default function LeafletMap({
       {!loc && (
         <div style={{
           position:       "absolute",
-          bottom:         70,
+          bottom:         isMobile ? 128 : 70,
           left:           "50%",
           transform:      "translateX(-50%)",
           zIndex:         400,
@@ -842,21 +905,24 @@ export default function LeafletMap({
           WebkitBackdropFilter: "blur(10px)",
           border:         `1px solid ${colors.cardBorder}`,
           borderRadius:   radii.lg,
-          padding:        "8px 18px",
+          padding:        isMobile ? "8px 12px" : "8px 18px",
           display:        "flex",
-          alignItems:     "center",
+          alignItems:     "flex-start",
           gap:            8,
           pointerEvents:  "none",
-          whiteSpace:     "nowrap",
+          whiteSpace:     isMobile ? "normal" : "nowrap",
+          width:          isMobile ? "min(240px, calc(100% - 104px))" : "auto",
+          maxWidth:       "calc(100% - 40px)",
         }}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-               stroke={colors.accent} strokeWidth="2" strokeLinecap="round">
+               stroke={colors.accent} strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: 1 }}>
             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
             <circle cx="12" cy="10" r="3" />
           </svg>
           <span style={{
-            fontFamily: fonts.label, fontSize: 11,
+            fontFamily: fonts.label, fontSize: isMobile ? 10 : 11,
             color: colors.textDim, fontWeight: 500,
+            lineHeight: 1.35,
           }}>
             Click the map or select a land listing to begin analysis
           </span>

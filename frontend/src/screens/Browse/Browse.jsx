@@ -6,6 +6,7 @@ import { projectsApi, builderRequestsApi } from "../../services/api";
 import { BUILDERS, SPECIALTIES } from "../../data/builders";
 import BuilderProfileModal from "../../components/shared/BuilderProfileModal";
 import { useProject } from "../../hooks/useProjectStore";
+import useBreakpoint from "../../hooks/useBreakpoint";
 
 const C = {
   bg: colors.bg,
@@ -41,6 +42,7 @@ function timeAgo(dateStr) {
 }
 
 function RequestModal({ builder, onClose }) {
+  const isMobile = useBreakpoint(768);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -128,7 +130,7 @@ function RequestModal({ builder, onClose }) {
         {/* Back + title */}
         <div style={{
           display: "flex", alignItems: "center", gap: 10,
-          padding: "18px 24px 14px", borderBottom: `1px solid ${C.cardBorder}`, flexShrink: 0,
+          padding: isMobile ? "14px 16px 10px" : "18px 24px 14px", borderBottom: `1px solid ${C.cardBorder}`, flexShrink: 0,
         }}>
           <button
             onClick={() => setSelected(null)}
@@ -161,7 +163,7 @@ function RequestModal({ builder, onClose }) {
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px 16px" : "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
 
           {/* Stats grid */}
           <div>
@@ -239,7 +241,7 @@ function RequestModal({ builder, onClose }) {
         </div>
 
         {/* Footer — confirm button */}
-        <div style={{ borderTop: `1px solid ${C.cardBorder}`, padding: "16px 24px", flexShrink: 0 }}>
+        <div style={{ borderTop: `1px solid ${C.cardBorder}`, padding: isMobile ? "12px 16px" : "16px 24px", flexShrink: 0 }}>
           {confirmed === proj.id ? (
             <div style={{
               padding: "12px 16px", background: "rgba(46,213,115,0.1)", border: "1px solid rgba(46,213,115,0.25)",
@@ -337,7 +339,7 @@ function RequestModal({ builder, onClose }) {
         style={{
           position: "relative",
           background: C.card, border: `1px solid ${C.cardBorder}`, borderRadius: 14,
-          width: 620, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden",
+          width: isMobile ? "calc(100vw - 32px)" : 620, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden",
           padding: 0, margin: 0,
         }}
       >
@@ -346,7 +348,7 @@ function RequestModal({ builder, onClose }) {
             {/* Header */}
             <div style={{
               display: "flex", alignItems: "flex-start", justifyContent: "space-between",
-              padding: "20px 24px 16px", borderBottom: `1px solid ${C.cardBorder}`, flexShrink: 0,
+              padding: isMobile ? "16px 16px 12px" : "20px 24px 16px", borderBottom: `1px solid ${C.cardBorder}`, flexShrink: 0,
             }}>
               <div>
                 <div style={{ fontSize: 17, fontWeight: 700, color: C.textBright, fontFamily: fonts.label }}>
@@ -397,7 +399,7 @@ function RequestModal({ builder, onClose }) {
                   <div
                     key={proj.id}
                     style={{
-                      padding: "16px 24px", borderBottom: `1px solid ${C.cardBorder}`,
+                      padding: isMobile ? "12px 16px" : "16px 24px", borderBottom: `1px solid ${C.cardBorder}`,
                       opacity: ready ? 1 : 0.55,
                     }}
                   >
@@ -469,7 +471,7 @@ function RequestModal({ builder, onClose }) {
             </div>
 
             {/* Footer */}
-            <div style={{ borderTop: `1px solid ${C.cardBorder}`, padding: "14px 24px", flexShrink: 0 }}>
+            <div style={{ borderTop: `1px solid ${C.cardBorder}`, padding: isMobile ? "12px 16px" : "14px 24px", flexShrink: 0 }}>
               <button
                 onClick={onClose}
                 style={{
@@ -491,6 +493,7 @@ function RequestModal({ builder, onClose }) {
 }
 
 export default function Browse() {
+  const isMobile = useBreakpoint(768);
   const navigate = useNavigate();
   const { ragViolations } = useProject();
   const hasComplianceIssues = ragViolations?.length > 0;
@@ -521,8 +524,9 @@ export default function Browse() {
       style={{
         height: "100%",
         background: C.bg,
-        padding: "32px",
+        padding: isMobile ? "20px 16px 0" : "32px",
         overflowY: "auto",
+        overflowX: "hidden",
         fontFamily: fonts.label,
       }}
     >
@@ -532,14 +536,14 @@ export default function Browse() {
           display: "flex",
           alignItems: "flex-start",
           justifyContent: "space-between",
-          marginBottom: 32,
+          marginBottom: isMobile ? 20 : 32,
         }}
       >
         <div>
           <h1
             style={{
               margin: 0,
-              fontSize: 32,
+              fontSize: isMobile ? 24 : 32,
               fontWeight: 800,
               color: C.textBright,
               letterSpacing: "-0.5px",
@@ -574,7 +578,7 @@ export default function Browse() {
         }}
       >
         {/* Search input */}
-        <div style={{ flex: 1, minWidth: 240, position: "relative" }}>
+        <div style={{ flex: 1, minWidth: isMobile ? 0 : 240, width: isMobile ? "100%" : undefined, position: "relative" }}>
           <svg
             width="16"
             height="16"
@@ -657,65 +661,122 @@ export default function Browse() {
             key={builder.id}
             style={{
               display: "flex",
-              gap: 20,
-              padding: "24px",
+              flexDirection: isMobile ? "column" : "row",
+              gap: isMobile ? 12 : 20,
+              padding: isMobile ? "16px" : "24px",
               background: C.card,
               border: `1px solid ${C.cardBorder}`,
               borderRadius: 12,
               transition: "border-color 0.2s",
             }}
           >
-            {/* Avatar */}
-            <div
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: 12,
-                background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 24,
-                fontWeight: 700,
-                color: "#fff",
-                flexShrink: 0,
-              }}
-            >
-              {builder.initials}
-            </div>
+            {/* Avatar + name row on mobile */}
+            {isMobile ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 10,
+                    background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 18,
+                    fontWeight: 700,
+                    color: "#fff",
+                    flexShrink: 0,
+                  }}
+                >
+                  {builder.initials}
+                </div>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: C.textBright }}>
+                      {builder.name}
+                    </h3>
+                    {builder.verified && (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "3px 8px",
+                          background: "rgba(46,213,115,0.1)",
+                          border: "1px solid rgba(46,213,115,0.25)",
+                          borderRadius: 4,
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: C.success,
+                        }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                          <path d="M2 5l2 2 4-4" stroke={C.success} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        VERIFIED
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: C.text, marginTop: 2 }}>{builder.company}</div>
+                </div>
+              </div>
+            ) : (
+              /* Desktop avatar */
+              <div
+                style={{
+                  width: 72,
+                  height: 72,
+                  borderRadius: 12,
+                  background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: "#fff",
+                  flexShrink: 0,
+                }}
+              >
+                {builder.initials}
+              </div>
+            )}
 
             {/* Info */}
             <div style={{ flex: 1 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.textBright }}>
-                  {builder.name}
-                </h3>
-                {builder.verified && (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      padding: "3px 8px",
-                      background: "rgba(46,213,115,0.1)",
-                      border: "1px solid rgba(46,213,115,0.25)",
-                      borderRadius: 4,
-                      fontSize: 10,
-                      fontWeight: 600,
-                      color: C.success,
-                    }}
-                  >
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                      <path d="M2 5l2 2 4-4" stroke={C.success} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    VERIFIED
+              {/* Name + verified badge — hidden on mobile (shown in avatar row instead) */}
+              {!isMobile && (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                    <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.textBright }}>
+                      {builder.name}
+                    </h3>
+                    {builder.verified && (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "3px 8px",
+                          background: "rgba(46,213,115,0.1)",
+                          border: "1px solid rgba(46,213,115,0.25)",
+                          borderRadius: 4,
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: C.success,
+                        }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                          <path d="M2 5l2 2 4-4" stroke={C.success} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        VERIFIED
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-
-              <div style={{ fontSize: 13, color: C.text, marginBottom: 8 }}>
-                {builder.company}
-              </div>
+                  <div style={{ fontSize: 13, color: C.text, marginBottom: 8 }}>
+                    {builder.company}
+                  </div>
+                </>
+              )}
 
               <p style={{ margin: "0 0 12px", fontSize: 13, color: C.textDim, lineHeight: 1.5 }}>
                 {builder.description}
@@ -741,7 +802,7 @@ export default function Browse() {
               </div>
 
               {/* Stats row */}
-              <div style={{ display: "flex", alignItems: "center", gap: 20, fontSize: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 20, fontSize: isMobile ? 11 : 12, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                     <path d="M7 1l1.5 3.5L12 5l-2.5 2.5.5 3.5L7 9.5 4 11l.5-3.5L2 5l3.5-.5L7 1z" fill="#fbbf24" />
@@ -763,11 +824,12 @@ export default function Browse() {
             </div>
 
             {/* Actions */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, flexShrink: 0 }}>
+            <div style={{ display: "flex", flexDirection: isMobile ? "row" : "column", gap: 10, flexShrink: 0 }}>
               <button
                 onClick={() => setRequestBuilder(builder)}
                 style={{
-                  padding: "12px 24px",
+                  flex: isMobile ? 1 : undefined,
+                  padding: isMobile ? "10px 0" : "12px 24px",
                   background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
                   border: "none",
                   borderRadius: 8,
@@ -777,6 +839,7 @@ export default function Browse() {
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
+                  justifyContent: "center",
                   gap: 8,
                   transition: "transform 0.15s, box-shadow 0.15s",
                 }}
@@ -797,7 +860,8 @@ export default function Browse() {
               <button
                 onClick={() => setProfileBuilder(builder)}
                 style={{
-                  padding: "12px 24px",
+                  flex: isMobile ? 1 : undefined,
+                  padding: isMobile ? "10px 0" : "12px 24px",
                   background: "transparent",
                   border: `1px solid ${C.cardBorder}`,
                   borderRadius: 8,
