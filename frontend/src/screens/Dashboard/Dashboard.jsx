@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 // import { useUser } from "@clerk/clerk-react"; // DEMO MODE: Clerk disabled
 import { colors, fonts, radii } from "../../theme/tokens";
 import { useProject } from "../../hooks/useProjectStore";
-import { projectsApi, costApi } from "../../services/api";
+import { mapApi, projectsApi } from "../../services/api";
+import { computeNearbyComps, runValuation } from "../FeasibilityDashboard/valuationEngine";
 import NewProjectModal from "../../components/shared/NewProjectModal";
 import HomeownerProjectModal from "../../components/shared/HomeownerProjectModal";
 import HelpTip from "../../components/shared/HelpTip";
@@ -165,6 +166,9 @@ function ProjectThumb({ project, index }) {
 }
 
 function Sparkline({ data, color }) {
+  if (!data?.length) {
+    return <div style={{ width: 80, height: 32 }} aria-hidden="true" />;
+  }
   const w = 80, h = 32;
   const max = Math.max(...data), min = Math.min(...data);
   const range = max - min || 1;
@@ -311,6 +315,61 @@ const MODULES = [
   },
 ];
 
+function firstPresent(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "");
+}
+
+function normalizeFeasibilityScore(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const numeric = typeof value === "number"
+    ? value
+    : Number(String(value).match(/-?\d+(\.\d+)?/)?.[0]);
+  if (!Number.isFinite(numeric)) return null;
+  return Math.round(numeric > 0 && numeric <= 1 ? numeric * 100 : numeric);
+}
+
+function scoreColor(score) {
+  return score == null ? colors.textDim : score >= 75 ? colors.accent : score >= 50 ? colors.warn : colors.textDim;
+}
+
+function scoreSparkline(score) {
+  if (score == null) return null;
+  const base = Math.max(20, score - 28);
+  return Array.from({ length: 7 }, (_, i) => Math.round(base + (score - base) * (i / 6)));
+}
+
+function projectSpecs(p) {
+  const fp = p.floor_plan || {};
+  const gp = p.generate_params || {};
+  const rooms = fp.rooms || [];
+  return {
+    totalSF: fp.totalSF || gp.targetSF || 2200,
+    bedrooms: rooms.filter((r) => r.type === "bedroom").length || gp.beds || gp.bedrooms || 3,
+    bathrooms: rooms.filter((r) => r.type === "bathroom").length || gp.baths || gp.bathrooms || 2,
+  };
+}
+
+async function computeLegacyPlotScore(p, marketCache) {
+  const plotLat = firstPresent(p.plot?.lat, p.plot?.latitude);
+  const plotLng = firstPresent(p.plot?.lng, p.plot?.longitude);
+  if (plotLat == null || plotLng == null) return null;
+
+  const city = p.location?.city || p.generate_params?.city || "Dallas";
+  const state = p.location?.state || p.generate_params?.state || "TX";
+  const cacheKey = `${city},${state}`.toLowerCase();
+  if (!marketCache.has(cacheKey)) {
+    marketCache.set(cacheKey, mapApi.searchByCity(city, state).catch(() => null));
+  }
+
+  const market = await marketCache.get(cacheKey);
+  const comps = market?.comparables || [];
+  const loc = { lat: Number(plotLat), lng: Number(plotLng) };
+  const nearbyComps = computeNearbyComps(loc, 0.75, comps, true);
+  const { totalSF, bedrooms, bathrooms } = projectSpecs(p);
+  const valuation = runValuation(loc, p.plot, nearbyComps, totalSF, bedrooms, bathrooms);
+  return valuation?.feasScore ?? null;
+}
+
 // Transform a raw MongoDB project into the shape RecentRow expects
 function projectToRow(p) {
   const now = Date.now();
@@ -323,27 +382,48 @@ function projectToRow(p) {
   else if (diffMins < 1440) time = `${Math.floor(diffMins / 60)}h ago`;
   else time = `${Math.floor(diffMins / 1440)}d ago`;
 
-  const fp = p.floor_plan || {};
-  const gp = p.generate_params || {};
-  const lotSF = p.plot?.lot_sf || (gp.lotWidth || fp.width || 60) * (gp.lotDepth || fp.depth || 120);
-  const acres = Math.round((lotSF / 43560) * 100) / 100;
-
-  const totalSF = fp.totalSF || gp.targetSF || 2200;
-  const cost = p.plot?.price || null; // land acquisition price from plot, or populated async
-
-  const rawScore = fp.score ? fp.score * 100 : null;
-  // Seed a deterministic score from name length + totalSF to avoid random flicker
-  const seed = (p.name?.length || 7) * 3 + (totalSF % 37);
-  const score = rawScore != null ? Math.round(rawScore) : Math.min(99, Math.max(30, 55 + (seed % 40)));
-  const scoreColor = score >= 75 ? colors.accent : score >= 50 ? colors.warn : colors.textDim;
-
-  // Synthesize a 7-point sparkline trending toward the current score
-  const base = Math.max(20, score - 28);
-  const data = Array.from({ length: 7 }, (_, i) =>
-    Math.round(base + (score - base) * (i / 6) + ((seed * (i + 1)) % 7) - 3)
+  const plotLat = firstPresent(p.plot?.lat, p.plot?.latitude);
+  const plotLng = firstPresent(p.plot?.lng, p.plot?.longitude);
+  const hasPlotLocation = plotLat != null && plotLng != null;
+  const rawScore = firstPresent(
+    p.plot?.feasibility_score,
+    p.plot?.feasibilityScore,
+    p.plot?.score,
+    p.feasibility?.score,
+    p.feasibility_score,
+    p.feasibilityScore
   );
+  const score = normalizeFeasibilityScore(rawScore);
+  const hasSelectedLand = Boolean(p.plot) && Boolean(firstPresent(
+    hasPlotLocation ? true : null,
+    p.plot?.address,
+    p.plot?.price,
+    p.plot?.lot_sf,
+    p.plot?.lotSize,
+    p.plot?.lot_size,
+    p.plot?.zoning,
+    p.plot?.url,
+    score != null ? true : null
+  ));
+  const lotSF = hasSelectedLand ? firstPresent(p.plot?.lot_sf, p.plot?.lotSize, p.plot?.lot_size) : null;
+  const acres = lotSF ? Math.round((lotSF / 43560) * 100) / 100 : null;
+  const cost = hasSelectedLand ? (p.plot?.price ?? null) : null;
+  const displayScore = hasSelectedLand ? score : null;
+  const data = scoreSparkline(displayScore);
 
-  return { id: p.id, name: p.name, time, acres, cost, score, scoreColor, data, path: "/develop", floor_plan: p.floor_plan || null };
+  return {
+    id: p.id,
+    sourceProject: p,
+    name: p.name,
+    time,
+    acres,
+    cost,
+    score: displayScore,
+    scoreColor: scoreColor(displayScore),
+    data,
+    hasSelectedLand,
+    floor_plan: p.floor_plan || null,
+  };
 }
 
 export default function Dashboard() {
@@ -351,7 +431,18 @@ export default function Dashboard() {
   // DEMO MODE: Mock user instead of Clerk
   // const { user } = useUser();
   const user = { firstName: "Demo" };
-  const { setProjectName, setGenerateParams, resetProject, setProjectLocation } = useProject();
+  const {
+    setProjectName,
+    setGenerateParams,
+    resetProject,
+    setProjectLocation,
+    setProjectId,
+    setStoryPlans,
+    setFloorPlan,
+    setBuildingContext,
+    setMaterials,
+    setSavedSchedule,
+  } = useProject();
   const { isHomeowner } = useUserType();
   const [showModal, setShowModal] = useState(false);
   const [recentProjects, setRecentProjects] = useState([]);
@@ -368,29 +459,27 @@ export default function Dashboard() {
         setRecentProjects(rows);
         setRecentLoading(false);
 
-        // Fetch location-aware construction $/SF for each project
+        const marketCache = new Map();
         ps.slice(0, 5).forEach(async (p, i) => {
-          const gp = p.generate_params || {};
-          const fp = p.floor_plan || {};
-          const lat = p.plot?.lat || gp.lat || gp.latitude || 32.7767;
-          const lng = p.plot?.lng || gp.lng || gp.longitude || -96.7970;
-          const sf  = fp.totalSF || gp.targetSF || 2200;
-          try {
-            const res = await costApi.predict({
-              square_footage: sf,
-              bedrooms:  gp.beds || gp.bedrooms || 3,
-              bathrooms: gp.baths || gp.bathrooms || 2,
-              latitude:  lat,
-              longitude: lng,
-              quality_score: 5.0,
-            });
-            const totalInv = res.feasibility?.total_investment;
-            if (alive && totalInv && !ps[i]?.plot?.price) {
-              setRecentProjects(prev =>
-                prev.map((r, j) => j === i ? { ...r, cost: Math.round(totalInv) } : r)
-              );
-            }
-          } catch { /* silently skip on error */ }
+          const row = rows[i];
+          if (!row?.hasSelectedLand) return;
+
+          const refreshedScore = await computeLegacyPlotScore(p, marketCache);
+          const normalizedScore = normalizeFeasibilityScore(refreshedScore);
+          if (!alive || normalizedScore == null || normalizedScore === row.score) return;
+
+          setRecentProjects((prev) =>
+            prev.map((r, j) => j === i ? {
+              ...r,
+              score: normalizedScore,
+              scoreColor: scoreColor(normalizedScore),
+              data: scoreSparkline(normalizedScore),
+            } : r)
+          );
+
+          projectsApi.update(p.id, {
+            plot: { ...p.plot, feasibility_score: normalizedScore },
+          }).catch(() => {});
         });
       } catch {
         if (alive) setRecentLoading(false);
@@ -423,6 +512,26 @@ export default function Dashboard() {
     });
     setProjectLocation(params.location || null);
     navigate("/develop");
+  };
+
+  const activateProjectForFeasibility = (row) => {
+    const project = row?.sourceProject;
+    if (!project) return;
+
+    resetProject();
+    setProjectName(project.name);
+    setProjectId(project.id);
+    if (project.generate_params) setGenerateParams(project.generate_params);
+    if (project.location) setProjectLocation(project.location);
+    if (project.materials?.length > 0) setMaterials(project.materials);
+    if (project.building_context) setBuildingContext(project.building_context);
+    if (project.schedule) setSavedSchedule(project.schedule);
+    if (project.story_plans?.length > 0) {
+      setStoryPlans(project.story_plans);
+    } else if (project.floor_plan) {
+      setFloorPlan(project.floor_plan);
+    }
+    navigate("/feasibility");
   };
 
   return (
@@ -665,7 +774,7 @@ export default function Dashboard() {
             </div>
           )}
           {recentProjects.map((p, i) => (
-            <RecentRow key={p.id} project={p} index={i} navigate={navigate} isMobile={isMobile} />
+            <RecentRow key={p.id} project={p} index={i} onOpen={activateProjectForFeasibility} isMobile={isMobile} />
           ))}
         </div>
       </div>
@@ -832,11 +941,17 @@ function ModuleCard({ mod, navigate, onLaunch, isMobile, dataTour }) {
   );
 }
 
-function RecentRow({ project: p, index, navigate, isMobile }) {
+function RecentRow({ project: p, index, onOpen, isMobile }) {
+  const acresLabel = p.acres != null ? `${p.acres} Acres` : "N/A";
+  const costLabel = p.cost != null
+    ? (p.cost >= 1000000 ? `$${(p.cost / 1000000).toFixed(2)}M` : `$${(p.cost / 1000).toFixed(0)}K`)
+    : "N/A";
+  const scoreLabel = p.score != null ? p.score : "N/A";
+
   if (isMobile) {
     return (
       <div
-        onClick={() => navigate(p.path)}
+        onClick={() => onOpen(p)}
         onMouseEnter={(e) => (e.currentTarget.style.background = colors.surfaceHover)}
         onMouseLeave={(e) => (e.currentTarget.style.background = colors.cardSurface)}
         style={{
@@ -860,7 +975,7 @@ function RecentRow({ project: p, index, navigate, isMobile }) {
               {p.name}
             </div>
             <div style={{ fontSize: 11, color: colors.textDim, fontFamily: fonts.data }}>
-              Analyzed {p.time} • {p.acres} Acres
+              Analyzed {p.time} • {acresLabel}
             </div>
           </div>
         </div>
@@ -876,20 +991,20 @@ function RecentRow({ project: p, index, navigate, isMobile }) {
         >
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: colors.textBright, fontFamily: fonts.data }}>
-              {p.cost != null ? (p.cost >= 1000000 ? `$${(p.cost / 1000000).toFixed(2)}M` : `$${(p.cost / 1000).toFixed(0)}K`) : "—"}
+              {costLabel}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: colors.textDim, letterSpacing: "0.6px", textTransform: "uppercase" }}>
               Est. Acq. Cost
               <HelpTip
                 size={11}
-                title="Estimated total cost"
-                body="A rough projected total to build this project — land plus construction. It updates as you refine the floor plan and choose materials. Not a quote."
+                title="Estimated acquisition cost"
+                body="The saved price of the selected land parcel. It shows N/A until you choose land in Feasibility."
               />
             </div>
           </div>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: p.scoreColor, fontFamily: fonts.data, lineHeight: 1 }}>
-              {p.score}
+            <div style={{ fontSize: p.score != null ? 22 : 18, fontWeight: 700, color: p.scoreColor, fontFamily: fonts.data, lineHeight: 1 }}>
+              {scoreLabel}
             </div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, fontSize: 9, color: colors.textDim, letterSpacing: "0.6px", textTransform: "uppercase" }}>
               Score
@@ -908,7 +1023,7 @@ function RecentRow({ project: p, index, navigate, isMobile }) {
 
   return (
     <div
-      onClick={() => navigate(p.path)}
+      onClick={() => onOpen(p)}
       onMouseEnter={(e) => (e.currentTarget.style.background = colors.surfaceHover)}
       onMouseLeave={(e) => (e.currentTarget.style.background = colors.cardSurface)}
       style={{
@@ -937,7 +1052,7 @@ function RecentRow({ project: p, index, navigate, isMobile }) {
           {p.name}
         </div>
         <div style={{ fontSize: 11, color: colors.textDim, fontFamily: fonts.data }}>
-          Analyzed {p.time} • {p.acres} Acres
+          Analyzed {p.time} • {acresLabel}
         </div>
       </div>
       <div style={{ textAlign: "right", marginRight: 8, flexShrink: 0 }}>
@@ -949,7 +1064,7 @@ function RecentRow({ project: p, index, navigate, isMobile }) {
             fontFamily: fonts.data,
           }}
         >
-          {p.cost != null ? (p.cost >= 1000000 ? `$${(p.cost / 1000000).toFixed(2)}M` : `$${(p.cost / 1000).toFixed(0)}K`) : "—"}
+          {costLabel}
         </div>
         <div
           style={{
@@ -967,22 +1082,22 @@ function RecentRow({ project: p, index, navigate, isMobile }) {
           <HelpTip
             size={11}
             align="right"
-            title="Estimated total cost"
-            body="A rough projected total to build this project — land plus construction. It updates as you refine the floor plan and choose materials. Not a quote."
+            title="Estimated acquisition cost"
+            body="The saved price of the selected land parcel. It shows N/A until you choose land in Feasibility."
           />
         </div>
       </div>
       <div style={{ textAlign: "center", flexShrink: 0, minWidth: 44 }}>
         <div
           style={{
-            fontSize: 22,
+            fontSize: p.score != null ? 22 : 18,
             fontWeight: 700,
             color: p.scoreColor,
             fontFamily: fonts.data,
             lineHeight: 1,
           }}
         >
-          {p.score}
+          {scoreLabel}
         </div>
         <div
           style={{

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { colors, fonts, card, radii } from "../../theme/tokens";
@@ -84,6 +84,9 @@ export default function FeasibilityDashboard() {
   const isMobile = useBreakpoint(768);
   const [mobileTab, setMobileTab] = useState("map");
   const { isHomeowner } = useUserType();
+  const currentProjectIdRef = useRef(project.projectId);
+  const restoredPlotProjectRef = useRef(null);
+  const savedPlotRestoreEnabledRef = useRef(true);
 
   // ── Live map data — populated when user searches a city ──
   const [liveComps,   setLiveComps]   = useState([]);
@@ -97,6 +100,7 @@ export default function FeasibilityDashboard() {
   // until data arrives — map updates automatically without any user interaction.
   useEffect(() => {
     if (!searchCity) return;
+    const activeProjectId = project.projectId;
     let cancelled = false;
     let pollTimer = null;
 
@@ -105,7 +109,7 @@ export default function FeasibilityDashboard() {
     const fetchData = (isPolling = false) => {
       mapApi.searchByCity(searchCity.city, searchCity.state)
         .then((data) => {
-          if (cancelled) return;
+          if (cancelled || currentProjectIdRef.current !== activeProjectId) return;
           const hasData = (data?.comparables?.length ?? 0) > 0 || (data?.land?.length ?? 0) > 0;
           console.info(
             `[FeasibilityDashboard] City search "${searchCity.city}, ${searchCity.state}": ` +
@@ -125,7 +129,7 @@ export default function FeasibilityDashboard() {
         })
         .catch((err) => {
           console.warn('[FeasibilityDashboard] City search failed:', err?.message || err);
-          if (!cancelled) { setLiveComps([]); setLiveLand([]); setMapLoading(false); }
+          if (!cancelled && currentProjectIdRef.current === activeProjectId) { setLiveComps([]); setLiveLand([]); setMapLoading(false); }
         });
     };
 
@@ -134,7 +138,7 @@ export default function FeasibilityDashboard() {
       cancelled = true;
       if (pollTimer) clearTimeout(pollTimer);
     };
-  }, [searchCity]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchCity, project.projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Centroid returned by the search — used to re-center the map
   const [searchCentroid, setSearchCentroid] = useState(null);
@@ -150,22 +154,55 @@ export default function FeasibilityDashboard() {
   const [plotSaving,   setPlotSaving]   = useState(false);
   const [dbProject, setDbProject] = useState(null);
 
+  useEffect(() => {
+    currentProjectIdRef.current = project.projectId;
+    restoredPlotProjectRef.current = null;
+    savedPlotRestoreEnabledRef.current = true;
+    setDbProject(null);
+    setLoc(null);
+    setSelLand(null);
+    setPlotSaved(false);
+    setLiveComps([]);
+    setLiveLand([]);
+    setMarketStats(null);
+    setMapLoading(false);
+    setSearchCity(null);
+    setSearchCentroid(null);
+  }, [project.projectId]);
+
   // Fetch full project from DB on mount — used for readiness check and plot auto-restore
   useEffect(() => {
     if (!project.projectId) return;
+    const activeProjectId = project.projectId;
+    let cancelled = false;
     projectsApi.getPublic(project.projectId)
-      .then((p) => setDbProject(p))
+      .then((p) => {
+        if (cancelled || currentProjectIdRef.current !== activeProjectId) return;
+        setDbProject(p);
+      })
       .catch(() => {});
+    return () => { cancelled = true; };
   }, [project.projectId]);
 
-  // Reset saved state when user picks a different parcel
-  useEffect(() => { setPlotSaved(false); }, [selLand]);
-
-  const handleCitySearch = useCallback((city, state) => {
+  const handleCitySearch = useCallback((city, state, source = "manual") => {
+    if (source === "manual") {
+      savedPlotRestoreEnabledRef.current = false;
+      restoredPlotProjectRef.current = project.projectId;
+    }
     setSearchCity({ city, state });
     setLoc(null);
     setSelLand(null);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    setPlotSaved(false);
+  }, [project.projectId]);
+
+  const handleLocChange = useCallback((nextLoc) => {
+    setLoc(nextLoc);
+  }, []);
+
+  const handleLandSelect = useCallback((land) => {
+    setPlotSaved(false);
+    setSelLand(land);
+  }, []);
 
   // ── Auto-search from project location (stored separately, never wiped) ─
   const locationKey = project?.projectLocation
@@ -174,7 +211,7 @@ export default function FeasibilityDashboard() {
   useEffect(() => {
     if (!locationKey) return;
     const [city, state] = locationKey.split(",");
-    handleCitySearch(city, state);
+    handleCitySearch(city, state, "auto");
   }, [locationKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [landFilters, setLandFilters] = useState(LAND_FILTER_DEFAULT);
@@ -211,16 +248,27 @@ export default function FeasibilityDashboard() {
 
   // Auto-restore saved plot once land data has loaded (fires after city search completes)
   useEffect(() => {
-    if (!project.projectId || !liveLand.length || selLand) return;
-    projectsApi.getPublic(project.projectId)
+    if (
+      !project.projectId ||
+      !liveLand.length ||
+      selLand ||
+      !savedPlotRestoreEnabledRef.current ||
+      restoredPlotProjectRef.current === project.projectId
+    ) return;
+    const activeProjectId = project.projectId;
+    restoredPlotProjectRef.current = activeProjectId;
+    let cancelled = false;
+    projectsApi.getPublic(activeProjectId)
       .then((p) => {
+        if (cancelled || currentProjectIdRef.current !== activeProjectId) return;
         if (!p.plot?.lat || !p.plot?.lng) return;
         setSelLand(p.plot);
         setLoc({ lat: p.plot.lat, lng: p.plot.lng });
         setPlotSaved(true);
       })
       .catch(() => {});
-  }, [liveLand]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; };
+  }, [project.projectId, liveLand.length, selLand]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived analysis values ───────────────────────────────────────────
   const nearbyComps = useMemo(
@@ -233,10 +281,20 @@ export default function FeasibilityDashboard() {
     [loc, selLand, nearbyComps, totalSF, bedrooms, bathrooms]
   );
 
+  // ── Display values: live valuation when available, DEMO otherwise ─────
+  const estTotalCost   = Math.round(BUILD_COST_PSF * totalSF);
+  const estMarketValue = Math.round(estTotalCost / (1 - DEMO.margin / 100));
+
+  const displayScore   = valuation ? valuation.feasScore                            : DEMO.score;
+  const displayCost    = valuation ? Math.round(valuation.totalInvestment)          : estTotalCost;
+  const displayCostPSF = valuation ? Math.round(valuation.totalInvestment / totalSF) : DEMO.costPerSf;
+  const displayARV     = valuation ? Math.round(valuation.blended)                  : estMarketValue;
+  const displayMargin  = valuation ? valuation.margin.toFixed(1)                    : DEMO.margin;
 
   // ── Select Plot handler ──────────────────────────────────────────────────
   const handleSelectPlot = useCallback(async () => {
     if (!selLand || !project.projectId) return;
+    const activeProjectId = project.projectId;
     setPlotSaving(true);
     try {
       const savedPlot = {
@@ -251,25 +309,38 @@ export default function FeasibilityDashboard() {
         environmental: "Clear",
         structural: "Verified",
       };
-      await projectsApi.update(project.projectId, { plot: savedPlot });
+      await projectsApi.update(activeProjectId, { plot: savedPlot });
+      if (currentProjectIdRef.current !== activeProjectId) return;
       setPlotSaved(true);
       setDbProject((prev) => prev ? { ...prev, plot: savedPlot } : prev);
     } catch (_) {
       // silently fail — no UX disruption
     } finally {
-      setPlotSaving(false);
+      if (currentProjectIdRef.current === activeProjectId) setPlotSaving(false);
     }
-  }, [selLand, project.projectId, loc]);
+  }, [selLand, project.projectId, loc, displayScore]);
 
-  // ── Display values: live valuation when available, DEMO otherwise ─────
-  const estTotalCost   = Math.round(BUILD_COST_PSF * totalSF);
-  const estMarketValue = Math.round(estTotalCost / (1 - DEMO.margin / 100));
-
-  const displayScore   = valuation ? valuation.feasScore                            : DEMO.score;
-  const displayCost    = valuation ? Math.round(valuation.totalInvestment)          : estTotalCost;
-  const displayCostPSF = valuation ? Math.round(valuation.totalInvestment / totalSF) : DEMO.costPerSf;
-  const displayARV     = valuation ? Math.round(valuation.blended)                  : estMarketValue;
-  const displayMargin  = valuation ? valuation.margin.toFixed(1)                    : DEMO.margin;
+  // Persist the live valuation score so Dashboard and builder/client views
+  // follow the current selected plot instead of stale saved scores.
+  useEffect(() => {
+    if (!project.projectId || !selLand || !valuation || !plotSaved) return;
+    if (Math.round(Number(selLand.feasibility_score)) === valuation.feasScore) return;
+    const activeProjectId = project.projectId;
+    const patchedPlot = {
+      ...selLand,
+      feasibility_score: valuation.feasScore,
+      environmental: selLand.environmental || "Clear",
+      structural: selLand.structural || "Verified",
+    };
+    projectsApi.update(activeProjectId, { plot: patchedPlot })
+      .then(() => {
+        if (currentProjectIdRef.current !== activeProjectId) return;
+        setSelLand(patchedPlot);
+        setPlotSaved(true);
+        setDbProject((prev) => prev ? { ...prev, plot: patchedPlot } : prev);
+      })
+      .catch(() => {});
+  }, [project.projectId, selLand, valuation, plotSaved]);
 
   // Parcel card — live data when land selected, DEMO data otherwise
   const parcelStatus  = selLand?.status === "Price Reduced" ? "warning" : "active";
@@ -286,12 +357,10 @@ export default function FeasibilityDashboard() {
       background:    colors.panel,
       borderLeft:    isMobile ? "none" : `1px solid ${colors.panelBorder}`,
       borderTop:     isMobile ? `1px solid ${colors.panelBorder}` : "none",
-      overflowY:     "auto",
       overflowX:     "hidden",
-      padding:       isMobile ? "18px 16px 24px" : "24px 24px 32px",
       display:       "flex",
       flexDirection: "column",
-      gap:           isMobile ? 16 : 20,
+      minHeight:     0,
       position:      "relative",
     }}>
       {mapLoading && (
@@ -308,325 +377,344 @@ export default function FeasibilityDashboard() {
         </div>
       )}
 
-      {!isMobile && (
-        <div>
-          <div style={{
-            display: "flex", alignItems: "center",
-            justifyContent: "space-between",
-          }}>
-            <h2 style={{
-              margin: 0, fontFamily: fonts.label,
-              fontSize: 22, fontWeight: 700, color: colors.textBright,
+      <div style={{
+        flex: 1,
+        minHeight: 0,
+        overflowY: "auto",
+        overflowX: "hidden",
+        padding: isMobile ? "18px 16px 20px" : "24px 24px 20px",
+        display: "flex",
+        flexDirection: "column",
+        gap: isMobile ? 16 : 20,
+      }}>
+        {!isMobile && (
+          <div>
+            <div style={{
+              display: "flex", alignItems: "center",
+              justifyContent: "space-between",
             }}>
-              {projectName} — Feasibility
-            </h2>
-            <button
-              onClick={() => navigate(-1)}
-              style={{
-                display: "flex", alignItems: "center", gap: 5,
-                background: "transparent", border: `1px solid ${colors.cardBorder}`,
-                borderRadius: 6, color: colors.textDim, fontSize: 12,
-                fontFamily: fonts.label, fontWeight: 600, padding: "4px 10px",
-                cursor: "pointer",
-              }}
-            >
-              ← Back
-            </button>
+              <h2 style={{
+                margin: 0, fontFamily: fonts.label,
+                fontSize: 22, fontWeight: 700, color: colors.textBright,
+              }}>
+                {projectName} — Feasibility
+              </h2>
+              <button
+                onClick={() => navigate(-1)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 5,
+                  background: "transparent", border: `1px solid ${colors.cardBorder}`,
+                  borderRadius: 6, color: colors.textDim, fontSize: 12,
+                  fontFamily: fonts.label, fontWeight: 600, padding: "4px 10px",
+                  cursor: "pointer",
+                }}
+              >
+                ← Back
+              </button>
+            </div>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8, marginTop: 4,
+              fontFamily: fonts.data, fontSize: 13, color: colors.textDim,
+            }}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill={colors.textDim}>
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
+              </svg>
+              {locationText} | CT: {DEMO.ctId} | {totalSF.toLocaleString()} SF · {stories}-story · {style}
+            </div>
           </div>
-          <div style={{
-            display: "flex", alignItems: "center", gap: 8, marginTop: 4,
-            fontFamily: fonts.data, fontSize: 13, color: colors.textDim,
-          }}>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill={colors.textDim}>
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
-            </svg>
-            {locationText} | CT: {DEMO.ctId} | {totalSF.toLocaleString()} SF · {stories}-story · {style}
-          </div>
-        </div>
-      )}
+        )}
 
-      {isMobile && (
-        <div style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-          paddingBottom: 2,
-        }}>
+        {isMobile && (
           <div style={{
             display: "flex",
-            alignItems: "flex-start",
+            flexDirection: "column",
             gap: 8,
-            color: colors.textDim,
-            fontFamily: fonts.data,
-            fontSize: 12,
-            lineHeight: 1.5,
+            paddingBottom: 2,
           }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill={colors.textDim} style={{ flexShrink: 0, marginTop: 3 }}>
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
-            </svg>
-            <span>
-              {locationText}
-              <br />
-              CT: {DEMO.ctId} | {totalSF.toLocaleString()} SF · {stories}-story · {style}
-            </span>
-          </div>
-        </div>
-      )}
-
-      <div data-tour="feas-gauge" style={{ display: "flex", justifyContent: "center", padding: isMobile ? "0 0 2px" : "4px 0" }}>
-        <FeasibilityGauge score={displayScore} size={isMobile ? 96 : 110} />
-      </div>
-
-      <div data-tour="score-breakdown" style={{
-        background: colors.surface,
-        border: `1px solid ${colors.cardBorder}`,
-        borderRadius: radii.md,
-        padding: isMobile ? "12px" : "12px 14px",
-      }}>
-        <div style={{
-          fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
-          color: colors.textDim, textTransform: "uppercase",
-          letterSpacing: "0.8px", marginBottom: 12,
-          display: "flex", alignItems: "center", gap: 6,
-        }}>
-          How Your Score Is Calculated
-          {isHomeowner && (
-            <HelpTip
-              size={11}
-              title="Why three approaches?"
-              body="Real estate appraisers blend three lenses: what nearby homes sold for, what it costs to rebuild, and what it could earn. Vision does the same to give you one fair score instead of guessing."
-            />
-          )}
-        </div>
-        {[
-          {
-            label: "Sales Comparison",
-            weight: "50%",
-            color: colors.secondary,
-            desc: "Recent nearby home sales — the heaviest factor, reflecting what buyers actually paid.",
-          },
-          {
-            label: "Cost Approach",
-            weight: "30%",
-            color: "#8b5cf6",
-            desc: "Estimated cost to build from scratch, anchoring value to real construction costs.",
-          },
-          {
-            label: "Income Approach",
-            weight: "20%",
-            color: colors.accent,
-            desc: "Projected rental or resale return, gauging investment potential.",
-          },
-        ].map(({ label, weight, color, desc }) => (
-          <div key={label} style={{ marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 3 }}>
-              <span style={{ fontFamily: fonts.label, fontSize: isMobile ? 12 : 13, fontWeight: 700, color }}>
-                {label}
-              </span>
-              <span style={{
-                fontFamily: fonts.data, fontSize: 12, fontWeight: 700,
-                color, background: `${color}18`, borderRadius: 3,
-                padding: "2px 7px", flexShrink: 0,
-              }}>
-                {weight}
+            <div style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+              color: colors.textDim,
+              fontFamily: fonts.data,
+              fontSize: 12,
+              lineHeight: 1.5,
+            }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill={colors.textDim} style={{ flexShrink: 0, marginTop: 3 }}>
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
+              </svg>
+              <span>
+                {locationText}
+                <br />
+                CT: {DEMO.ctId} | {totalSF.toLocaleString()} SF · {stories}-story · {style}
               </span>
             </div>
-            <p style={{
-              margin: 0, fontFamily: fonts.label, fontSize: 12,
-              color: colors.textDim, lineHeight: 1.55,
-            }}>
-              {desc}
-            </p>
           </div>
-        ))}
-      </div>
+        )}
 
-      {valuation && (
-        <div style={{
-          padding: isMobile ? "10px 12px" : "10px 12px",
+        <div data-tour="feas-gauge" style={{ display: "flex", justifyContent: "center", padding: isMobile ? "0 0 2px" : "4px 0" }}>
+          <FeasibilityGauge score={displayScore} size={isMobile ? 96 : 110} />
+        </div>
+
+        <div data-tour="score-breakdown" style={{
           background: colors.surface,
           border: `1px solid ${colors.cardBorder}`,
           borderRadius: radii.md,
+          padding: isMobile ? "12px" : "12px 14px",
         }}>
           <div style={{
             fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
             color: colors.textDim, textTransform: "uppercase",
-            letterSpacing: "0.8px", marginBottom: 8,
+            letterSpacing: "0.8px", marginBottom: 12,
+            display: "flex", alignItems: "center", gap: 6,
           }}>
-            3-Approach Blend
+            How Your Score Is Calculated
+            {isHomeowner && (
+              <HelpTip
+                size={11}
+                title="Why three approaches?"
+                body="Real estate appraisers blend three lenses: what nearby homes sold for, what it costs to rebuild, and what it could earn. Vision does the same to give you one fair score instead of guessing."
+              />
+            )}
           </div>
           {[
-            ["SCA  50%", valuation.scaValue,   colors.secondary],
-            ["Cost 30%", valuation.costValue,   "#8b5cf6"],
-            ["Inc  20%", valuation.incomeValue, colors.accent],
-          ].map(([label, val, col]) => (
-            <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, gap: 12 }}>
-              <span style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>
-                {label}
-              </span>
-              <span style={{ fontFamily: fonts.data, fontSize: 12, fontWeight: 600, color: col, textAlign: "right" }}>
-                {fmtK(val)}
-              </span>
+            {
+              label: "Sales Comparison",
+              weight: "50%",
+              color: colors.secondary,
+              desc: "Recent nearby home sales — the heaviest factor, reflecting what buyers actually paid.",
+            },
+            {
+              label: "Cost Approach",
+              weight: "30%",
+              color: "#8b5cf6",
+              desc: "Estimated cost to build from scratch, anchoring value to real construction costs.",
+            },
+            {
+              label: "Income Approach",
+              weight: "20%",
+              color: colors.accent,
+              desc: "Projected rental or resale return, gauging investment potential.",
+            },
+          ].map(({ label, weight, color, desc }) => (
+            <div key={label} style={{ marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 3 }}>
+                <span style={{ fontFamily: fonts.label, fontSize: isMobile ? 12 : 13, fontWeight: 700, color }}>
+                  {label}
+                </span>
+                <span style={{
+                  fontFamily: fonts.data, fontSize: 12, fontWeight: 700,
+                  color, background: `${color}18`, borderRadius: 3,
+                  padding: "2px 7px", flexShrink: 0,
+                }}>
+                  {weight}
+                </span>
+              </div>
+              <p style={{
+                margin: 0, fontFamily: fonts.label, fontSize: 12,
+                color: colors.textDim, lineHeight: 1.55,
+              }}>
+                {desc}
+              </p>
             </div>
           ))}
         </div>
-      )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 12 }}>
-          <SubScoreBar label="Profitability"   level={valuation ? valuation.profitabilityLevel : "High"}  color={valuation ? (valuation.profitabilityLevel === "High" ? colors.success : valuation.profitabilityLevel === "Med" ? colors.warn : colors.danger) : colors.success} />
-          <SubScoreBar label="Market Strength" level={valuation ? valuation.marketStrengthLevel : "Med"} color={valuation ? (valuation.marketStrengthLevel === "High" ? colors.success : valuation.marketStrengthLevel === "Med" ? colors.warn : colors.danger) : colors.warn} />
-        </div>
-        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 12 }}>
-          <SubScoreBar label="Risk Profile"   level={valuation ? valuation.riskLevel : "Low"}           color={valuation ? (valuation.riskLevel === "Low" ? colors.secondary : valuation.riskLevel === "Med" ? colors.warn : colors.danger) : colors.secondary} />
-          <SubScoreBar label="Infrastructure" level={valuation ? valuation.infrastructureLevel : "High"} color={valuation ? (valuation.infrastructureLevel === "High" ? colors.success : valuation.infrastructureLevel === "Med" ? colors.warn : colors.danger) : colors.success} />
-        </div>
-      </div>
-
-      <div>
-        <div style={{
-          display: "flex", alignItems: "center", gap: 6, marginBottom: 14,
-          fontFamily: fonts.label, fontSize: isMobile ? 14 : 15, fontWeight: 700,
-          color: colors.textBright, flexWrap: "wrap",
-        }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-               stroke={colors.accent} strokeWidth="2">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="6" x2="12" y2="18" />
-            <path d="M9 10a3 3 0 0 1 3-2h0a3 3 0 0 1 0 4H9a3 3 0 0 0 3 4h0a3 3 0 0 0 3-2" />
-          </svg>
-          Financial Estimates
-          {valuation && (
-            <span style={{
-              marginLeft: isMobile ? 0 : "auto", fontSize: 9, fontWeight: 700,
-              padding: "2px 7px", borderRadius: radii.sm,
-              background: colors.accentDim, color: colors.accent,
-              fontFamily: fonts.data, letterSpacing: "0.6px",
-            }}>
-              LIVE · {nearbyComps.length} COMPS
-            </span>
-          )}
-          {!valuation && marketStats && (
-            <span style={{
-              marginLeft: isMobile ? 0 : "auto", fontSize: 9, fontWeight: 700,
-              padding: "2px 7px", borderRadius: radii.sm,
-              background: "rgba(46,213,115,0.12)", color: colors.success,
-              fontFamily: fonts.data, letterSpacing: "0.6px",
-            }}>
-              DB · {marketStats.comparables?.count || 0} COMPS · {marketStats.land?.count || 0} LAND
-            </span>
-          )}
-        </div>
-
-        {selLand && (
-          <div style={{ marginBottom: 12 }}>
+        {valuation && (
+          <div style={{
+            padding: isMobile ? "10px 12px" : "10px 12px",
+            background: colors.surface,
+            border: `1px solid ${colors.cardBorder}`,
+            borderRadius: radii.md,
+          }}>
             <div style={{
-              display: "flex", justifyContent: "space-between",
-              alignItems: "baseline", gap: 12,
+              fontFamily: fonts.label, fontSize: 12, fontWeight: 700,
+              color: colors.textDim, textTransform: "uppercase",
+              letterSpacing: "0.8px", marginBottom: 8,
             }}>
-              <div>
-                <div style={{ fontFamily: fonts.label, fontSize: 14, color: colors.textDim }}>
-                  Land Acquisition
-                </div>
-                <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>
-                  {selLand.lot_sf.toLocaleString()} SF · {selLand.zoning}
-                </div>
-              </div>
-              <span style={{
-                fontFamily: fonts.data, fontSize: isMobile ? 18 : 20, fontWeight: 700,
-                color: colors.textBright, textAlign: "right",
-              }}>
-                {fmtUSD(selLand.price)}
-              </span>
+              3-Approach Blend
             </div>
-            {selLand.url && (
-              <a
-                href={selLand.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  display: "inline-block", marginTop: 4,
-                  fontFamily: fonts.label, fontSize: 10, fontWeight: 600,
-                  color: colors.accent, textDecoration: "none",
-                }}
-              >
-                View Listing ↗
-              </a>
-            )}
+            {[
+              ["SCA  50%", valuation.scaValue,   colors.secondary],
+              ["Cost 30%", valuation.costValue,   "#8b5cf6"],
+              ["Inc  20%", valuation.incomeValue, colors.accent],
+            ].map(([label, val, col]) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, gap: 12 }}>
+                <span style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>
+                  {label}
+                </span>
+                <span style={{ fontFamily: fonts.data, fontSize: 12, fontWeight: 600, color: col, textAlign: "right" }}>
+                  {fmtK(val)}
+                </span>
+              </div>
+            ))}
           </div>
         )}
 
-        <div style={{
-          display: "flex", justifyContent: "space-between",
-          alignItems: "baseline", marginBottom: 12, gap: 12,
-        }}>
-          <div>
-            <div style={{ fontFamily: fonts.label, fontSize: 14, color: colors.textDim }}>
-              Est. Const. Cost
-            </div>
-            <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>
-              ${displayCostPSF} / sqft
-            </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 12 }}>
+            <SubScoreBar label="Profitability"   level={valuation ? valuation.profitabilityLevel : "High"}  color={valuation ? (valuation.profitabilityLevel === "High" ? colors.success : valuation.profitabilityLevel === "Med" ? colors.warn : colors.danger) : colors.success} />
+            <SubScoreBar label="Market Strength" level={valuation ? valuation.marketStrengthLevel : "Med"} color={valuation ? (valuation.marketStrengthLevel === "High" ? colors.success : valuation.marketStrengthLevel === "Med" ? colors.warn : colors.danger) : colors.warn} />
           </div>
-          <span style={{
-            fontFamily: fonts.data, fontSize: isMobile ? 18 : 20, fontWeight: 700,
-            color: colors.textBright, textAlign: "right",
-          }}>
-            ${displayCost.toLocaleString()}
-          </span>
+          <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 12 }}>
+            <SubScoreBar label="Risk Profile"   level={valuation ? valuation.riskLevel : "Low"}           color={valuation ? (valuation.riskLevel === "Low" ? colors.secondary : valuation.riskLevel === "Med" ? colors.warn : colors.danger) : colors.secondary} />
+            <SubScoreBar label="Infrastructure" level={valuation ? valuation.infrastructureLevel : "High"} color={valuation ? (valuation.infrastructureLevel === "High" ? colors.success : valuation.infrastructureLevel === "Med" ? colors.warn : colors.danger) : colors.success} />
+          </div>
         </div>
 
-        <div style={{
-          display: "flex", justifyContent: "space-between",
-          alignItems: "baseline", marginBottom: 12, gap: 12,
-        }}>
-          <div>
-            <div style={{ fontFamily: fonts.label, fontSize: 14, color: colors.textDim }}>
-              Market Value (ARV)
-            </div>
-            <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.success }}>
-              {valuation ? `${nearbyComps.length} comps · blended` : `+${DEMO.marketYoy}% YoY`}
-            </div>
-          </div>
-          <span style={{
-            fontFamily: fonts.data, fontSize: isMobile ? 18 : 20, fontWeight: 700,
-            color: colors.textBright, textAlign: "right",
+        <div>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6, marginBottom: 14,
+            fontFamily: fonts.label, fontSize: isMobile ? 14 : 15, fontWeight: 700,
+            color: colors.textBright, flexWrap: "wrap",
           }}>
-            ${displayARV.toLocaleString()}
-          </span>
-        </div>
-
-        <div style={{
-          display: "flex", justifyContent: "space-between",
-          alignItems: "baseline", gap: 12,
-        }}>
-          <div>
-            <div style={{ fontFamily: fonts.label, fontSize: 14, color: colors.textDim }}>
-              Net Margin
-            </div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                 stroke={colors.accent} strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="6" x2="12" y2="18" />
+              <path d="M9 10a3 3 0 0 1 3-2h0a3 3 0 0 1 0 4H9a3 3 0 0 0 3 4h0a3 3 0 0 0 3-2" />
+            </svg>
+            Financial Estimates
+            {valuation && (
+              <span style={{
+                marginLeft: isMobile ? 0 : "auto", fontSize: 9, fontWeight: 700,
+                padding: "2px 7px", borderRadius: radii.sm,
+                background: colors.accentDim, color: colors.accent,
+                fontFamily: fonts.data, letterSpacing: "0.6px",
+              }}>
+                LIVE · {nearbyComps.length} COMPS
+              </span>
+            )}
+            {!valuation && marketStats && (
+              <span style={{
+                marginLeft: isMobile ? 0 : "auto", fontSize: 9, fontWeight: 700,
+                padding: "2px 7px", borderRadius: radii.sm,
+                background: "rgba(46,213,115,0.12)", color: colors.success,
+                fontFamily: fonts.data, letterSpacing: "0.6px",
+              }}>
+                DB · {marketStats.comparables?.count || 0} COMPS · {marketStats.land?.count || 0} LAND
+              </span>
+            )}
           </div>
-          <div style={{ textAlign: "right" }}>
+
+          {selLand && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{
+                display: "flex", justifyContent: "space-between",
+                alignItems: "baseline", gap: 12,
+              }}>
+                <div>
+                  <div style={{ fontFamily: fonts.label, fontSize: 14, color: colors.textDim }}>
+                    Land Acquisition
+                  </div>
+                  <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>
+                    {selLand.lot_sf.toLocaleString()} SF · {selLand.zoning}
+                  </div>
+                </div>
+                <span style={{
+                  fontFamily: fonts.data, fontSize: isMobile ? 18 : 20, fontWeight: 700,
+                  color: colors.textBright, textAlign: "right",
+                }}>
+                  {fmtUSD(selLand.price)}
+                </span>
+              </div>
+              {selLand.url && (
+                <a
+                  href={selLand.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-block", marginTop: 4,
+                    fontFamily: fonts.label, fontSize: 10, fontWeight: 600,
+                    color: colors.accent, textDecoration: "none",
+                  }}
+                >
+                  View Listing ↗
+                </a>
+              )}
+            </div>
+          )}
+
+          <div style={{
+            display: "flex", justifyContent: "space-between",
+            alignItems: "baseline", marginBottom: 12, gap: 12,
+          }}>
+            <div>
+              <div style={{ fontFamily: fonts.label, fontSize: 14, color: colors.textDim }}>
+                Est. Const. Cost
+              </div>
+              <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>
+                ${displayCostPSF} / sqft
+              </div>
+            </div>
             <span style={{
               fontFamily: fonts.data, fontSize: isMobile ? 18 : 20, fontWeight: 700,
-              color: valuation
-                ? (valuation.margin > 15 ? colors.success
-                   : valuation.margin > 5 ? colors.warn
-                   : colors.danger)
-                : colors.success,
+              color: colors.textBright, textAlign: "right",
             }}>
-              {displayMargin}%
+              ${displayCost.toLocaleString()}
             </span>
-            <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>
-              {valuation
-                ? `ROI ${valuation.roi.toFixed(1)}%`
-                : `Confidence: +/-${DEMO.marginConfidence}%`
-              }
+          </div>
+
+          <div style={{
+            display: "flex", justifyContent: "space-between",
+            alignItems: "baseline", marginBottom: 12, gap: 12,
+          }}>
+            <div>
+              <div style={{ fontFamily: fonts.label, fontSize: 14, color: colors.textDim }}>
+                Market Value (ARV)
+              </div>
+              <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.success }}>
+                {valuation ? `${nearbyComps.length} comps · blended` : `+${DEMO.marketYoy}% YoY`}
+              </div>
+            </div>
+            <span style={{
+              fontFamily: fonts.data, fontSize: isMobile ? 18 : 20, fontWeight: 700,
+              color: colors.textBright, textAlign: "right",
+            }}>
+              ${displayARV.toLocaleString()}
+            </span>
+          </div>
+
+          <div style={{
+            display: "flex", justifyContent: "space-between",
+            alignItems: "baseline", gap: 12,
+          }}>
+            <div>
+              <div style={{ fontFamily: fonts.label, fontSize: 14, color: colors.textDim }}>
+                Net Margin
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <span style={{
+                fontFamily: fonts.data, fontSize: isMobile ? 18 : 20, fontWeight: 700,
+                color: valuation
+                  ? (valuation.margin > 15 ? colors.success
+                     : valuation.margin > 5 ? colors.warn
+                     : colors.danger)
+                  : colors.success,
+              }}>
+                {displayMargin}%
+              </span>
+              <div style={{ fontFamily: fonts.data, fontSize: 12, color: colors.textDim }}>
+                {valuation
+                  ? `ROI ${valuation.roi.toFixed(1)}%`
+                  : `Confidence: +/-${DEMO.marginConfidence}%`
+                }
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: "auto", paddingTop: isMobile ? 6 : 0 }}>
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        flexShrink: 0,
+        padding: isMobile ? "14px 16px 20px" : "16px 24px 24px",
+        borderTop: `1px solid ${colors.panelBorder}`,
+        background: colors.panel,
+      }}>
         <button
           onClick={() => isReadyToBuild && navigate("/browse")}
           disabled={!isReadyToBuild}
@@ -894,8 +982,8 @@ export default function FeasibilityDashboard() {
         }}>
           <LeafletMap
             loc={loc}
-            onLocChange={setLoc}
-            onLandSelect={setSelLand}
+            onLocChange={handleLocChange}
+            onLandSelect={handleLandSelect}
             radius={radius}
             onRadiusChange={setRadius}
             radiusEnabled={radiusEnabled}

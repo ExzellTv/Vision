@@ -1035,17 +1035,28 @@ export default function ProjectsScreen() {
     loadProjects();
   }, [loadProjects]);
 
-  const handleSelect = (project) => {
+  const activateProject = (project) => {
+    resetProject();
     setProjectName(project.name);
     setProjectId(project.id);
     if (project.generate_params) setGenerateParams(project.generate_params);
     if (project.location) setProjectLocation(project.location);
-    // Restore all story plans so the 3D model reflects the correct number of floors
+    if (project.materials?.length > 0) setMaterials(project.materials);
+    if (project.building_context) setBuildingContext(project.building_context);
+    if (project.schedule) setSavedSchedule(project.schedule);
     if (project.story_plans?.length > 0) {
       setStoryPlans(project.story_plans);
-      navigate("/edit");
     } else if (project.floor_plan) {
       setFloorPlan(project.floor_plan);
+    }
+  };
+
+  const handleSelect = (project) => {
+    activateProject(project);
+    // Restore all story plans so the 3D model reflects the correct number of floors
+    if (project.story_plans?.length > 0) {
+      navigate("/edit");
+    } else if (project.floor_plan) {
       navigate("/develop");
     } else {
       navigate("/develop");
@@ -1086,42 +1097,17 @@ export default function ProjectsScreen() {
   };
 
   const handleEditFloorPlan = (project) => {
-    setProjectName(project.name);
-    setProjectId(project.id);
-    if (project.generate_params) setGenerateParams(project.generate_params);
-    if (project.location) setProjectLocation(project.location);
-    if (project.story_plans?.length > 0) {
-      setStoryPlans(project.story_plans);
-    } else if (project.floor_plan) {
-      setFloorPlan(project.floor_plan);
-    }
+    activateProject(project);
     navigate("/develop");
   };
 
   const handleOpenSchedule = (project) => {
-    setProjectName(project.name);
-    setProjectId(project.id);
-    if (project.generate_params) setGenerateParams(project.generate_params);
-    if (project.floor_plan) setFloorPlan(project.floor_plan);
-    if (project.story_plans?.length > 0) setStoryPlans(project.story_plans);
-    if (project.materials?.length > 0) setMaterials(project.materials);
-    if (project.building_context) setBuildingContext(project.building_context);
-    // Restore saved schedule state (startDate + manual overrides)
-    if (project.schedule) setSavedSchedule(project.schedule);
+    activateProject(project);
     navigate("/schedule");
   };
 
   const handleAssessLocation = (project) => {
-    setProjectName(project.name);
-    setProjectId(project.id);
-    if (project.generate_params) setGenerateParams(project.generate_params);
-    if (project.location) setProjectLocation(project.location);
-    if (project.story_plans?.length > 0) {
-      setStoryPlans(project.story_plans);
-    } else if (project.floor_plan) {
-      setFloorPlan(project.floor_plan);
-    }
-    if (project.materials?.length > 0) setMaterials(project.materials);
+    activateProject(project);
     navigate("/feasibility");
   };
 
