@@ -1557,9 +1557,20 @@ function generateLocalFloorPlan(params) {
   ];
   const windows = generateExteriorWindows(rooms, width, depth, doors);
   const score = Math.round((0.82 + rng() * 0.15) * 100) / 100;
+
+  // Grow plan bounding box to contain every room's actual extent so rooms
+  // can never draw outside the declared width/depth.
+  let maxRoomX = 0, maxRoomY = 0;
+  for (const r of rooms) {
+    maxRoomX = Math.max(maxRoomX, (r.x || 0) + (r.w || 0));
+    maxRoomY = Math.max(maxRoomY, (r.y || 0) + (r.h || 0));
+  }
+  const safeWidth = maxRoomX > width ? Math.ceil(maxRoomX) : width;
+  const safeDepth = maxRoomY > depth ? Math.ceil(maxRoomY) : depth;
+
   return {
     id: `local-${Date.now()}-${(seed >>> 0).toString(36)}`,
-    width, depth, rooms, doors, windows,
+    width: safeWidth, depth: safeDepth, rooms, doors, windows,
     totalSF: rooms.reduce((s, r) => s + (r.w || 0) * (r.h || 0), 0),
     score, stories, style, seed,
   };
@@ -2043,8 +2054,8 @@ function renderFloorPlan(canvas, plan, hoveredRoom, zoom = 1.0, placedItems = []
   const cw = rect.width;
   const ch = rect.height;
 
-  // Fit plan into canvas with padding
-  const pad = 60;
+  // Fit plan into canvas with padding — shrink on small mobile canvases
+  const pad = Math.min(60, Math.floor(Math.min(cw, ch) * 0.08));
   const planPxW = plan.width * PX_PER_FT;
   const planPxH = plan.depth * PX_PER_FT;
   const scaleX = (cw - pad * 2) / planPxW;
@@ -2636,7 +2647,7 @@ export default function FloorPlanEditor() {
   const variants = allStoryVariants[activeStory] || [];
   const activeVariant = activeVariantPerStory[activeStory] ?? 0;
   const activePlan = variants[activeVariant] || null;
-  const numStories = Math.max(params.stories || 1, allStoryVariants.length);
+  const numStories = Math.max(allStoryVariants.length, 1);
   const planSignature = (p) => [p?.id || "", p?.width || "", p?.depth || "", p?.rooms?.length || 0].join(",");
   const savedProjectSignature = [
     project.projectId || "__local__",
@@ -2674,6 +2685,13 @@ export default function FloorPlanEditor() {
     setActiveVariantPerStory(nextVariants.map(() => 0));
     if (project.generateParams) setParams(project.generateParams);
   }, [savedProjectSignature, localVariantsSignature]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* If regeneration shrinks the house (e.g. 2 stories -> 1 story), clamp the
+     active story before any stale tab can point at a removed floor. */
+  useEffect(() => {
+    const maxStoryIdx = Math.max(allStoryVariants.length - 1, 0);
+    if (activeStory > maxStoryIdx) setActiveStory(maxStoryIdx);
+  }, [activeStory, allStoryVariants.length]);
 
   /* ── Unsaved changes: block navigation ── */
   const blocker = useBlocker(({ currentLocation, nextLocation }) => {
@@ -3419,9 +3437,23 @@ export default function FloorPlanEditor() {
         ]);
       }
     }
+    const newStoryPlans = newAllStoryVariants
+      .map((storyVariants) => storyVariants[0])
+      .filter(Boolean);
+    floorItemsRef.current = {};
+    aiFurnitureDoneRef.current = {};
+    prevPlanIdRef.current = null;
+    prevStoryRef.current = 0;
     setAllStoryVariants(newAllStoryVariants);
     setActiveVariantPerStory(newAllStoryVariants.map(() => 0));
     setActiveStory(0);
+    setPlacedItems([]);
+    setSelectedItemIdx(-1);
+    setZoom(1);
+    setPanOffset({ x: 0, y: 0 });
+    project.setGenerateParams(p);
+    project.setStoryPlans(newStoryPlans);
+    if (newStoryPlans[0]) project.setFloorPlan(newStoryPlans[0]);
     setIsDirty(true);
     // New plan generated — clear cached compliance results so the check re-runs
     project.setRagViolations([]);
@@ -5232,8 +5264,6 @@ export default function FloorPlanEditor() {
                 setShowParamsModal(false);
                 setDraftParams(null);
                 handleGenerate(dp);
-                setPlacedItems([]);
-                setSelectedItemIdx(-1);
               }} style={{
                 flex: 2, padding: "10px", border: "none", borderRadius: 6,
                 background: "linear-gradient(135deg, #00d4ff, #0099cc)",

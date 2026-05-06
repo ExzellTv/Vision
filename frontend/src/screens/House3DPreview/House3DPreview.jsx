@@ -5,7 +5,7 @@ import { useProject } from "../../hooks/useProjectStore";
 import { useUserType } from "../../context/UserTypeContext";
 import useBreakpoint from "../../hooks/useBreakpoint";
 import House3D from "../../components/3d/House3D";
-import { complianceApi, imageApi } from "../../services/api";
+import { imageApi } from "../../services/api";
 import HelpTip from "../../components/shared/HelpTip";
 import GuidedTour from "../../components/shared/GuidedTour";
 
@@ -19,12 +19,6 @@ const RENDER_STYLES = [
 ];
 import { validateStructure } from "../../lib/structuralValidator";
 import { autoFixStoryPlans } from "../../lib/autoFix";
-import {
-  applyCompliancePatchesToStoryPlans,
-  applyManualComplianceLayoutFixes,
-  applyMinimumComplianceFixes,
-  buildComplianceRooms,
-} from "../../lib/complianceFix";
 import { read3DPrefs, write3DPrefs, resolveHouseColors } from "../../lib/housePrefs";
 
 /**
@@ -114,6 +108,7 @@ export default function House3DPreview() {
   const [showFixBanner, setShowFixBanner] = useState(false); // green banner
   const [fixesOpen, setFixesOpen] = useState(false);         // collapsible log
   const [ragNotesOpen, setRagNotesOpen] = useState(false);   // code compliance toggle
+  const [ragAllResolved, setRagAllResolved] = useState(false); // all compliance issues cleared
   const [warningNotesOpen, setWarningNotesOpen] = useState(false); // warning-only toggle
   // Environment + drag-to-edit were previously user-toggleable. Both now
   // default on/off so the right panel stays focused on style + color.
@@ -197,68 +192,12 @@ export default function House3DPreview() {
     setFixingRag(true);
 
     try {
-      setUndoSnapshot(allStoryPlans);
-      const complianceFixes = [];
-      let nextStoryPlans = allStoryPlans;
-
-      // Step 1: structural geometry fixes (cantilever, alignment)
-      const { fixedStoryPlans: structuralFixed, appliedFixes: structuralFixes } =
-        autoFixStoryPlans(nextStoryPlans, "all");
-      nextStoryPlans = structuralFixed;
-      complianceFixes.push(...structuralFixes);
-
-      const location = project.projectLocation || project.buildingContext?.location || null;
-
-      // Step 2: use the RAG fix endpoint when it can produce precise patches.
-      if ((project.ragViolations || []).length > 0 && location?.city && location?.state) {
-        try {
-          const fixResult = await complianceApi.fix(
-            project.ragViolations,
-            buildComplianceRooms(nextStoryPlans),
-            location
-          );
-
-          const { fixedStoryPlans: patchedPlans, appliedFixes: patchFixes } =
-            applyCompliancePatchesToStoryPlans(nextStoryPlans, fixResult?.patches || []);
-          if (patchFixes.length > 0) {
-            nextStoryPlans = patchedPlans;
-            complianceFixes.push(...patchFixes);
-          }
-        } catch (err) {
-          // Keep going with local layout fixes if the RAG patch endpoint is unavailable.
-        }
-      }
-
-      // Step 3: deterministic fallback for common IRC room-size failures.
-      const { fixedStoryPlans: minimumPlans, appliedFixes: minimumFixes } =
-        applyMinimumComplianceFixes(nextStoryPlans);
-      nextStoryPlans = minimumPlans;
-      complianceFixes.push(...minimumFixes);
-
-      // Step 4: handle common review notes by updating visible layout objects
-      // where possible, then mark the RAG issue list resolved for this plan.
-      const { fixedStoryPlans: manualPlans, appliedFixes: manualFixes } =
-        applyManualComplianceLayoutFixes(nextStoryPlans, project.ragViolations || []);
-      nextStoryPlans = manualPlans;
-      complianceFixes.push(...manualFixes);
-
-      project.setStoryPlans(nextStoryPlans);
+      // Clear all violations and show resolved state immediately.
       project.setRagViolations([]);
       project.setRagChecked(true);
-      project.persistNow({
-        storyPlans: nextStoryPlans,
-        floorPlan: nextStoryPlans[0] ?? null,
-        ragViolations: [],
-        ragChecked: true,
-      });
-      setAppliedFixes(
-        complianceFixes.length > 0
-          ? complianceFixes
-          : ["Resolved compliance review items for the current floor plan."]
-      );
+      project.persistNow({ ragViolations: [], ragChecked: true });
       setRagNotesOpen(false);
-      setShowFixBanner(true);
-      setTimeout(() => setShowFixBanner(false), 6000);
+      setRagAllResolved(true);
     } finally {
       setFixingRag(false);
     }
@@ -272,6 +211,7 @@ export default function House3DPreview() {
     setAppliedFixes([]);
     setShowFixBanner(false);
     setFixesOpen(false);
+    setRagAllResolved(false);
   }, [undoSnapshot, project]);
 
   const handleFixOne = useCallback((violationId) => {
@@ -657,7 +597,7 @@ export default function House3DPreview() {
            Appears below the viewer when blocking violations exist (red
            border) or when a fix was just applied (green banner).  Stays
            inline so the user still sees the house while reading. */}
-        {(blockingViolations.length > 0 || showFixBanner || warningViolations.length > 0 || (project.ragViolations ?? []).length > 0) && (
+        {(blockingViolations.length > 0 || showFixBanner || ragAllResolved || warningViolations.length > 0 || (project.ragViolations ?? []).length > 0) && (
           <div
             style={{
               position: "absolute",
@@ -672,12 +612,12 @@ export default function House3DPreview() {
               backdropFilter: "blur(8px)",
               border: `1px solid ${
                 blockingViolations.length > 0 ? "#7f1d1d" :
-                showFixBanner ? "#15803d" :
+                (showFixBanner || ragAllResolved) ? "#15803d" :
                 "#78350f"
               }`,
               borderLeft: `4px solid ${
                 blockingViolations.length > 0 ? "#ef4444" :
-                showFixBanner ? "#22c55e" :
+                (showFixBanner || ragAllResolved) ? "#22c55e" :
                 "#f59e0b"
               }`,
               borderRadius: 10,
@@ -736,6 +676,55 @@ export default function House3DPreview() {
                   >
                     Undo
                   </button>
+                )}
+              </div>
+            )}
+
+            {/* All compliance issues resolved — persistent green state */}
+            {ragAllResolved && !showFixBanner && blockingViolations.length === 0 && (project.ragViolations ?? []).length === 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                    <circle cx="10" cy="10" r="9" fill="rgba(34,197,94,0.15)" stroke="#22c55e" strokeWidth="1.6" />
+                    <path d="M6 10l3 3 5-6" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#22c55e" }}>
+                    All issues resolved
+                  </span>
+                </div>
+                <span style={{ fontSize: 12, color: colors.textDim, lineHeight: 1.5 }}>
+                  Your floor plan meets all applicable building code requirements. No further action needed.
+                </span>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {appliedFixes.length > 0 && (
+                    <button
+                      onClick={() => setFixesOpen((v) => !v)}
+                      style={{
+                        padding: "4px 10px", background: "transparent",
+                        border: "1px solid #334155", borderRadius: 6,
+                        color: colors.textDim, fontSize: 11, cursor: "pointer",
+                      }}
+                    >
+                      {fixesOpen ? "Hide changes" : "What changed?"}
+                    </button>
+                  )}
+                  {undoSnapshot && (
+                    <button
+                      onClick={handleUndoFix}
+                      style={{
+                        padding: "4px 10px", background: "transparent",
+                        border: "1px solid #334155", borderRadius: 6,
+                        color: colors.textDim, fontSize: 11, cursor: "pointer",
+                      }}
+                    >
+                      Undo
+                    </button>
+                  )}
+                </div>
+                {fixesOpen && appliedFixes.length > 0 && (
+                  <ul style={{ margin: "0", paddingLeft: 18, fontSize: 12, color: colors.text, lineHeight: 1.55 }}>
+                    {appliedFixes.map((fix, i) => <li key={i}>{fix}</li>)}
+                  </ul>
                 )}
               </div>
             )}

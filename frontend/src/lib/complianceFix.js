@@ -97,8 +97,6 @@ const TYPE_ALIAS = {
 };
 
 const MANUAL_REVIEW_KEYWORDS = [
-  "egress",
-  "window",
   "setback",
   "zoning",
   "fire",
@@ -110,7 +108,22 @@ const MANUAL_REVIEW_KEYWORDS = [
 ];
 
 const EGRESS_WINDOW_WORDS = ["egress", "window"];
+const ROOM_SIZE_WORDS = [
+  "room size",
+  "minimum room",
+  "minimum dimension",
+  "habitable",
+  "70 sf",
+  "70 square",
+  "7 ft",
+  "7-foot",
+  "width",
+  "depth",
+  "dimension",
+  "area",
+];
 const STAIR_WORDS = ["stair"];
+const MAX_SAFE_DIMENSION_INCREASE_FT = 6;
 
 function asNumber(value, fallback = 0) {
   const n = Number(value);
@@ -248,6 +261,22 @@ function allViolationText(violations = []) {
   return (violations || []).map(violationText).join(" ").toLowerCase();
 }
 
+export function classifyComplianceViolation(violation) {
+  const text = violationText(violation).toLowerCase();
+  const isEgressWindow = EGRESS_WINDOW_WORDS.every((word) => text.includes(word));
+  if (isEgressWindow) {
+    return { category: "safe_auto_fix", kind: "egress_window" };
+  }
+
+  const isManual = MANUAL_REVIEW_KEYWORDS.some((kw) => text.includes(kw));
+  const isRoomSize = ROOM_SIZE_WORDS.some((kw) => text.includes(kw));
+  if (isRoomSize && !isManual) {
+    return { category: "safe_auto_fix", kind: "room_size" };
+  }
+
+  return { category: "manual_review", kind: "manual_review" };
+}
+
 function resolveOverlaps(rooms) {
   for (let iter = 0; iter < 30; iter++) {
     let moved = false;
@@ -314,6 +343,28 @@ function finalizePlan(plan, rooms, origW, origD) {
     ...(placedItems !== undefined ? { placed_items: placedItems } : {}),
     width: Math.round(finalW * 10) / 10,
     depth: Math.round(finalD * 10) / 10,
+    totalSF: Math.round(totalSF),
+  };
+}
+
+function finalizeSafePlan(plan, rooms) {
+  const currentW = asNumber(plan?.width, 0);
+  const currentD = asNumber(plan?.depth, 0);
+  const maxRoomX = rooms.length > 0
+    ? Math.max(...rooms.map((r) => asNumber(r.x, 0) + roomW(r)))
+    : currentW;
+  const maxRoomY = rooms.length > 0
+    ? Math.max(...rooms.map((r) => asNumber(r.y, 0) + roomH(r)))
+    : currentD;
+  const totalSF = rooms.reduce((sum, r) => sum + roomArea(r), 0);
+  const placedItems = syncPlacedItems(plan, rooms);
+
+  return {
+    ...plan,
+    rooms,
+    ...(placedItems !== undefined ? { placed_items: placedItems } : {}),
+    width: Math.round(Math.max(currentW, maxRoomX) * 10) / 10,
+    depth: Math.round(Math.max(currentD, maxRoomY) * 10) / 10,
     totalSF: Math.round(totalSF),
   };
 }
@@ -463,6 +514,62 @@ export function applyCompliancePatchesToStoryPlans(storyPlans = [], patches = []
   });
 
   return { fixedStoryPlans: finalizedPlans, appliedFixes, skipped };
+}
+
+export function applySafeCompliancePatchesToStoryPlans(storyPlans = [], patches = []) {
+  const fixedPlans = (storyPlans || []).map((plan) => ({
+    ...plan,
+    rooms: planRooms(plan).map((room) => ({ ...room })),
+    placed_items: Array.isArray(plan?.placed_items) ? plan.placed_items.map((item) => ({ ...item })) : plan?.placed_items,
+  }));
+  const appliedFixes = [];
+  const skipped = [];
+  const resolvedRooms = [];
+
+  for (const patch of patches || []) {
+    const target = findPatchTarget(fixedPlans, patch);
+    if (!target) {
+      skipped.push(`${patch?.room_name || patch?.room_id || "Unknown room"}: room not found in current plan`);
+      continue;
+    }
+
+    const room = fixedPlans[target.storyIndex].rooms[target.roomIndex];
+    const prevW = roomW(room);
+    const prevH = roomH(room);
+    let nextW = prevW;
+    let nextH = prevH;
+    const field = patch?.field || "both";
+
+    if ((field === "w" || field === "both") && patch?.new_w !== undefined) {
+      nextW = asNumber(patch.new_w, prevW);
+    }
+    if ((field === "h" || field === "both") && patch?.new_h !== undefined) {
+      nextH = asNumber(patch.new_h, prevH);
+    }
+
+    const growsOnly = nextW >= prevW && nextH >= prevH;
+    const boundedGrowth =
+      nextW - prevW <= MAX_SAFE_DIMENSION_INCREASE_FT &&
+      nextH - prevH <= MAX_SAFE_DIMENSION_INCREASE_FT;
+    if (!growsOnly || !boundedGrowth || (nextW === prevW && nextH === prevH)) {
+      skipped.push(`${patch?.room_name || roomLabel(room)}: skipped unsafe resize`);
+      continue;
+    }
+
+    setRoomSize(room, nextW, nextH);
+    resolvedRooms.push({
+      id: roomFixId(room, target.storyIndex, target.roomIndex),
+      label: roomLabel(room),
+      type: roomType(room),
+    });
+
+    const ref = patch?.code_reference ? ` [${patch.code_reference}]` : "";
+    const reason = patch?.reason ? ` - ${patch.reason}` : "";
+    appliedFixes.push(`${patch?.room_name || roomLabel(room)}: ${prevW}x${prevH} ft -> ${nextW}x${nextH} ft${reason}${ref}`);
+  }
+
+  const fixedStoryPlans = fixedPlans.map((plan) => finalizeSafePlan(plan, planRooms(plan)));
+  return { fixedStoryPlans, appliedFixes, skipped, resolvedRooms };
 }
 
 export function applyMinimumComplianceFixes(storyPlans = []) {
@@ -651,9 +758,80 @@ export function applyManualComplianceLayoutFixes(storyPlans = [], violations = [
   return { fixedStoryPlans, appliedFixes };
 }
 
+export function applyEgressWindowComplianceFixes(storyPlans = [], violations = []) {
+  const shouldAddEgressWindows = (violations || []).some(
+    (violation) => classifyComplianceViolation(violation).kind === "egress_window"
+  );
+  const appliedFixes = [];
+  let unresolvedBedroomCount = 0;
+
+  if (!shouldAddEgressWindows) {
+    return { fixedStoryPlans: storyPlans, appliedFixes, egressResolved: false };
+  }
+
+  const fixedStoryPlans = (storyPlans || []).map((plan, storyIndex) => {
+    const rooms = planRooms(plan).map((room) => ({ ...room }));
+    const windows = (plan?.windows || []).map((window) => ({ ...window }));
+    const placedItems = Array.isArray(plan?.placed_items) ? plan.placed_items.map((item) => ({ ...item })) : plan?.placed_items;
+    const bboxW = planWidth(plan, rooms);
+    const bboxD = planDepth(plan, rooms);
+
+    rooms.forEach((room, roomIndex) => {
+      if (roomType(room) !== "bedroom") return;
+      if (hasWindowForRoom(room, windows, bboxW, bboxD)) return;
+
+      const side = exteriorSideForRoom(room, bboxW, bboxD);
+      if (!side) {
+        unresolvedBedroomCount += 1;
+        return;
+      }
+
+      const window = createWindowForRoom(room, side, bboxW, bboxD, storyIndex, roomIndex);
+      windows.push(window);
+      if (Array.isArray(placedItems)) placedItems.push(openingToPlacedItem(window));
+      appliedFixes.push(`Added an egress window to ${roomLabel(room)}.`);
+    });
+
+    return {
+      ...plan,
+      rooms,
+      windows,
+      ...(placedItems !== undefined ? { placed_items: placedItems } : {}),
+    };
+  });
+
+  return {
+    fixedStoryPlans,
+    appliedFixes,
+    egressResolved: appliedFixes.length > 0 && unresolvedBedroomCount === 0,
+  };
+}
+
 export function isManualComplianceViolation(violation) {
-  const text = violationText(violation).toLowerCase();
-  return MANUAL_REVIEW_KEYWORDS.some((kw) => text.includes(kw));
+  return classifyComplianceViolation(violation).category === "manual_review";
+}
+
+export function filterResolvedComplianceViolations(violations = [], resolved = {}) {
+  const resolvedRooms = resolved.roomSizeRooms || [];
+  const roomTokens = resolvedRooms.flatMap((room) => [
+    room?.id,
+    room?.label,
+  ]).filter(Boolean).map((value) => normalizeKey(value));
+
+  return (violations || []).filter((violation) => {
+    const classification = classifyComplianceViolation(violation);
+    if (classification.kind === "egress_window" && resolved.egressWindow) return false;
+    if (classification.kind === "room_size") {
+      // All rooms were swept against IRC minimums — every room_size violation is resolved.
+      if (resolved.allRoomSizesFixed) return false;
+      // Specific rooms were patched — remove only if this violation names one of them.
+      if (roomTokens.length > 0) {
+        const text = normalizeKey(violationText(violation));
+        if (roomTokens.some((token) => token && text.includes(token))) return false;
+      }
+    }
+    return true;
+  });
 }
 
 export function collectComplianceViolations(data, ceilingHeightFt = 9) {
