@@ -497,6 +497,7 @@ function RequestModal({ builder, onClose }) {
 
 export default function Browse() {
   const isMobile = useBreakpoint(768);
+  const isCompactMobile = useBreakpoint(640);
   const navigate = useNavigate();
   const { ragViolations } = useProject();
   const { isHomeowner } = useUserType();
@@ -651,23 +652,32 @@ export default function Browse() {
         data-tour="search-bar"
         style={{
           display: "flex",
+          flexDirection: isCompactMobile ? "column" : "row",
           gap: 12,
           marginBottom: 24,
-          padding: "16px 20px",
+          padding: isCompactMobile ? "14px" : "16px 20px",
           background: C.card,
           border: `1px solid ${C.cardBorder}`,
           borderRadius: 10,
-          flexWrap: "wrap",
+          flexWrap: isCompactMobile ? "nowrap" : "wrap",
         }}
       >
         {/* Search input */}
-        <div style={{ flex: 1, minWidth: isMobile ? 0 : 240, width: isMobile ? "100%" : undefined, position: "relative" }}>
+        <div
+          style={{
+            flex: isCompactMobile ? "none" : 1,
+            minWidth: isMobile ? 0 : 240,
+            width: isCompactMobile ? "100%" : isMobile ? "100%" : undefined,
+            position: "relative",
+            boxSizing: "border-box",
+          }}
+        >
           <svg
             width="16"
             height="16"
             viewBox="0 0 16 16"
             fill="none"
-            style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", opacity: 0.5 }}
+            style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", opacity: 0.5, pointerEvents: "none" }}
           >
             <circle cx="7" cy="7" r="5" stroke={C.text} strokeWidth="1.5" />
             <path d="M11 11l3 3" stroke={C.text} strokeWidth="1.5" strokeLinecap="round" />
@@ -687,6 +697,7 @@ export default function Browse() {
               fontSize: 13,
               fontFamily: fonts.label,
               outline: "none",
+              boxSizing: "border-box",
             }}
           />
         </div>
@@ -696,6 +707,8 @@ export default function Browse() {
           value={selectedSpecialty}
           onChange={(e) => setSelectedSpecialty(e.target.value)}
           style={{
+            width: isCompactMobile ? "100%" : isMobile ? "calc(50% - 6px)" : undefined,
+            minWidth: isCompactMobile ? 0 : isMobile ? 180 : undefined,
             padding: "10px 14px",
             background: "rgba(0,0,0,0.3)",
             border: `1px solid ${C.cardBorder}`,
@@ -704,6 +717,7 @@ export default function Browse() {
             fontSize: 13,
             fontFamily: fonts.label,
             cursor: "pointer",
+            boxSizing: "border-box",
           }}
         >
           {SPECIALTIES.map((s) => (
@@ -716,6 +730,8 @@ export default function Browse() {
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
           style={{
+            width: isCompactMobile ? "100%" : isMobile ? "calc(50% - 6px)" : undefined,
+            minWidth: isCompactMobile ? 0 : isMobile ? 160 : undefined,
             padding: "10px 14px",
             background: "rgba(0,0,0,0.3)",
             border: `1px solid ${C.cardBorder}`,
@@ -724,6 +740,7 @@ export default function Browse() {
             fontSize: 13,
             fontFamily: fonts.label,
             cursor: "pointer",
+            boxSizing: "border-box",
           }}
         >
           <option value="distance">Nearest First</option>
