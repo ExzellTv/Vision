@@ -1006,7 +1006,7 @@ function DeleteModal({ project, onClose, onConfirm }) {
 /* ── Main screen ── */
 export default function ProjectsScreen() {
   const navigate = useNavigate();
-  const { setProjectName, setProjectId, setStoryPlans, setFloorPlan, setGenerateParams, setProjectLocation, resetProject, setBuildingContext, setMaterials, setSavedSchedule } = useProject();
+  const { setProjectName, setProjectId, setStoryPlans, setFloorPlan, setGenerateParams, setProjectLocation, resetProject, setBuildingContext, setMaterials, setSavedSchedule, setRagViolations, setRagChecked, setRagAllResolved } = useProject();
   const { isHomeowner } = useUserType();
 
   const isMobile = useBreakpoint(768);
@@ -1036,6 +1036,11 @@ export default function ProjectsScreen() {
   }, [loadProjects]);
 
   const activateProject = (project) => {
+    // Read compliance state before resetProject() wipes it, so we can
+    // restore it if the user is re-opening the same project.
+    const PERSIST_KEY = "vision:project:v1";
+    const saved = (() => { try { return JSON.parse(localStorage.getItem(PERSIST_KEY) || "null"); } catch { return null; } })();
+
     resetProject();
     setProjectName(project.name);
     setProjectId(project.id);
@@ -1048,6 +1053,13 @@ export default function ProjectsScreen() {
       setStoryPlans(project.story_plans);
     } else if (project.floor_plan) {
       setFloorPlan(project.floor_plan);
+    }
+
+    // Restore compliance state if the user is reopening the same project.
+    if (saved?.projectId && saved.projectId === project.id) {
+      if (saved.ragViolations?.length > 0) setRagViolations(saved.ragViolations);
+      if (saved.ragChecked) setRagChecked(saved.ragChecked);
+      if (saved.ragAllResolved) setRagAllResolved(saved.ragAllResolved);
     }
   };
 

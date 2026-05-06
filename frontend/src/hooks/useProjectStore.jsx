@@ -168,6 +168,7 @@ export function ProjectProvider({ children }) {
   const [projectLocation, setProjectLocation] = useState(null); // { city, state } — set at project creation, never touched by FloorPlanEditor
   const [ragViolations, setRagViolations] = useState([]);      // RAG compliance violations from StructuralIntelligence
   const [ragChecked, setRagChecked] = useState(false);         // true once compliance check has run for current plan
+  const [ragAllResolved, setRagAllResolved] = useState(false); // true once user resolved all compliance issues
   const [demoLoaded, setDemoLoaded] = useState(false);        // prevent double-load
 
   const setBuildingContext = useCallback((updates) => {
@@ -198,6 +199,7 @@ export function ProjectProvider({ children }) {
     if (saved?.projectId) setProjectId(saved.projectId);
     if (saved?.ragViolations) setRagViolations(saved.ragViolations);
     if (saved?.ragChecked) setRagChecked(saved.ragChecked);
+    if (saved?.ragAllResolved) setRagAllResolved(saved.ragAllResolved);
   }, [demoLoaded]);
 
   /* Persist user's plan whenever it changes — so hard-refresh doesn't revert
@@ -216,8 +218,9 @@ export function ProjectProvider({ children }) {
       projectId,
       ragViolations,
       ragChecked,
+      ragAllResolved,
     });
-  }, [demoLoaded, projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep, projectLocation, projectId, ragViolations, ragChecked]);
+  }, [demoLoaded, projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep, projectLocation, projectId, ragViolations, ragChecked, ragAllResolved]);
 
   /* Force an immediate localStorage write — used when the caller has just
    * queued a state update (e.g. setStoryPlans) but wants the new values
@@ -237,9 +240,10 @@ export function ProjectProvider({ children }) {
       projectLocation,
       ragViolations,
       ragChecked,
+      ragAllResolved,
       ...overrides,
     });
-  }, [projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep, projectLocation, projectId, ragViolations, ragChecked]);
+  }, [projectName, floorPlan, storyPlans, generateParams, materials, buildingContext, maxStep, projectLocation, projectId, ragViolations, ragChecked, ragAllResolved]);
 
   /* Reset entire project state for a clean "new project" flow */
   const resetProject = useCallback(() => {
@@ -259,6 +263,7 @@ export function ProjectProvider({ children }) {
     setProjectLocation(null);
     setRagViolations([]);
     setRagChecked(false);
+    setRagAllResolved(false);
   }, []);
 
   /* Wrap setters to normalize API data */
@@ -312,6 +317,7 @@ export function ProjectProvider({ children }) {
     projectLocation, setProjectLocation,
     ragViolations, setRagViolations,
     ragChecked, setRagChecked,
+    ragAllResolved, setRagAllResolved,
     resetProject,
     persistNow,
     // Derived

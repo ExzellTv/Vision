@@ -108,7 +108,6 @@ export default function House3DPreview() {
   const [showFixBanner, setShowFixBanner] = useState(false); // green banner
   const [fixesOpen, setFixesOpen] = useState(false);         // collapsible log
   const [ragNotesOpen, setRagNotesOpen] = useState(false);   // code compliance toggle
-  const [ragAllResolved, setRagAllResolved] = useState(false); // all compliance issues cleared
   const [warningNotesOpen, setWarningNotesOpen] = useState(false); // warning-only toggle
   // Environment + drag-to-edit were previously user-toggleable. Both now
   // default on/off so the right panel stays focused on style + color.
@@ -195,9 +194,9 @@ export default function House3DPreview() {
       // Clear all violations and show resolved state immediately.
       project.setRagViolations([]);
       project.setRagChecked(true);
-      project.persistNow({ ragViolations: [], ragChecked: true });
+      project.setRagAllResolved(true);
+      project.persistNow({ ragViolations: [], ragChecked: true, ragAllResolved: true });
       setRagNotesOpen(false);
-      setRagAllResolved(true);
     } finally {
       setFixingRag(false);
     }
@@ -211,7 +210,7 @@ export default function House3DPreview() {
     setAppliedFixes([]);
     setShowFixBanner(false);
     setFixesOpen(false);
-    setRagAllResolved(false);
+    project.setRagAllResolved(false);
   }, [undoSnapshot, project]);
 
   const handleFixOne = useCallback((violationId) => {
@@ -597,7 +596,7 @@ export default function House3DPreview() {
            Appears below the viewer when blocking violations exist (red
            border) or when a fix was just applied (green banner).  Stays
            inline so the user still sees the house while reading. */}
-        {(blockingViolations.length > 0 || showFixBanner || ragAllResolved || warningViolations.length > 0 || (project.ragViolations ?? []).length > 0) && (
+        {(blockingViolations.length > 0 || showFixBanner || project.ragAllResolved || warningViolations.length > 0 || (project.ragViolations ?? []).length > 0) && (
           <div
             style={{
               position: "absolute",
@@ -612,12 +611,12 @@ export default function House3DPreview() {
               backdropFilter: "blur(8px)",
               border: `1px solid ${
                 blockingViolations.length > 0 ? "#7f1d1d" :
-                (showFixBanner || ragAllResolved) ? "#15803d" :
+                (showFixBanner || project.ragAllResolved) ? "#15803d" :
                 "#78350f"
               }`,
               borderLeft: `4px solid ${
                 blockingViolations.length > 0 ? "#ef4444" :
-                (showFixBanner || ragAllResolved) ? "#22c55e" :
+                (showFixBanner || project.ragAllResolved) ? "#22c55e" :
                 "#f59e0b"
               }`,
               borderRadius: 10,
@@ -681,7 +680,7 @@ export default function House3DPreview() {
             )}
 
             {/* All compliance issues resolved — persistent green state */}
-            {ragAllResolved && !showFixBanner && blockingViolations.length === 0 && (project.ragViolations ?? []).length === 0 && (
+            {project.ragAllResolved && !showFixBanner && blockingViolations.length === 0 && (project.ragViolations ?? []).length === 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
