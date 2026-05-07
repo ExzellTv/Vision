@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { colors, fonts, radii } from "../../theme/tokens";
+import useBreakpoint from "../../hooks/useBreakpoint";
 
 // DEMO MODE: Mock user when Clerk is unavailable
 const DEMO_USER = {
@@ -24,7 +25,7 @@ function useClerkSafe() {
 
 // ── Reusable row inside a card ────────────────────────────────────────────
 
-function SettingRow({ label, value, mono = false, last = false }) {
+function SettingRow({ label, value, mono = false, last = false, isMobile = false }) {
   return (
     <div
       style={{
@@ -45,7 +46,7 @@ function SettingRow({ label, value, mono = false, last = false }) {
           color: colors.textDim,
           fontFamily: fonts.label,
           flexShrink: 0,
-          minWidth: 140,
+          minWidth: isMobile ? 100 : 140,
         }}
       >
         {label}
@@ -136,7 +137,7 @@ function Pill({ green, children }) {
 
 // ── Action button ─────────────────────────────────────────────────────────
 
-function ActionBtn({ onClick, children, danger = false }) {
+function ActionBtn({ onClick, children, danger = false, fullWidth = false }) {
   const [hov, setHov] = useState(false);
   return (
     <button
@@ -144,7 +145,8 @@ function ActionBtn({ onClick, children, danger = false }) {
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
-        padding: "8px 18px",
+        padding: fullWidth ? "10px 0" : "8px 18px",
+        width: fullWidth ? "100%" : undefined,
         background: danger
           ? hov ? colors.dangerDim : "transparent"
           : hov ? colors.accentDim : "transparent",
@@ -166,7 +168,7 @@ function ActionBtn({ onClick, children, danger = false }) {
 
 // ── Sidebar tab button ────────────────────────────────────────────────────
 
-function TabBtn({ active, onClick, icon, label }) {
+function TabBtn({ active, onClick, icon, label, isMobile = false }) {
   const [hov, setHov] = useState(false);
   return (
     <button
@@ -176,21 +178,25 @@ function TabBtn({ active, onClick, icon, label }) {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 10,
-        width: "100%",
-        padding: "10px 14px",
+        justifyContent: isMobile ? "center" : "flex-start",
+        gap: isMobile ? 6 : 10,
+        width: isMobile ? "auto" : "100%",
+        flex: isMobile ? 1 : undefined,
+        padding: isMobile ? "12px 8px" : "10px 14px",
         background: active ? "rgba(0,212,255,0.08)" : hov ? "rgba(255,255,255,0.03)" : "transparent",
         border: "none",
-        borderRadius: radii.lg,
-        borderLeft: active ? `2px solid ${colors.accent}` : "2px solid transparent",
+        borderRadius: isMobile ? 0 : radii.lg,
+        borderLeft: isMobile ? "none" : (active ? `2px solid ${colors.accent}` : "2px solid transparent"),
+        borderBottom: isMobile ? (active ? `2px solid ${colors.accent}` : "2px solid transparent") : "none",
         color: active ? colors.accent : hov ? colors.text : colors.textDim,
-        fontSize: 13,
+        fontSize: 12,
         fontWeight: active ? 600 : 400,
         fontFamily: fonts.label,
         cursor: "pointer",
-        textAlign: "left",
+        textAlign: "center",
         transition: "all 0.13s",
-        marginBottom: 2,
+        marginBottom: isMobile ? 0 : 2,
+        whiteSpace: "nowrap",
       }}
     >
       <span style={{ opacity: active ? 1 : 0.6 }}>{icon}</span>
@@ -226,7 +232,7 @@ const Icons = {
 
 // ── Tab content ───────────────────────────────────────────────────────────
 
-function ProfileTab({ user, openManage }) {
+function ProfileTab({ user, openManage, isMobile }) {
   const displayName = user?.fullName || user?.firstName || "—";
   const firstName = user?.firstName || "";
   const lastName = user?.lastName || "";
@@ -246,76 +252,90 @@ function ProfileTab({ user, openManage }) {
         <div
           style={{
             display: "flex",
-            alignItems: "center",
+            alignItems: isMobile ? "flex-start" : "center",
             gap: 20,
             padding: "20px 0",
             borderBottom: `1px solid ${colors.panelBorder}`,
+            flexDirection: isMobile ? "column" : "row",
           }}
         >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={displayName}
-              style={{
-                width: 64,
-                height: 64,
-                borderRadius: "50%",
-                objectFit: "cover",
-                border: `2px solid ${colors.cardBorder}`,
-                flexShrink: 0,
-              }}
-            />
-          ) : (
-            <div
-              style={{
-                width: 64,
-                height: 64,
-                borderRadius: "50%",
-                background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 22,
-                fontWeight: 700,
-                color: "#fff",
-                border: `2px solid ${colors.cardBorder}`,
-                flexShrink: 0,
-                fontFamily: fonts.label,
-              }}
-            >
-              {initials}
+          {/* Top row: avatar + name info + desktop button */}
+          <div style={{ display: "flex", alignItems: "center", gap: 20, width: "100%" }}>
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={displayName}
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: "50%",
+                  objectFit: "cover",
+                  border: `2px solid ${colors.cardBorder}`,
+                  flexShrink: 0,
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: "50%",
+                  background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: "#fff",
+                  border: `2px solid ${colors.cardBorder}`,
+                  flexShrink: 0,
+                  fontFamily: fonts.label,
+                }}
+              >
+                {initials}
+              </div>
+            )}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: colors.textBright, fontFamily: fonts.label, letterSpacing: "-0.2px" }}>
+                {displayName}
+              </div>
+              <div style={{ fontSize: 13, color: colors.textDim, marginTop: 3, fontFamily: fonts.label }}>
+                {email}
+              </div>
+              <div style={{ fontSize: 11, color: colors.textDim, marginTop: 6, fontFamily: fonts.label, opacity: 0.7 }}>
+                Member since {createdAt}
+              </div>
             </div>
-          )}
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: colors.textBright, fontFamily: fonts.label, letterSpacing: "-0.2px" }}>
-              {displayName}
-            </div>
-            <div style={{ fontSize: 13, color: colors.textDim, marginTop: 3, fontFamily: fonts.label }}>
-              {email}
-            </div>
-            <div style={{ fontSize: 11, color: colors.textDim, marginTop: 6, fontFamily: fonts.label, opacity: 0.7 }}>
-              Member since {createdAt}
-            </div>
+            {/* Desktop: button inline in the row */}
+            {!isMobile && <ActionBtn onClick={openManage}>Edit Profile</ActionBtn>}
           </div>
-          <ActionBtn onClick={openManage}>Edit Profile</ActionBtn>
+          {/* Mobile: full-width button below */}
+          {isMobile && <ActionBtn onClick={openManage} fullWidth>Edit Profile</ActionBtn>}
         </div>
-        <SettingRow label="First Name" value={firstName} />
-        <SettingRow label="Last Name" value={lastName} />
-        <SettingRow label="Username" value={username} mono />
-        <SettingRow label="Email Address" value={email} mono last />
+        <SettingRow label="First Name" value={firstName} isMobile={isMobile} />
+        <SettingRow label="Last Name" value={lastName} isMobile={isMobile} />
+        <SettingRow label="Username" value={username} mono isMobile={isMobile} />
+        <SettingRow label="Email Address" value={email} mono last isMobile={isMobile} />
       </Card>
     </>
   );
 }
 
-function SecurityTab({ user, openManage }) {
+function SecurityTab({ user, openManage, isMobile }) {
   const hasPw = user?.passwordEnabled;
   const mfaEnabled = user?.twoFactorEnabled;
 
   return (
     <>
       <Card title="Password" subtitle="Manage your account password">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0" }}>
+        <div style={{
+          display: "flex",
+          alignItems: isMobile ? "flex-start" : "center",
+          justifyContent: isMobile ? "flex-start" : "space-between",
+          flexDirection: isMobile ? "column" : "row",
+          gap: isMobile ? 12 : 0,
+          padding: "16px 0"
+        }}>
           <div>
             <div style={{ fontSize: 14, color: colors.textBright, fontFamily: fonts.label, fontWeight: 500 }}>
               {hasPw ? "Password set" : "No password set"}
@@ -329,7 +349,14 @@ function SecurityTab({ user, openManage }) {
       </Card>
 
       <Card title="Two-Factor Authentication" subtitle="Add an extra layer of security">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0" }}>
+        <div style={{
+          display: "flex",
+          alignItems: isMobile ? "flex-start" : "center",
+          justifyContent: isMobile ? "flex-start" : "space-between",
+          flexDirection: isMobile ? "column" : "row",
+          gap: isMobile ? 12 : 0,
+          padding: "16px 0"
+        }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div>
               <div style={{ fontSize: 14, color: colors.textBright, fontFamily: fonts.label, fontWeight: 500, marginBottom: 4 }}>
@@ -359,7 +386,7 @@ function SecurityTab({ user, openManage }) {
   );
 }
 
-function ConnectionsTab({ user, openManage }) {
+function ConnectionsTab({ user, openManage, isMobile }) {
   const accounts = user?.externalAccounts || [];
 
   const PROVIDER_META = {
@@ -448,6 +475,7 @@ export default function SettingsScreen() {
   const { user: clerkUser, clerk } = useClerkSafe();
   const user = clerkUser || DEMO_USER;
   const [tab, setTab] = useState("profile");
+  const isMobile = useBreakpoint(768);
 
   function openManage() {
     if (clerk?.openUserProfile) {
@@ -459,38 +487,44 @@ export default function SettingsScreen() {
     <div
       style={{
         display: "flex",
+        flexDirection: isMobile ? "column" : "row",
         height: "100%",
         background: colors.bg,
         overflow: "hidden",
+        overflowX: "hidden",
         fontFamily: fonts.label,
       }}
     >
-      {/* Sidebar */}
+      {/* Sidebar / mobile tab bar */}
       <div
         style={{
-          width: 220,
+          width: isMobile ? "100%" : 220,
           flexShrink: 0,
-          borderRight: `1px solid ${colors.panelBorder}`,
-          padding: "28px 16px",
+          borderRight: isMobile ? "none" : `1px solid ${colors.panelBorder}`,
+          borderBottom: isMobile ? `1px solid ${colors.panelBorder}` : "none",
+          padding: isMobile ? "0 8px" : "28px 16px",
           display: "flex",
-          flexDirection: "column",
-          gap: 2,
+          flexDirection: isMobile ? "row" : "column",
+          gap: isMobile ? 0 : 2,
+          overflowX: isMobile ? "auto" : "visible",
         }}
       >
-        <div
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            color: colors.textDim,
-            paddingLeft: 14,
-            marginBottom: 10,
-            fontFamily: fonts.label,
-          }}
-        >
-          Settings
-        </div>
+        {!isMobile && (
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: colors.textDim,
+              paddingLeft: 14,
+              marginBottom: 10,
+              fontFamily: fonts.label,
+            }}
+          >
+            Settings
+          </div>
+        )}
         {TABS.map((t) => (
           <TabBtn
             key={t.id}
@@ -498,6 +532,7 @@ export default function SettingsScreen() {
             onClick={() => setTab(t.id)}
             icon={t.icon}
             label={t.label}
+            isMobile={isMobile}
           />
         ))}
       </div>
@@ -507,10 +542,11 @@ export default function SettingsScreen() {
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: "28px 32px",
+          overflowX: "hidden",
+          padding: isMobile ? "16px 16px" : "28px 32px",
         }}
       >
-        <div style={{ maxWidth: 680 }}>
+        <div style={{ maxWidth: 680, width: "100%" }}>
           {/* Page header */}
           <div style={{ marginBottom: 24 }}>
             <h1
@@ -539,9 +575,9 @@ export default function SettingsScreen() {
             </p>
           </div>
 
-          {tab === "profile" && <ProfileTab user={user} openManage={openManage} />}
-          {tab === "security" && <SecurityTab user={user} openManage={openManage} />}
-          {tab === "connections" && <ConnectionsTab user={user} openManage={openManage} />}
+          {tab === "profile" && <ProfileTab user={user} openManage={openManage} isMobile={isMobile} />}
+          {tab === "security" && <SecurityTab user={user} openManage={openManage} isMobile={isMobile} />}
+          {tab === "connections" && <ConnectionsTab user={user} openManage={openManage} isMobile={isMobile} />}
         </div>
       </div>
     </div>
